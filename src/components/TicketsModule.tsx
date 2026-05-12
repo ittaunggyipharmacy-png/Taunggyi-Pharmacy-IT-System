@@ -369,10 +369,10 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ searchTerm, isAdmi
         {/* Mobile Card View */}
         <div className="lg:hidden divide-y divide-slate-100">
           {filteredTickets.map((ticket) => (
-            <button 
+            <div 
               key={ticket.id} 
               onClick={() => setSelectedTicket(ticket)}
-              className="w-full text-left p-4 hover:bg-slate-50 transition-colors active:bg-slate-100"
+              className="w-full text-left p-4 hover:bg-slate-50 transition-colors active:bg-slate-100 cursor-pointer"
             >
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2">
@@ -409,7 +409,7 @@ export const TicketsModule: React.FC<TicketsModuleProps> = ({ searchTerm, isAdmi
                   <span className="text-[10px] font-bold uppercase tracking-widest">{format(new Date(ticket.requestTime), "HH:mm")}</span>
                 </div>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
