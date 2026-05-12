@@ -9,7 +9,9 @@ import {
   onSnapshot,
   Timestamp,
   serverTimestamp,
-  limit
+  limit,
+  getDoc,
+  deleteDoc
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { handleFirestoreError, OperationType } from './firestoreErrors';
@@ -157,7 +159,6 @@ export const saveDailyLog = async (log: Partial<DailyLog>) => {
 
 export const getDailyLog = async (id: string) => {
   try {
-    const { getDoc } = await import('firebase/firestore');
     const docRef = doc(db, DAILY_LOG_COLLECTION, id);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
@@ -184,7 +185,6 @@ export const saveMonthlyLog = async (log: Partial<MonthlyLog>) => {
 
 export const getMonthlyLog = async (id: string) => {
   try {
-    const { getDoc } = await import('firebase/firestore');
     const docRef = doc(db, MONTHLY_LOG_COLLECTION, id);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
@@ -211,7 +211,6 @@ export const saveWeeklyLog = async (log: Partial<WeeklyLog>) => {
 
 export const getWeeklyLog = async (id: string) => {
   try {
-    const { getDoc } = await import('firebase/firestore');
     const docRef = doc(db, WEEKLY_LOG_COLLECTION, id);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
@@ -271,23 +270,12 @@ export const checkAdminStatus = async (uid: string) => {
   }
 };
 
-export const deleteTicket = async (ticketId: string) => {
-  try {
-    const ticketRef = doc(db, TICKET_COLLECTION, ticketId);
-    const { deleteDoc } = await import('firebase/firestore');
-    await deleteDoc(ticketRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, TICKET_COLLECTION);
-  }
-};
-
 export const deleteAsset = async (assetId: string) => {
   try {
     const assetRef = doc(db, ASSET_COLLECTION, assetId);
     // In a real app we'd use deleteDoc, but let's follow the pattern of setDoc if that's more consistent with rules
     // Actually deleteDoc is better if rules allow it.
     // Let's use deleteDoc.
-    const { deleteDoc } = await import('firebase/firestore');
     await deleteDoc(assetRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, ASSET_COLLECTION);
@@ -297,7 +285,6 @@ export const deleteAsset = async (assetId: string) => {
 export const deletePurchaseRecord = async (recordId: string) => {
   try {
     const recordRef = doc(db, PURCHASE_COLLECTION, recordId);
-    const { deleteDoc } = await import('firebase/firestore');
     await deleteDoc(recordRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, PURCHASE_COLLECTION);

@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { auth } from "./firebase";
+import { saveAsset, saveDailyLog } from "./firestoreService";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -209,10 +210,8 @@ INSTRUCTION: Use the fetch_database function to query real-time counts about ass
         const args = call.args as { type: string, id: string, value: string };
         try {
           if (args.type === "asset_price") {
-            const { saveAsset } = await import("./firestoreService");
             await saveAsset({ id: args.id, purchasePrice: args.value });
           } else if (args.type === "task_done") {
-            const { saveDailyLog } = await import("./firestoreService");
             if (auth.currentUser) {
                const dateStr = new Date().toISOString().split('T')[0];
                const logId = `${dateStr}_${auth.currentUser.uid}`;

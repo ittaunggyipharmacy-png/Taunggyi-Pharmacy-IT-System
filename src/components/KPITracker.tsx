@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { useKpiStore } from "../store/useKpiStore";
 import { 
   CheckCircle2, 
   Circle, 
@@ -86,12 +85,12 @@ const CATEGORY_COLORS: Record<string, string> = {
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export const KPITracker: React.FC = () => {
-  const { completedTasks, setCompletedTasks } = useKpiStore();
   const [view, setView] = useState<"daily" | "weekly" | "monthly">("daily");
   const [selectedDate, setSelectedDate] = useState(format(startOfToday(), "yyyy-MM-dd"));
   const [selectedWeek, setSelectedWeek] = useState(format(startOfWeek(startOfToday()), "yyyy-'W'II"));
   const [selectedMonth, setSelectedMonth] = useState(format(startOfMonth(startOfToday()), "yyyy-MM"));
   const [activeCategory, setActiveCategory] = useState<string>("All");
+  const [completedTasks, setCompletedTasks] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
 

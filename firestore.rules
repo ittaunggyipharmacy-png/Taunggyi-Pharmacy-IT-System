@@ -17,7 +17,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) || request.auth.token.email == 'it.taunggyipharmacy@gmail.com');
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
     function isValidId(id) {
@@ -140,7 +140,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'date', 'userId', 'tasks'])
         && data.id is string && data.id.size() <= 200
         && data.date is string && data.date.size() <= 20
-        && data.userId is string
+        && data.userId is string && data.userId == request.auth.uid
         && data.tasks is map;
     }
 
@@ -148,7 +148,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'month', 'userId', 'tasks'])
         && data.id is string && data.id.size() <= 200
         && data.month is string && data.month.size() <= 20
-        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
+        && data.userId is string && data.userId == request.auth.uid
         && data.tasks is map;
     }
 
@@ -156,7 +156,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'week', 'userId', 'tasks'])
         && data.id is string && data.id.size() <= 200
         && data.week is string && data.week.size() <= 20
-        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
+        && data.userId is string && data.userId == request.auth.uid
         && data.tasks is map;
     }
 
@@ -255,8 +255,8 @@ service cloud.firestore {
     match /daily_logs/{logId} {
       allow get: if isSignedIn() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if isEmailVerified() && isValidId(logId) && isValidDailyLog(incoming()) && (isAdmin() || logId.contains(request.auth.uid));
-      allow update: if isEmailVerified() && isValidId(logId) && isValidDailyLog(incoming()) && (isAdmin() || logId.contains(request.auth.uid)) && incoming().userId == existing().userId;
+      allow create: if isEmailVerified() && isValidId(logId) && isValidDailyLog(incoming());
+      allow update: if isEmailVerified() && isValidId(logId) && isValidDailyLog(incoming()) && (isAdmin() || incoming().userId == existing().userId);
       allow delete: if isAdmin();
     }
 
