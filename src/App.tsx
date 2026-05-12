@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Fragment } from "react";
+import React, { useState, useEffect, useRef, Fragment, useMemo } from "react";
 import { 
   LayoutDashboard, 
   Ticket, 
@@ -41,6 +41,7 @@ import {
   FileText,
   Upload,
   Bell,
+  BellOff,
   Settings,
   HelpCircle,
   MessageSquare,
@@ -374,6 +375,33 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const pendingTicketsCount = tickets.filter(t => t.status === Status.PENDING || t.status === Status.IN_PROGRESS).length;
+  
+  const pendingDailyKpiCount = useMemo(() => {
+    if (!currentUser) return 0;
+    const today = format(new Date(), "yyyy-MM-dd");
+    const todayLog = allDailyLogs.find(l => l.date === today && l.userId === currentUser.uid);
+    
+    const dailyTaskIds = [
+      "it_uptime", "it_maint", "it_support", "it_backup", "it_access", "it_asset",
+      "merch_stock", "merch_promo", "merch_visit",
+      "mkt_photos", "mkt_inquiry"
+    ];
+    
+    if (!todayLog) return dailyTaskIds.length;
+    
+    let incomplete = 0;
+    dailyTaskIds.forEach(id => {
+      const completion = todayLog.tasks[id];
+      if (id === "mkt_photos") {
+        if ((Number(completion) || 0) < 20) incomplete++;
+      } else {
+        if (!completion) incomplete++;
+      }
+    });
+    return incomplete;
+  }, [allDailyLogs, currentUser]);
+
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
@@ -650,14 +678,12 @@ export default function App() {
     );
   }
 
-
-
   const navItems = [
-    { id: "tickets", label: "IT Support Log", icon: Ticket },
+    { id: "tickets", label: "IT Support Log", icon: Ticket, badge: pendingTicketsCount > 0 ? pendingTicketsCount : undefined },
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     ...(isAdmin ? [{ id: "reports", label: "Reporting & Dash", icon: BarChart2 }] : []),
     { id: "kpi", label: "KPI Dashboard", icon: ClipboardList },
-    { id: "daily-kpi", label: "Daily KPI Tracker", icon: Calendar },
+    { id: "daily-kpi", label: "Daily KPI Tracker", icon: Calendar, badge: pendingDailyKpiCount > 0 ? pendingDailyKpiCount : undefined },
     ...(isAdmin ? [{ id: "skills", label: "Team Skill Matrix", icon: Users }] : []),
     { id: "assets", label: "Assets Inventory", icon: Package },
     { id: "purchases", label: "Purchase Records", icon: ShoppingCart },
@@ -740,6 +766,14 @@ export default function App() {
             >
               <item.icon size={20} className={cn(activeTab === item.id ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600")} />
               {isSidebarOpen && <span className="text-sm font-semibold tracking-tight">{item.label}</span>}
+              {item.badge !== undefined && (
+                <div className={cn(
+                  "ml-auto flex items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white transition-all duration-200",
+                  isSidebarOpen ? "px-1.5 py-0.5 min-w-[1.2rem]" : "absolute top-2 right-2 w-4 h-4 shadow-sm"
+                )}>
+                  {item.badge}
+                </div>
+              )}
               {!isSidebarOpen && activeTab === item.id && <div className="absolute right-0 w-1 h-6 bg-indigo-600 rounded-l" />}
             </button>
           ))}
@@ -800,7 +834,11 @@ export default function App() {
                   )}
                 >
                   <Bell size={20} />
-                  <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white">8</span>
+                  {(pendingTicketsCount + (pendingDailyKpiCount > 0 ? 1 : 0)) > 0 && (
+                    <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white animate-pulse">
+                      {pendingTicketsCount + (pendingDailyKpiCount > 0 ? 1 : 0)}
+                    </span>
+                  )}
                 </button>
 
                 <AnimatePresence>
@@ -816,20 +854,64 @@ export default function App() {
                         <button className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest hover:underline">Mark all read</button>
                       </div>
                       <div className="max-h-[400px] overflow-y-auto">
-                        {[
-                          { id: 1, title: "System Maintenance", msg: "Scheduled for midnight today", time: "2h ago", type: "system" },
-                          { id: 2, title: "Critical Ticket #724", msg: "Server latency detected in Shop 3", time: "5h ago", type: "alert" },
-                          { id: 3, title: "New Asset Sync", msg: "12 mobile devices added to inventory", time: "1d ago", type: "update" },
-                          { id: 4, title: "Security Alert", msg: "Multiple login attempts from undefined IP", time: "2d ago", type: "security" },
-                        ].map((n) => (
-                          <div key={n.id} className="p-4 hover:bg-slate-50 transition-colors cursor-pointer border-b border-slate-50 last:border-0 border-l-4 border-l-transparent hover:border-l-indigo-600">
+                        {pendingDailyKpiCount > 0 && (
+                          <div 
+                            onClick={() => {
+                              setActiveTab("daily-kpi");
+                              setIsNotificationsOpen(false);
+                            }}
+                            className="p-4 hover:bg-slate-50 transition-colors cursor-pointer border-b border-rose-50 border-l-4 border-l-rose-500"
+                          >
                             <div className="flex justify-between items-start mb-1">
-                              <p className="text-xs font-bold text-slate-800">{n.title}</p>
-                              <span className="text-[9px] text-slate-400 font-mono italic">{n.time}</span>
+                              <p className="text-xs font-bold text-slate-800 italic uppercase tracking-wider">Missing Daily Logs</p>
+                              <span className="text-[9px] text-rose-500 font-bold bg-rose-50 px-1.5 py-0.5 rounded-full">ACTION REQUIRED</span>
                             </div>
-                            <p className="text-[11px] text-slate-500 line-clamp-2">{n.msg}</p>
+                            <div className="flex items-center gap-2">
+                              <AlertCircle size={10} className="text-rose-500" />
+                              <p className="text-[10px] text-slate-500">{pendingDailyKpiCount} Operational tasks remaining for today</p>
+                            </div>
                           </div>
-                        ))}
+                        )}
+                        {tickets.filter(t => t.status === Status.PENDING || t.status === Status.IN_PROGRESS).length === 0 && pendingDailyKpiCount === 0 ? (
+                          <div className="p-8 text-center">
+                            <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                              <BellOff className="text-slate-300" size={24} />
+                            </div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No active tickets</p>
+                          </div>
+                        ) : (
+                          tickets
+                            .filter(t => t.status === Status.PENDING || t.status === Status.IN_PROGRESS)
+                            .slice(0, 5)
+                            .map((ticket) => (
+                              <div 
+                                key={ticket.id} 
+                                onClick={() => {
+                                  setActiveTab("tickets");
+                                  setIsNotificationsOpen(false);
+                                }}
+                                className="p-4 hover:bg-slate-50 transition-colors cursor-pointer border-b border-slate-50 last:border-0 border-l-4 border-l-transparent hover:border-l-indigo-600"
+                              >
+                                <div className="flex justify-between items-start mb-1">
+                                  <p className="text-xs font-bold text-slate-800">{ticket.problemType}</p>
+                                  <span className="text-[9px] text-slate-400 font-mono italic">
+                                    {safeFormat(ticket.requestTime, "HH:mm")}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className={cn(
+                                    "px-1.5 py-0.5 rounded-[4px] text-[8px] font-black uppercase tracking-tighter",
+                                    ticket.priority === Priority.CRITICAL ? "bg-rose-500 text-white" :
+                                    ticket.priority === Priority.HIGH ? "bg-amber-500 text-white" :
+                                    "bg-slate-200 text-slate-600"
+                                  )}>
+                                    {ticket.priority}
+                                  </span>
+                                  <p className="text-[10px] text-slate-500 truncate">{ticket.requesterName} • {ticket.requesterBranch}</p>
+                                </div>
+                              </div>
+                            ))
+                        )}
                       </div>
                       <button className="w-full p-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:bg-slate-50 border-t border-slate-50 bg-slate-50/50">View all notifications</button>
                     </motion.div>
