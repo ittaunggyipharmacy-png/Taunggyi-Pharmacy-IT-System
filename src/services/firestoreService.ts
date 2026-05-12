@@ -402,6 +402,19 @@ export const fetchStorageFiles = async (folderId?: string) => {
   }
 };
 
+export const fetchStorageQuota = async () => {
+  try {
+    const response = await fetch('/api/drive/quota');
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error("Quota fetch failed", error);
+    return { limit: "2199023255552", usage: "0" }; // Fallback to 2TB (Matches user account)
+  }
+};
+
 export const deleteStorageFile = async (fileId: string) => {
   try {
     const response = await fetch(`/api/drive/files/${encodeURIComponent(fileId)}`, {

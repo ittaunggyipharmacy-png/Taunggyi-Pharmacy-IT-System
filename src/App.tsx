@@ -110,6 +110,7 @@ import {
   saveDailyLog,
   getDailyLog,
   fetchStorageFiles,
+  fetchStorageQuota,
   deleteStorageFile
 } from "./services/firestoreService";
 
@@ -146,6 +147,18 @@ const safeFormat = (date: any, formatStr: string, fallback: string = "--") => {
   } catch (e) {
     return fallback;
   }
+};
+
+const formatStorage = (bytes: string | number | undefined | null) => {
+  if (bytes === undefined || bytes === null || bytes === "") return "--";
+  const b = Number(bytes);
+  if (isNaN(b) || b < 0) return "--";
+  if (b === 0) return "0 B";
+  if (b >= 1024 * 1024 * 1024 * 1024) return `${(b / 1024 / 1024 / 1024 / 1024).toFixed(2)} TB`;
+  if (b >= 1024 * 1024 * 1024) return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  if (b >= 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${b} B`;
 };
 
 const isHistorical = (dateStr: string) => {
@@ -379,8 +392,13 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       const fetchQuota = async () => {
-        // Firebase Storage free tier is typically 5GB
-        setQuota({ limit: "5368709120", usage: "0" });
+        try {
+          const quotaData = await fetchStorageQuota();
+          setQuota(quotaData);
+        } catch (err) {
+          console.error("Failed to fetch initial quota", err);
+          // Fallback handled by service
+        }
       };
       fetchQuota();
 
@@ -858,20 +876,7 @@ export default function App() {
           </div>
         </header>
 
-        {isAdmin && activities.length > 0 && (
-          <div className="bg-indigo-600 px-8 py-2 flex items-center gap-4 overflow-hidden h-10">
-            <span className="text-[10px] font-black text-white/50 uppercase tracking-[0.2em] shrink-0 border-r border-white/20 pr-4">Global Signal Feed</span>
-            <div className="flex gap-12 animate-marquee whitespace-nowrap">
-              {activities.slice(0, 5).map((act, i) => (
-                <div key={i} className="flex items-center gap-2 text-white">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest">{act.userName}: {act.action}</span>
-                  <span className="text-[10px] opacity-40 italic">[{safeFormat(act.timestamp, "HH:mm")}]</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+
 
         <div className="flex-1 overflow-y-auto p-6 lg:p-10 custom-scrollbar">
           <AnimatePresence mode="wait">
@@ -1474,8 +1479,8 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
     { label: "Under Repair", current: underRepairAssets, total: assets.length, sub: "Hardware offline", icon: Wrench, color: "text-emerald-500", iconColor: "text-emerald-500" },
     { 
       label: "Cloud Storage", 
-      current: quota ? `${(parseInt(quota.usage) / 1024 / 1024 / 1024).toFixed(1)}GB` : "...", 
-      total: quota ? `${(parseInt(quota.limit) / 1024 / 1024 / 1024 / 1024).toFixed(0)}TB` : "...", 
+      current: quota ? formatStorage(quota.usage) : "...", 
+      total: quota ? formatStorage(Number(quota.limit) || 2199023255552) : "...", 
       sub: "Drive Quota", 
       icon: HardDrive, 
       color: "text-indigo-600", 
@@ -4744,6 +4749,10 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
       // Fetch Files from Google Drive
       const data = await fetchStorageFiles(folderId || currentFolderId);
       setFiles(data);
+      
+      // Also update quota
+      const quotaData = await fetchStorageQuota();
+      setQuota(quotaData);
     } catch (err) {
       console.error("Fetch failed", err);
     } finally {
@@ -5082,7 +5091,7 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
                             </td>
                             <td className="px-8 py-5">
                               <p className="text-xs font-mono text-slate-500">
-                                {isFolder ? "--" : (file.size ? `${(parseInt(file.size) / 1024 / 1024).toFixed(2)} MB` : "0.00 MB")}
+                                {isFolder ? "--" : formatStorage(file.size)}
                               </p>
                             </td>
                             <td className="px-8 py-5">
@@ -5142,8 +5151,8 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
             {/* Mock Chart Visualization */}
             <div className="relative w-48 h-48 mx-auto mb-8">
                {quota ? (() => {
-                 const usage = parseInt(quota.usage) || 0;
-                 const limit = parseInt(quota.limit) || 1;
+                 const usage = Number(quota.usage) || 0;
+                 const limit = Number(quota.limit) || 2199023255552;
                  const percent = Math.min(1, usage / limit);
                  const offset = 502 * (1 - percent);
                  
@@ -5176,20 +5185,28 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
             </div>
 
             <div className="space-y-4">
-               {[
-                 { label: "Archived", files: "12,342", color: "bg-amber-500" },
-                 { label: "Inventory", files: "28,382", color: "bg-emerald-500" },
-                 { label: "SOP Docs", files: "bg-indigo-500", color: "bg-indigo-500" },
-                 { label: "Other", files: "4,137", color: "bg-slate-400" },
-               ].map((item, idx) => (
-                 <div key={idx} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                       <div className={cn("w-2 h-2 rounded-full", item.color)}></div>
-                       <span className="text-xs font-bold text-slate-600 uppercase tracking-widest">{item.label}</span>
-                    </div>
-                    <span className="text-[10px] font-mono text-slate-400">{item.files}</span>
-                 </div>
-               ))}
+               {(() => {
+                 const totalFiles = files.length;
+                 const images = files.filter(f => f.mimeType?.startsWith('image/')).length;
+                 const docs = files.filter(f => f.mimeType?.includes('pdf') || f.mimeType?.includes('sheet') || f.mimeType?.includes('word')).length;
+                 const folders = files.filter(f => f.mimeType === 'application/vnd.google-apps.folder').length;
+                 const others = totalFiles - images - docs - folders;
+
+                 return [
+                   { label: "Folders", count: folders, color: "bg-amber-500" },
+                   { label: "Document Assets", count: docs, color: "bg-emerald-500" },
+                   { label: "Media Assets", count: images, color: "bg-indigo-500" },
+                   { label: "System Data", count: others, color: "bg-slate-400" },
+                 ].map((item, idx) => (
+                   <div key={idx} className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                         <div className={cn("w-2 h-2 rounded-full", item.color)}></div>
+                         <span className="text-xs font-bold text-slate-600 uppercase tracking-widest">{item.label}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400">{item.count.toLocaleString()}</span>
+                   </div>
+                 ));
+               })()}
             </div>
             
             {/* Storage Alert */}
@@ -5199,14 +5216,13 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
                </div>
                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest mb-2">Storage Status</h4>
                {quota ? (() => {
-                 const usage = parseInt(quota.usage) || 0;
-                 const limit = parseInt(quota.limit) || 1;
+                 const usage = Number(quota.usage) || 0;
+                 const limit = Number(quota.limit) || 2199023255552;
                  const percent = Math.min(1, usage / limit);
                  return (
                    <>
                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">
-                       {(usage / 1024 / 1024 / 1024).toFixed(2)} GB / 
-                       {(limit / 1024 / 1024 / 1024 / 1024).toFixed(0)} TB
+                       {formatStorage(usage)} / {formatStorage(limit)}
                      </p>
                    <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
                       <div 
