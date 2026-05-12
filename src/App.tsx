@@ -65,7 +65,7 @@ import {
 } from "lucide-react";
 import { utils, writeFile } from "xlsx";
 import { motion, AnimatePresence } from "motion/react";
-import ReactMarkdown from "react-markdown";
+
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { format, subDays, parseISO } from "date-fns";
@@ -134,7 +134,7 @@ import {
 import { KPITracker } from "./components/KPITracker";
 import KPIDashboard from "./components/KPIDashboard";
 import SkillMatrix from "./components/SkillMatrix";
-import { chatWithITAssistant } from "./services/gemini";
+
 
 const isHistorical = (dateStr: string) => {
   if (!dateStr) return false;
@@ -344,11 +344,7 @@ export default function App() {
   const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
   const [reminders, setReminders] = useState<{id: string, message: string, type: 'urgent' | 'info'}[]>([]);
   
-  const [chatMessages, setChatMessages] = useState<{ role: "user" | "model"; content: string }[]>([]);
-  const [inputMessage, setInputMessage] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -580,11 +576,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [backups, assets]);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [chatMessages, isTyping]);
+
 
   if (!authReady) {
     return (
@@ -628,35 +620,7 @@ export default function App() {
     );
   }
 
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
 
-    const userMessage = inputMessage;
-    setInputMessage("");
-    setChatMessages(prev => [...prev, { role: "user", content: userMessage }]);
-
-    setIsTyping(true);
-
-    try {
-      const response = await chatWithITAssistant(
-        userMessage, 
-        { 
-          assets, 
-          tickets,
-          purchases,
-          renewals,
-          backups
-        }, 
-        chatMessages
-      );
-      setChatMessages(prev => [...prev, { role: "model", content: response }]);
-    } catch (error) {
-      console.error(error);
-      setChatMessages(prev => [...prev, { role: "model", content: "**Error: Cloud Node connection failed. Please check IT configuration.**" }]);
-    } finally {
-      setIsTyping(false);
-    }
-  };
 
   const navItems = [
     { id: "tickets", label: "IT Support Log", icon: Ticket },
@@ -673,7 +637,6 @@ export default function App() {
     { id: "files", label: "Cloud Files", icon: HardDrive },
     { id: "settings", label: "System Settings", icon: Settings },
     { id: "help", label: "Help & Support", icon: HelpCircle },
-    { id: "chat", label: "Assistant Chat", icon: MessageSquare },
   ];
 
   return (
@@ -736,11 +699,7 @@ export default function App() {
             <button
               key={item.id}
               onClick={() => {
-                if (item.id === "chat") {
-                  setIsAssistantOpen(true);
-                } else {
-                  setActiveTab(item.id as any);
-                }
+                setActiveTab(item.id as any);
               }}
               className={cn(
                 "w-full flex items-center gap-4 px-6 py-4 transition-all duration-200 group text-left",
@@ -957,11 +916,7 @@ export default function App() {
           <button
             key={item.id}
             onClick={() => {
-              if (item.id === "chat") {
-                setIsAssistantOpen(true);
-              } else {
-                setActiveTab(item.id as any);
-              }
+              setActiveTab(item.id as any);
             }}
             className={cn(
               "flex flex-col items-center justify-center gap-1.5 min-w-[64px] h-full transition-all duration-200",
@@ -979,125 +934,6 @@ export default function App() {
         ))}
       </nav>
 
-      {/* AI Assistant Floating Button */}
-      <button
-        onClick={() => setIsAssistantOpen(!isAssistantOpen)}
-        className="fixed bottom-24 right-6 lg:bottom-6 w-14 h-14 bg-cyan-600 text-white rounded-full shadow-2xl flex items-center justify-center z-50 hover:scale-110 active:scale-95 transition-all group"
-      >
-        <Bot size={28} className={cn("transition-transform duration-300", isAssistantOpen ? "rotate-12" : "group-hover:scale-110")} />
-        <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-slate-900 rounded-full"></div>
-      </button>
-
-      {/* AI Assistant Panel */}
-      <AnimatePresence>
-        {isAssistantOpen && (
-          <motion.aside 
-            initial={{ x: 400, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 400, opacity: 0 }}
-            transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed top-0 sm:top-24 right-0 sm:right-6 bottom-0 sm:bottom-24 w-full sm:w-96 bg-white flex flex-col shrink-0 border-0 sm:border border-slate-200 z-[60] shadow-2xl rounded-none sm:rounded-3xl overflow-hidden"
-          >
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-                  <Bot size={24} />
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-800 text-sm leading-none">Gemini IT Intelligence</h2>
-                  <p className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1.5 font-bold uppercase tracking-widest">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Active Node
-                  </p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setIsAssistantOpen(false)}
-                className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors"
-                title="Close Assistant"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-white">
-              {chatMessages.length === 0 && (
-                <div className="text-center py-10 space-y-4 px-4">
-                  <div className="w-12 h-12 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center mx-auto text-indigo-600">
-                    <Bot size={24} />
-                  </div>
-                  <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                    IT Database Synchronized. I have full access to your Assets and Support Logs. How can I assist today?
-                  </p>
-                  <div className="grid gap-2 pt-4">
-                    <button 
-                      onClick={() => setInputMessage("Summarize current high-priority IT tickets.")}
-                      className="text-[10px] text-left p-3 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-100 transition-colors text-slate-700 font-bold uppercase tracking-widest shadow-sm"
-                    >
-                      "Summary of active tickets..."
-                    </button>
-                    <button 
-                      onClick={() => setInputMessage("Which department has the most assigned hardware?")}
-                      className="text-[10px] text-left p-3 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-100 transition-colors text-slate-700 font-bold uppercase tracking-widest shadow-sm"
-                    >
-                      "Analyze hardware distribution..."
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={cn("flex flex-col", msg.role === "user" ? "items-end" : "items-start")}>
-                  <div className={cn(
-                    "max-w-[100%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
-                    msg.role === "user" 
-                      ? "bg-slate-800 text-white rounded-tr-none shadow-md" 
-                      : "bg-slate-50 border border-slate-100 text-slate-700 rounded-tl-none markdown-body prose prose-sm prose-slate"
-                  )}>
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-                  </div>
-                  <span className="text-[10px] text-slate-400 mt-1.5 uppercase font-bold tracking-widest">
-                    {msg.role === "user" ? "Administrator" : "Gemini AI"}
-                  </span>
-                </div>
-              ))}
-              {isTyping && (
-                <div className="flex flex-col items-start">
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 text-sm rounded-tl-none">
-                    <div className="flex gap-1">
-                      <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce"></span>
-                      <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce delay-75"></span>
-                      <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce delay-150"></span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="p-6 border-t border-slate-100 bg-slate-50/50">
-              <div className="relative">
-                <input 
-                  type="text" 
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                  placeholder="Ask Gemini about IT data..." 
-                  className="w-full pl-4 pr-12 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
-                />
-                <button 
-                  onClick={handleSendMessage}
-                  disabled={isTyping || !inputMessage.trim()}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-indigo-600 text-white rounded-lg disabled:opacity-50 transition-opacity shadow-lg shadow-indigo-200"
-                >
-                  <Send size={16} />
-                </button>
-              </div>
-              <p className="text-[9px] text-slate-400 mt-3 text-center font-bold tracking-widest">
-                VERIFIED AI PROTOCOL • SECURE OPS
-              </p>
-            </div>
-          </motion.aside>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -1239,13 +1075,7 @@ function HelpSupportModule() {
             </div>
           </div>
 
-          <div className="enterprise-card p-6 bg-indigo-600 text-white border-0 shadow-xl shadow-indigo-100">
-            <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center mb-4">
-              <Bot size={28} />
-            </div>
-            <h3 className="font-bold uppercase tracking-tight mb-2">Need Help Immediately?</h3>
-            <p className="text-xs text-white/80 leading-relaxed mb-6">Our Gemini AI Assistant is integrated with the system database to provide real-time troubleshooting.</p>
-          </div>
+
         </div>
       </div>
     </div>
