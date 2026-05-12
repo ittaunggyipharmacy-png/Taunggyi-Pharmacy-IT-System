@@ -89,7 +89,8 @@ import {
   User as FirebaseUser 
 } from "firebase/auth";
 
-import { auth } from "./services/firebase";
+import { auth, storage } from "./services/firebase";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { 
   subscribeToSync, 
   savePurchaseRecord, 
@@ -106,7 +107,9 @@ import {
   saveActivity,
   subscribeToSupervisorFeatures,
   saveDailyLog,
-  getDailyLog
+  getDailyLog,
+  fetchStorageFiles,
+  deleteStorageFile
 } from "./services/firestoreService";
 
 import { 
@@ -368,15 +371,8 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       const fetchQuota = async () => {
-        try {
-          const res = await fetch("/api/drive/quota");
-          if (res.ok) {
-            const data = await res.json();
-            setQuota(data);
-          }
-        } catch (e) {
-          console.error("Failed to fetch quota", e);
-        }
+        // Firebase Storage free tier is typically 5GB
+        setQuota({ limit: "5368709120", usage: "0" });
       };
       fetchQuota();
 
@@ -4856,24 +4852,10 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
   const fetchFiles = async (folderId?: string) => {
     setIsLoading(true);
     try {
-      // Fetch Files
-      const targetId = folderId !== undefined ? folderId : currentFolderId;
-      const url = targetId ? `/api/drive/files?folderId=${targetId}` : "/api/drive/files";
-      const filesRes = await fetch(url);
-      const data = await filesRes.json();
-      if (Array.isArray(data)) {
-        setFiles(data.map((f: any) => ({
-          ...f,
-          createdAt: f.createdTime
-        })));
-      }
-
-      // Fetch Quota
-      const quotaRes = await fetch("/api/drive/quota");
-      if (quotaRes.ok) {
-        const quotaData = await quotaRes.json();
-        setQuota(quotaData);
-      }
+      // Fetch Files from Firebase Storage
+      const pathSuffix = folderId ? `/${folderId}` : '';
+      const data = await fetchStorageFiles(`uploads${pathSuffix}`);
+      setFiles(data);
     } catch (err) {
       console.error("Fetch failed", err);
     } finally {
@@ -4902,44 +4884,29 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
   const processUpload = (file: File) => {
     setIsUploading(true);
     setUploadProgress(0);
-    const formData = new FormData();
-    formData.append("file", file);
-    if (currentFolderId) {
-      formData.append("folderId", currentFolderId);
-    }
-    // send currently logged in user to API
-    formData.append("userName", auth.currentUser?.displayName || auth.currentUser?.email || "Unknown User");
-
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/drive/upload", true);
     
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percentComplete = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(percentComplete);
-      }
-    };
+    const pathSuffix = currentFolderId ? `/${currentFolderId}` : '';
+    const fileRef = ref(storage, `uploads${pathSuffix}/${file.name}`);
+    const uploadTask = uploadBytesResumable(fileRef, file);
 
-    xhr.onload = () => {
-      if (xhr.status === 200) {
+    uploadTask.on('state_changed', 
+      (snapshot) => {
+        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        setUploadProgress(progress);
+      }, 
+      (error) => {
+        console.error("Upload error", error);
+        setIsUploading(false);
+      }, 
+      () => {
         setUploadProgress(100);
         setTimeout(() => {
           setIsUploading(false);
           setUploadProgress(0);
           fetchFiles();
         }, 500);
-      } else {
-        console.error("Upload failed", xhr.responseText);
-        setIsUploading(false);
       }
-    };
-
-    xhr.onerror = () => {
-      console.error("Upload Error");
-      setIsUploading(false);
-    };
-
-    xhr.send(formData);
+    );
   };
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4967,28 +4934,17 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
   };
 
   const handleRename = async (id: string) => {
-    if (!newName.trim()) return;
-    try {
-      const res = await fetch(`/api/drive/files/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName }),
-      });
-      if (res.ok) {
-        setEditingId(null);
-        setNewName("");
-        fetchFiles();
-      }
-    } catch (err) {
-      console.error("Rename failed", err);
-    }
+    // Firebase storage doesn't support rename natively without copy/delete
+    alert("Rename is not supported in this version.");
+    setEditingId(null);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this file?")) return;
     try {
-      const res = await fetch(`/api/drive/files/${id}`, { method: "DELETE" });
-      if (res.ok) fetchFiles();
+      const pathSuffix = currentFolderId ? `/${currentFolderId}` : '';
+      await deleteStorageFile(`uploads${pathSuffix}/${id}`);
+      fetchFiles();
     } catch (err) {
       console.error("Delete failed", err);
     }

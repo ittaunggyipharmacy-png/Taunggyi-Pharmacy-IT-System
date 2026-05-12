@@ -13,7 +13,8 @@ import {
   getDoc,
   deleteDoc
 } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { ref, uploadBytesResumable, getDownloadURL, listAll, deleteObject } from 'firebase/storage';
+import { db, auth, storage } from './firebase';
 import { handleFirestoreError, OperationType } from './firestoreErrors';
 import { PurchaseRecord, ITAsset, ITTicket, BackupLog, CCTVRequest, ContentPlan, RenewalRecord, DailyLog, MonthlyLog, WeeklyLog, ActivityEntry, TaskEvidence } from '../types';
 
@@ -376,3 +377,36 @@ export const subscribeToSync = ({
     unsubRenewals();
   };
 };
+
+export const fetchStorageFiles = async (pathStr: string = 'uploads') => {
+  try {
+    const listRef = ref(storage, pathStr);
+    const res = await listAll(listRef);
+    const files = await Promise.all(res.items.map(async (itemRef) => {
+      const url = await getDownloadURL(itemRef);
+      return {
+        id: itemRef.name,
+        name: itemRef.name,
+        webViewLink: url,
+        webContentLink: url,
+        mimeType: itemRef.name.split('.').pop() || 'file',
+        size: '0',
+        createdAt: new Date().toISOString()
+      };
+    }));
+    return files;
+  } catch (error) {
+    console.error("Storage fetch failed", error);
+    return [];
+  }
+};
+
+export const deleteStorageFile = async (pathStr: string) => {
+  try {
+    const fileRef = ref(storage, pathStr);
+    await deleteObject(fileRef);
+  } catch (error) {
+    console.error("Storage delete failed", error);
+  }
+};
+
