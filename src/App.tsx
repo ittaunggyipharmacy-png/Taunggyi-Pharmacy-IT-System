@@ -98,6 +98,7 @@ import {
   checkAdminStatus,
   deleteAsset,
   deletePurchaseRecord,
+  deleteTicket,
   saveAsset,
   saveTicket,
   saveBackup,
@@ -135,6 +136,17 @@ import { KPITracker } from "./components/KPITracker";
 import KPIDashboard from "./components/KPIDashboard";
 import SkillMatrix from "./components/SkillMatrix";
 
+
+const safeFormat = (date: any, formatStr: string, fallback: string = "--") => {
+  if (!date) return fallback;
+  try {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return fallback;
+    return format(d, formatStr);
+  } catch (e) {
+    return fallback;
+  }
+};
 
 const isHistorical = (dateStr: string) => {
   if (!dateStr) return false;
@@ -854,7 +866,7 @@ export default function App() {
                 <div key={i} className="flex items-center gap-2 text-white">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
                   <span className="text-[10px] font-bold uppercase tracking-widest">{act.userName}: {act.action}</span>
-                  <span className="text-[10px] opacity-40 italic">[{format(new Date(act.timestamp), "HH:mm")}]</span>
+                  <span className="text-[10px] opacity-40 italic">[{safeFormat(act.timestamp, "HH:mm")}]</span>
                 </div>
               ))}
             </div>
@@ -1315,7 +1327,7 @@ function ReportsModule({ activities, evidence, allDailyLogs, tickets, employees 
                   <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-white border-2 border-indigo-600 shadow-sm" />
                   <div className="flex flex-col">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                      {format(new Date(act.timestamp), "HH:mm • dd MMM")}
+                      {safeFormat(act.timestamp, "HH:mm • dd MMM")}
                     </span>
                     <p className="text-sm font-bold text-slate-800 mt-1">
                       <span className="text-indigo-600">{act.userName}</span> {act.action}
@@ -1336,7 +1348,7 @@ function ReportsModule({ activities, evidence, allDailyLogs, tickets, employees 
           <div className="enterprise-card p-6">
             <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6">Staff Daily Completion Rate (%)</h3>
             <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={250} minWidth={250}>
                 <BarChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis 
@@ -1540,7 +1552,7 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
             </div>
             
             <div className="h-[250px] w-full mt-4">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={250} minWidth={250}>
                 <BarChart layout="vertical" data={inventoryData} margin={{ left: 20 }}>
                   <XAxis type="number" hide />
                   <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b', fontWeight: 600 }} />
@@ -1572,7 +1584,7 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
             </div>
 
             <div className="relative h-[250px] flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={250} minWidth={250}>
                 <RePieChart>
                   <Pie
                     data={pieData}
@@ -1809,6 +1821,16 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
     });
   };
 
+  const handleDeleteTicket = async (ticketId: string) => {
+    if (!isAdmin) return;
+    try {
+      await deleteTicket(ticketId);
+      setSelectedTicket(null);
+    } catch (err) {
+      console.error("Failed to delete ticket", err);
+    }
+  };
+
   const handleExportTickets = () => {
     const data = tickets.map(t => ({
       ID: t.id,
@@ -1816,9 +1838,9 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
       Priority: t.priority,
       Requester: t.requesterName,
       Status: t.status,
-      "Request Time": format(new Date(t.requestTime), "yyyy-MM-dd HH:mm:ss"),
-      "Action History": t.actions.map(a => `[${format(new Date(a.timestamp), "HH:mm")}] ${a.performer}: ${a.action}`).join("; "),
-      "Completed At": t.completedAt ? format(new Date(t.completedAt), "yyyy-MM-dd HH:mm:ss") : "-"
+      "Request Time": safeFormat(t.requestTime, "yyyy-MM-dd HH:mm:ss"),
+      "Action History": t.actions.map(a => `[${safeFormat(a.timestamp, "HH:mm")}] ${a.performer}: ${a.action}`).join("; "),
+      "Completed At": t.completedAt ? safeFormat(t.completedAt, "yyyy-MM-dd HH:mm:ss") : "-"
     }));
 
     const worksheet = utils.json_to_sheet(data);
@@ -1892,8 +1914,8 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                       className="hover:bg-slate-50 transition-colors group cursor-pointer"
                     >
                       <td className="px-6 py-4">
-                        <p className="text-[10px] text-slate-600 font-bold uppercase">{format(new Date(ticket.requestTime), "yyyy-MM-dd")}</p>
-                        <p className="text-[9px] text-slate-400 font-mono mt-0.5">{format(new Date(ticket.requestTime), "HH:mm:ss")}</p>
+                        <p className="text-[10px] text-slate-600 font-bold uppercase">{safeFormat(ticket.requestTime, "yyyy-MM-dd")}</p>
+                        <p className="text-[9px] text-slate-400 font-mono mt-0.5">{safeFormat(ticket.requestTime, "HH:mm:ss")}</p>
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">{ticket.requesterName}</span>
@@ -1916,7 +1938,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                           <div className="max-w-[200px]">
                             <p className="text-[10px] text-slate-500 italic line-clamp-1 font-medium">"{ticket.actions[ticket.actions.length - 1].action}"</p>
                             <p className="text-[8px] text-slate-400 uppercase font-bold mt-0.5 flex items-center gap-1">
-                               <Clock size={8} /> {format(new Date(ticket.actions[ticket.actions.length - 1].timestamp), "HH:mm")} • IT Agent
+                               <Clock size={8} /> {safeFormat(ticket.actions[ticket.actions.length - 1].timestamp, "HH:mm")} • IT Agent
                             </p>
                           </div>
                         ) : (
@@ -1972,7 +1994,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                 </div>
                 <div className="flex items-center gap-2 text-slate-400">
                   <Clock size={12} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest">{format(new Date(ticket.requestTime), "HH:mm")}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest">{safeFormat(ticket.requestTime, "HH:mm")}</span>
                 </div>
               </div>
             </button>
@@ -2158,7 +2180,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                             <div className="absolute -left-[27px] top-1.5 w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(79,70,229,0.4)]"></div>
                             <div className="flex justify-between items-start">
                               <p className="text-sm text-slate-600 leading-relaxed max-w-[80%]">{entry.action}</p>
-                              <span className="text-[9px] font-mono text-slate-400 font-bold">{format(new Date(entry.timestamp), "HH:mm")}</span>
+                              <span className="text-[9px] font-mono text-slate-400 font-bold">{safeFormat(entry.timestamp, "HH:mm")}</span>
                             </div>
                             <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-2 px-2 py-0.5 bg-slate-50 w-fit rounded">Operator: {entry.performer}</p>
                           </div>
@@ -2192,6 +2214,14 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                     >
                       Close Node
                     </button>
+                    {isAdmin && (
+                      <button 
+                        onClick={() => handleDeleteTicket(selectedTicket.id)}
+                        className="py-3 px-6 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-rose-100 transition-all"
+                      >
+                        Delete Node
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -4176,6 +4206,26 @@ function PurchasesModule({
   const totalSpent = combinedPurchases.reduce((sum, p) => sum + (p.price * p.quantity), 0);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  const handleExportPurchases = () => {
+    const data = combinedPurchases.map(p => ({
+      "Record ID": p.id,
+      "Date": p.date,
+      "Item": p.item,
+      "Category": p.category,
+      "Supplier": p.supplier,
+      "Quantity": p.quantity,
+      "Unit Price": p.price,
+      "Total Price": p.price * p.quantity,
+      "Currency": p.currency,
+      "Status": p.status,
+    }));
+    
+    const ws = utils.json_to_sheet(data);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Purchases");
+    writeFile(wb, `IT_Purchases_Export_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+  };
+
   const handleDelete = async (recordId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm("Are you sure you want to delete this purchase record?")) return;
@@ -4208,12 +4258,21 @@ function PurchasesModule({
               <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Total Records</div>
               <div className="text-2xl font-bold text-slate-900 font-mono">{combinedPurchases.length}</div>
            </div>
-           <button 
-              onClick={() => setIsAdding(true)}
-              className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-700 transition-all text-white shadow-sm"
-           >
-              <Plus size={20} />
-           </button>
+           <div className="flex items-center gap-2">
+             <button 
+               onClick={handleExportPurchases}
+               className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center hover:bg-emerald-100 transition-all text-emerald-600 border border-emerald-200"
+               title="Export Purchases"
+             >
+               <Download size={16} />
+             </button>
+             <button 
+                onClick={() => setIsAdding(true)}
+                className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-700 transition-all text-white shadow-sm"
+             >
+                <Plus size={20} />
+             </button>
+           </div>
         </div>
       </div>
 
@@ -4682,9 +4741,8 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
   const fetchFiles = async (folderId?: string) => {
     setIsLoading(true);
     try {
-      // Fetch Files from Firebase Storage
-      const pathSuffix = folderId ? `/${folderId}` : '';
-      const data = await fetchStorageFiles(`uploads${pathSuffix}`);
+      // Fetch Files from Google Drive
+      const data = await fetchStorageFiles(folderId || currentFolderId);
       setFiles(data);
     } catch (err) {
       console.error("Fetch failed", err);
@@ -4694,7 +4752,7 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
   };
 
   useEffect(() => {
-    fetchFiles();
+    fetchFiles(currentFolderId);
   }, [currentFolderId]);
 
   const handleFolderClick = (folder: DriveFile) => {
@@ -4711,32 +4769,43 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
     }
   };
 
-  const processUpload = (file: File) => {
+  const processUpload = async (file: File) => {
     setIsUploading(true);
     setUploadProgress(0);
     
-    const pathSuffix = currentFolderId ? `/${currentFolderId}` : '';
-    const fileRef = ref(storage, `uploads${pathSuffix}/${file.name}`);
-    const uploadTask = uploadBytesResumable(fileRef, file);
+    const formData = new FormData();
+    formData.append("file", file);
+    if (currentFolderId) {
+      formData.append("folderId", currentFolderId);
+    }
 
-    uploadTask.on('state_changed', 
-      (snapshot) => {
-        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
-        setUploadProgress(progress);
-      }, 
-      (error) => {
-        console.error("Upload error", error);
-        setIsUploading(false);
-      }, 
-      () => {
-        setUploadProgress(100);
-        setTimeout(() => {
-          setIsUploading(false);
-          setUploadProgress(0);
-          fetchFiles();
-        }, 500);
+    try {
+      // Artificial progress for UI since fetch doesn't support upload progress natively
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => (prev >= 90 ? 90 : prev + 10));
+      }, 300);
+
+      const response = await fetch("/api/drive/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      clearInterval(progressInterval);
+
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
       }
-    );
+      
+      setUploadProgress(100);
+      setTimeout(() => {
+        setIsUploading(false);
+        setUploadProgress(0);
+        fetchFiles(currentFolderId);
+      }, 500);
+    } catch (error) {
+      console.error("Upload error", error);
+      setIsUploading(false);
+    }
   };
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -5009,7 +5078,7 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
                               </div>
                             </td>
                             <td className="px-8 py-5">
-                              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{format(new Date(file.createdAt), "MMM d, HH:mm")}</p>
+                              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{safeFormat(file.createdAt, "MMM d, HH:mm")}</p>
                             </td>
                             <td className="px-8 py-5">
                               <p className="text-xs font-mono text-slate-500">

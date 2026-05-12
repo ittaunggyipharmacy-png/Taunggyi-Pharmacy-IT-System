@@ -30,6 +30,17 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { format, startOfToday, subDays, isToday, parseISO, startOfMonth, subMonths, getDay, startOfWeek } from "date-fns";
+
+const safeFormat = (date: any, formatStr: string, fallback: string = "--") => {
+  if (!date) return fallback;
+  try {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return fallback;
+    return format(d, formatStr);
+  } catch (e) {
+    return fallback;
+  }
+};
 import { DailyLog, MonthlyLog, WeeklyLog, KPITask } from "../types";
 import { 
   saveDailyLog, getDailyLog, 
@@ -465,8 +476,8 @@ export const KPITracker: React.FC = () => {
                               )}
                               {typeof value === 'string' && (
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
-                                  {format(new Date(value), "HH:mm")}
-                                </span>
+                                {safeFormat(value, "HH:mm")}
+                              </span>
                               )}
                             </div>
                             

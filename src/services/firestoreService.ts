@@ -292,6 +292,15 @@ export const deletePurchaseRecord = async (recordId: string) => {
   }
 };
 
+export const deleteTicket = async (ticketId: string) => {
+  try {
+    const recordRef = doc(db, TICKET_COLLECTION, ticketId);
+    await deleteDoc(recordRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, TICKET_COLLECTION);
+  }
+};
+
 export const fetchAllRecords = async () => {
   try {
     const purchaseSnap = await getDocs(collection(db, PURCHASE_COLLECTION));
@@ -378,35 +387,32 @@ export const subscribeToSync = ({
   };
 };
 
-export const fetchStorageFiles = async (pathStr: string = 'uploads') => {
+export const fetchStorageFiles = async (folderId?: string) => {
   try {
-    const listRef = ref(storage, pathStr);
-    const res = await listAll(listRef);
-    const files = await Promise.all(res.items.map(async (itemRef) => {
-      const url = await getDownloadURL(itemRef);
-      return {
-        id: itemRef.name,
-        name: itemRef.name,
-        webViewLink: url,
-        webContentLink: url,
-        mimeType: itemRef.name.split('.').pop() || 'file',
-        size: '0',
-        createdAt: new Date().toISOString()
-      };
-    }));
-    return files;
+    const url = folderId ? `/api/drive/files?folderId=${encodeURIComponent(folderId)}` : '/api/drive/files';
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
   } catch (error) {
     console.error("Storage fetch failed", error);
     return [];
   }
 };
 
-export const deleteStorageFile = async (pathStr: string) => {
+export const deleteStorageFile = async (fileId: string) => {
   try {
-    const fileRef = ref(storage, pathStr);
-    await deleteObject(fileRef);
+    const response = await fetch(`/api/drive/files/${encodeURIComponent(fileId)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
   } catch (error) {
     console.error("Storage delete failed", error);
+    throw error;
   }
 };
 
