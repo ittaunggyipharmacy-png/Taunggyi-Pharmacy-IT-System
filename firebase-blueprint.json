@@ -1,0 +1,302 @@
+{
+  "entities": {
+    "EmployeeProfile": {
+      "title": "Employee Profile",
+      "description": "Employee definition with their skill matrix.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "department": { "type": "string" },
+        "skills": { 
+          "type": "array", 
+          "items": { "type": "object", "properties": { "category": { "type": "string" }, "level": { "type": "number" } } }
+        }
+      },
+      "required": ["name", "department"]
+    },
+    "PurchaseRecord": {
+      "title": "Purchase Record",
+      "description": "Historical and new purchase records for IT assets.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "item": { "type": "string" },
+        "date": { "type": "string" },
+        "category": { "type": "string" },
+        "supplier": { "type": "string" },
+        "supplierContact": { "type": "string" },
+        "quantity": { "type": "number" },
+        "price": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string" },
+        "remarks": { "type": "string" }
+      },
+      "required": ["item", "date", "price"]
+    },
+    "ITAsset": {
+      "title": "IT Asset",
+      "description": "Hardware and software inventory items.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "model": { "type": "string" },
+        "brand": { "type": "string" },
+        "category": { "type": "string" },
+        "serialNumber": { "type": "string" },
+        "purchaseDate": { "type": "string" },
+        "purchasePrice": { "type": "string" },
+        "currency": { "type": "string" },
+        "status": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "location": { "type": "string" },
+        "department": { "type": "string" },
+        "specs": { "type": "string" },
+        "maintenanceDueDate": { "type": "string" },
+        "uom": { "type": "string" },
+        "remarks": { "type": "string" },
+        "remark2": { "type": "string" }
+      },
+      "required": ["model", "status"]
+    },
+    "ITTicket": {
+      "title": "IT Ticket",
+      "description": "IT support request log.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "problemType": { "type": "string" },
+        "priority": { "type": "string" },
+        "requestTime": { "type": "string" },
+        "requesterName": { "type": "string" },
+        "requesterBranch": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "assignedToName": { "type": "string" },
+        "responseTime": { "type": "number" },
+        "status": { "type": "string" },
+        "completedAt": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["problemType", "requesterName", "status"]
+    },
+    "ActivityEntry": {
+      "title": "Activity Entry",
+      "description": "Real-time activity log for staff actions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "action": { "type": "string" },
+        "department": { "type": "string" },
+        "details": { "type": "string" }
+      },
+      "required": ["timestamp", "userId", "action"]
+    },
+    "TaskEvidence": {
+      "title": "Task Evidence",
+      "description": "Photo evidence for KPI task completion.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "taskId": { "type": "string" },
+        "logId": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" }
+      },
+      "required": ["taskId", "logId", "imageUrl"]
+    },
+    "BackupLog": {
+      "title": "Backup Log",
+      "description": "Log of system backups.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "storageType": { "type": "string" },
+        "status": { "type": "string" },
+        "performer": { "type": "string" }
+      },
+      "required": ["date", "storageType", "status"]
+    },
+    "CCTVRequest": {
+      "title": "CCTV Request",
+      "description": "Request for CCTV footage review.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "requester": { "type": "string" },
+        "dateOfFootage": { "type": "string" },
+        "reason": { "type": "string" },
+        "approvalStatus": { "type": "string" },
+        "approvedBy": { "type": "string" }
+      },
+      "required": ["requester", "dateOfFootage", "reason", "approvalStatus"]
+    },
+    "ContentPlan": {
+      "title": "Content Plan",
+      "description": "Marketing content plan for social media.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "platform": { "type": "string" },
+        "productName": { "type": "string" },
+        "price": { "type": "string" },
+        "promotionPeriod": { "type": "string" },
+        "content": { "type": "string" },
+        "status": { "type": "string" },
+        "reviewer": { "type": "string" }
+      },
+      "required": ["platform", "productName", "status"]
+    },
+    "RenewalRecord": {
+      "title": "Renewal Record",
+      "description": "Subscription and service renewal tracking.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "shopName": { "type": "string" },
+        "expireDate": { "type": "string" },
+        "price": { "type": "number" },
+        "currency": { "type": "string" },
+        "billingCycle": { "type": "string" },
+        "status": { "type": "string" },
+        "provider": { "type": "string" },
+        "renewalMethod": { "type": "string" },
+        "contactPerson": { "type": "string" },
+        "contactPhone": { "type": "string" },
+        "websiteLink": { "type": "string" },
+        "requiredDocuments": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "DriveFile": {
+      "title": "Drive File",
+      "description": "Metadata for files stored in Google Drive.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "webViewLink": { "type": "string" },
+        "webContentLink": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "size": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "DailyLog": {
+      "title": "Daily KPI Log",
+      "description": "Daily task completion log for each department supervisor.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "userId": { "type": "string" },
+        "tasks": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "date", "userId", "tasks"]
+    },
+    "MonthlyLog": {
+      "title": "Monthly KPI Log",
+      "description": "Monthly task completion log for each department supervisor.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "month": { "type": "string" },
+        "userId": { "type": "string" },
+        "tasks": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "month", "userId", "tasks"]
+    },
+    "WeeklyLog": {
+      "title": "Weekly KPI Log",
+      "description": "Weekly task completion log for each department supervisor.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "week": { "type": "string" },
+        "userId": { "type": "string" },
+        "tasks": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "week", "userId", "tasks"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "System administrators with elevated permissions.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "purchase_records": {
+      "schema": "PurchaseRecord",
+      "description": "Collection of purchase records."
+    },
+    "it_assets": {
+      "schema": "ITAsset",
+      "description": "Collection of IT assets inventory."
+    },
+    "it_tickets": {
+      "schema": "ITTicket",
+      "description": "Collection of IT support tickets."
+    },
+    "backup_logs": {
+      "schema": "BackupLog",
+      "description": "Collection of backup logs."
+    },
+    "cctv_requests": {
+      "schema": "CCTVRequest",
+      "description": "Collection of CCTV footage requests."
+    },
+    "content_plans": {
+      "schema": "ContentPlan",
+      "description": "Collection of marketing content plans."
+    },
+    "renewals": {
+      "schema": "RenewalRecord",
+      "description": "Collection of service renewals."
+    },
+    "drive_files": {
+      "schema": "DriveFile",
+      "description": "Metadata for Google Drive files."
+    },
+    "daily_logs": {
+      "schema": "DailyLog",
+      "description": "Collection of daily KPI task logs."
+    },
+    "monthly_logs": {
+      "schema": "MonthlyLog",
+      "description": "Collection of monthly KPI task logs."
+    },
+    "weekly_logs": {
+      "schema": "WeeklyLog",
+      "description": "Collection of weekly KPI task logs."
+    },
+    "admins": {
+      "schema": "Admin",
+      "description": "Collection of system administrators."
+    },
+    "activities": {
+      "schema": "ActivityEntry",
+      "description": "Real-time feed of staff activities."
+    },
+    "task_evidence": {
+      "schema": "TaskEvidence",
+      "description": "Collection of photo evidence for tasks."
+    },
+    "employees": {
+      "schema": "EmployeeProfile",
+      "description": "Information and skill records of employees."
+    }
+  }
+}

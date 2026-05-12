@@ -1,0 +1,314 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) || request.auth.token.email == 'it.taunggyipharmacy@gmail.com');
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validations ---
+
+    function isValidPurchaseRecord(data) {
+      return data.keys().hasAll(['item', 'date', 'price'])
+        && data.item is string && data.item.size() > 0 && data.item.size() <= 200
+        && data.date is string && data.date.size() <= 20
+        && data.price is number && data.price >= 0
+        && (data.get('category', '') is string)
+        && (data.get('supplier', '') is string)
+        && (data.get('supplierContact', '') is string)
+        && (data.get('quantity', 0) is number)
+        && (data.get('currency', 'MMK') is string);
+    }
+
+    function isValidITAsset(data) {
+      let isAssigned = data.get('assignedTo', 'Unassigned') != 'Unassigned';
+      let allowedStatuses = ['Active', 'In Stock', 'New'];
+      let hasValidStatusForAssignment = data.status in allowedStatuses;
+      
+      return data.keys().hasAll(['model', 'status'])
+        && data.model is string && data.model.size() > 0 && data.model.size() <= 200
+        && data.status is string && data.status in ['Active', 'In Stock', 'Maintenance', 'Retired', 'New', 'Disposed']
+        && (isAssigned ? hasValidStatusForAssignment : true)
+        && (data.get('assignedTo', 'Unassigned') is string)
+        && (data.get('location', 'Warehouse') is string)
+        && (data.get('purchaseRecordId', '') is string)
+        && (data.get('purchasePrice', '0') is string)
+        && (data.get('purchaseDate', '') is string)
+        && (data.get('brand', '') is string)
+        && (data.get('serialNumber', '') is string)
+        && (data.get('department', '') is string)
+        && (data.get('specs', '') is string && data.get('specs', '').size() <= 6000);
+    }
+
+    function isValidITTicket(data) {
+      return data.keys().hasAll(['problemType', 'requesterName', 'status'])
+        && data.problemType is string && data.problemType.size() <= 500
+        && data.requesterName is string && data.requesterName.size() <= 200
+        && data.status is string && data.status in ['Pending', 'In Progress', 'Completed', 'Cancelled']
+        && (data.get('priority', 'Medium') is string)
+        && (data.get('assignedTo', '') is string)
+        && (data.get('assignedToName', '') is string)
+        && (data.get('requesterBranch', '') is string)
+        && (data.get('description', '') is string)
+        && (data.get('responseTime', 0) is number);
+    }
+
+    function isValidActivityEntry(data) {
+      return data.keys().hasAll(['timestamp', 'userId', 'action'])
+        && data.timestamp is string
+        && data.userId is string
+        && data.action is string;
+    }
+
+    function isValidTaskEvidence(data) {
+      return data.keys().hasAll(['taskId', 'logId', 'imageUrl'])
+        && data.taskId is string
+        && data.logId is string
+        && data.imageUrl is string;
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll(['name', 'department'])
+        && data.name is string
+        && data.department is string;
+    }
+
+    function isValidBackupLog(data) {
+      return data.keys().hasAll(['date', 'storageType', 'status'])
+        && data.date is string
+        && data.storageType is string
+        && data.status is string;
+    }
+
+    function isValidCCTVRequest(data) {
+      return data.keys().hasAll(['requester', 'dateOfFootage', 'reason', 'approvalStatus'])
+        && data.requester is string
+        && data.reason is string
+        && data.approvalStatus is string;
+    }
+
+    function isValidContentPlan(data) {
+      return data.keys().hasAll(['platform', 'productName', 'status'])
+        && data.platform is string
+        && data.productName is string
+        && data.status is string;
+    }
+
+    function isValidRenewalRecord(data) {
+      return data.keys().hasAll(['serviceName', 'status'])
+        && data.serviceName is string && data.serviceName.size() <= 200
+        && data.status is string && data.status in ['Active', 'Expiring Soon', 'Expired']
+        && (data.get('shopName', '') is string)
+        && (data.get('expireDate', '') is string)
+        && (data.get('price', 0) is number)
+        && (data.get('currency', 'MMK') is string)
+        && (data.get('billingCycle', 'Yearly') is string)
+        && (data.get('provider', '') is string)
+        && (data.get('renewalMethod', '') is string)
+        && (data.get('contactPerson', '') is string)
+        && (data.get('contactPhone', '') is string)
+        && (data.get('websiteLink', '') is string);
+    }
+
+    function isValidDailyLog(data) {
+      return data.keys().hasAll(['id', 'date', 'userId', 'tasks'])
+        && data.id is string && data.id.size() <= 200
+        && data.date is string && data.date.size() <= 20
+        && data.userId is string
+        && data.tasks is map;
+    }
+
+    function isValidMonthlyLog(data) {
+      return data.keys().hasAll(['id', 'month', 'userId', 'tasks'])
+        && data.id is string && data.id.size() <= 200
+        && data.month is string && data.month.size() <= 20
+        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
+        && data.tasks is map;
+    }
+
+    function isValidWeeklyLog(data) {
+      return data.keys().hasAll(['id', 'week', 'userId', 'tasks'])
+        && data.id is string && data.id.size() <= 200
+        && data.week is string && data.week.size() <= 20
+        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
+        && data.tasks is map;
+    }
+
+    function isValidAssetLog(data) {
+      return data.keys().hasAll(['id', 'name', 'createdAt'])
+        && data.id is string
+        && data.name is string;
+    }
+
+    // --- Collection Routes ---
+
+    // Purchase Records
+    match /purchase_records/{recordId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      
+      allow create: if isEmailVerified() && isValidId(recordId) && isValidPurchaseRecord(incoming());
+      allow update: if isEmailVerified() && isValidId(recordId) && isValidPurchaseRecord(incoming()) && (
+        isAdmin() || 
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'assignedUser', 'inventoryStatus'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // IT Assets
+    match /it_assets/{assetId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      
+      allow create: if isSignedIn() && isValidId(assetId) && isValidITAsset(incoming());
+      allow update: if isSignedIn() && isValidId(assetId) && isValidITAsset(incoming()) && (
+        isAdmin() ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['assignedTo', 'status', 'location', 'department', 'specs', 'brand', 'purchasePrice', 'purchaseDate', 'uom', 'remark2', 'peripherals', 'category', 'updatedAt']))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // IT Tickets
+    match /it_tickets/{ticketId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(ticketId) && isValidITTicket(incoming());
+      allow update: if isSignedIn() && isValidId(ticketId) && isValidITTicket(incoming()) && (
+        isAdmin() ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'actions', 'completedAt', 'responseTime']))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Backup Logs
+    match /backup_logs/{logId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isEmailVerified() && isValidId(logId) && isValidBackupLog(incoming());
+      allow update: if isEmailVerified() && isValidId(logId) && isValidBackupLog(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // CCTV Requests
+    match /cctv_requests/{requestId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isEmailVerified() && isValidId(requestId) && isValidCCTVRequest(incoming());
+      allow update: if isEmailVerified() && isValidId(requestId) && isValidCCTVRequest(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Content Plans
+    match /content_plans/{planId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isEmailVerified() && isValidId(planId) && isValidContentPlan(incoming());
+      allow update: if isEmailVerified() && isValidId(planId) && isValidContentPlan(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Renewals
+    match /renewals/{renewalId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isEmailVerified() && isValidId(renewalId) && isValidRenewalRecord(incoming());
+      allow update: if isEmailVerified() && isValidId(renewalId) && isValidRenewalRecord(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Employees
+    match /employees/{employeeId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(employeeId) && isValidEmployee(incoming());
+      allow update: if isSignedIn() && isValidId(employeeId) && isValidEmployee(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Daily KPI Logs
+    match /daily_logs/{logId} {
+      allow get: if isSignedIn() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isEmailVerified() && isValidId(logId) && isValidDailyLog(incoming()) && (isAdmin() || logId.contains(request.auth.uid));
+      allow update: if isEmailVerified() && isValidId(logId) && isValidDailyLog(incoming()) && (isAdmin() || logId.contains(request.auth.uid)) && incoming().userId == existing().userId;
+      allow delete: if isAdmin();
+    }
+
+    // Monthly KPI Logs
+    match /monthly_logs/{logId} {
+      allow get: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isEmailVerified() && isValidId(logId) && isValidMonthlyLog(incoming());
+      allow update: if isEmailVerified() && isValidId(logId) && isValidMonthlyLog(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isAdmin();
+    }
+
+    // Weekly KPI Logs
+    match /weekly_logs/{logId} {
+      allow get: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isEmailVerified() && isValidId(logId) && isValidWeeklyLog(incoming());
+      allow update: if isEmailVerified() && isValidId(logId) && isValidWeeklyLog(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isAdmin();
+    }
+
+    // Admins Collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Only manageable through firebase console for higher security
+    }
+
+    // Activity Feed
+    match /activities/{activityId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(activityId) && isValidActivityEntry(incoming());
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // Task Evidence
+    match /task_evidence/{evidenceId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(evidenceId) && isValidTaskEvidence(incoming());
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Asset Logs
+    match /asset_logs/{logId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(logId) && isValidAssetLog(incoming());
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+  }
+}

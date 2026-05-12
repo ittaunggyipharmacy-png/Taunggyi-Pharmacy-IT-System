@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-brand-primary: rgba(15, 23, 42, 0.8);
+  --color-brand-secondary: rgba(30, 27, 75, 0.8);
+  --color-accent: #22d3ee;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+}
+
+@layer base {
+  body {
+    @apply bg-[#f8fafc] text-slate-900 antialiased font-sans selection:bg-indigo-500/30;
+  }
+}
+
+@layer utilities {
+  @keyframes marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .animate-marquee {
+    animation: marquee 20s linear infinite;
+  }
+}
+
+.enterprise-card {
+  @apply bg-white border border-slate-200 shadow-sm rounded-2xl;
+}
+
+.enterprise-modal {
+  @apply bg-white border border-slate-200 shadow-2xl;
+}
+
+.enterprise-btn-primary {
+  @apply bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.sidebar-item-active {
+  @apply bg-indigo-50 text-indigo-600 border-r-4 border-indigo-600;
+}
+
+.sidebar-item {
+  @apply text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-all;
+}
+
+.glass-panel {
+  @apply bg-white border border-slate-200 shadow-xl;
+}
+
+.glass-card {
+  @apply bg-white border border-slate-200 shadow-sm rounded-2xl;
+}
+
+.markdown-body {
+  @apply text-sm leading-relaxed;
+}
+.markdown-body table {
+  @apply w-full border-collapse my-4;
+}
+.markdown-body th, .markdown-body td {
+  @apply border border-white/10 p-2 text-left;
+}
+.markdown-body th {
+  @apply bg-white/5 font-semibold;
+}
+
