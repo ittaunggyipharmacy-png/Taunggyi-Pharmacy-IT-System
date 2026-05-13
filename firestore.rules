@@ -170,145 +170,101 @@ service cloud.firestore {
 
     // Purchase Records
     match /purchase_records/{recordId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      
-      allow create: if isEmailVerified() && isValidId(recordId) && isValidPurchaseRecord(incoming());
-      allow update: if isEmailVerified() && isValidId(recordId) && isValidPurchaseRecord(incoming()) && (
-        isAdmin() || 
-        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'assignedUser', 'inventoryStatus'])
-      );
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(recordId) && isValidPurchaseRecord(incoming());
     }
 
     // IT Assets
     match /it_assets/{assetId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      
-      allow create: if isSignedIn() && isValidId(assetId) && isValidITAsset(incoming());
-      allow update: if isSignedIn() && isValidId(assetId) && isValidITAsset(incoming()) && (
-        isAdmin() ||
-        (incoming().diff(existing()).affectedKeys().hasOnly(['assignedTo', 'status', 'location', 'department', 'specs', 'brand', 'purchasePrice', 'purchaseDate', 'uom', 'remark2', 'peripherals', 'category', 'updatedAt']))
-      );
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(assetId) && isValidITAsset(incoming());
     }
 
     // IT Tickets
     match /it_tickets/{ticketId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(ticketId) && isValidITTicket(incoming());
-      allow update: if isSignedIn() && isValidId(ticketId) && isValidITTicket(incoming()) && (
-        isAdmin() ||
-        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'actions', 'completedAt', 'responseTime']))
-      );
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && isValidId(ticketId) && isValidITTicket(incoming());
+      allow update: if isAdmin() && isValidId(ticketId) && isValidITTicket(incoming());
       allow delete: if isAdmin();
     }
 
     // Backup Logs
     match /backup_logs/{logId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isEmailVerified() && isValidId(logId) && isValidBackupLog(incoming());
-      allow update: if isEmailVerified() && isValidId(logId) && isValidBackupLog(incoming());
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(logId) && isValidBackupLog(incoming());
     }
 
     // CCTV Requests
     match /cctv_requests/{requestId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isEmailVerified() && isValidId(requestId) && isValidCCTVRequest(incoming());
-      allow update: if isEmailVerified() && isValidId(requestId) && isValidCCTVRequest(incoming());
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(requestId) && isValidCCTVRequest(incoming());
     }
 
     // Content Plans
     match /content_plans/{planId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isEmailVerified() && isValidId(planId) && isValidContentPlan(incoming());
-      allow update: if isEmailVerified() && isValidId(planId) && isValidContentPlan(incoming());
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(planId) && isValidContentPlan(incoming());
     }
 
     // Renewals
     match /renewals/{renewalId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isEmailVerified() && isValidId(renewalId) && isValidRenewalRecord(incoming());
-      allow update: if isEmailVerified() && isValidId(renewalId) && isValidRenewalRecord(incoming());
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(renewalId) && isValidRenewalRecord(incoming());
     }
 
     // Employees
     match /employees/{employeeId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(employeeId) && isValidEmployee(incoming());
-      allow update: if isSignedIn() && isValidId(employeeId) && isValidEmployee(incoming());
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(employeeId) && isValidEmployee(incoming());
     }
 
     // Daily KPI Logs
     match /daily_logs/{logId} {
       allow get: if isSignedIn() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if isEmailVerified() && isValidId(logId) && isValidDailyLog(incoming());
-      allow update: if isEmailVerified() && isValidId(logId) && isValidDailyLog(incoming()) && (isAdmin() || incoming().userId == existing().userId);
+      allow create: if isAdmin() && isValidId(logId) && isValidDailyLog(incoming());
+      allow update: if isAdmin() && isValidId(logId) && isValidDailyLog(incoming());
       allow delete: if isAdmin();
     }
 
     // Monthly KPI Logs
     match /monthly_logs/{logId} {
-      allow get: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isEmailVerified() && isValidId(logId) && isValidMonthlyLog(incoming());
-      allow update: if isEmailVerified() && isValidId(logId) && isValidMonthlyLog(incoming()) && incoming().userId == existing().userId;
-      allow delete: if isAdmin();
+      allow get: if isSignedIn() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow write: if isAdmin() && isValidId(logId);
     }
 
     // Weekly KPI Logs
     match /weekly_logs/{logId} {
-      allow get: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isEmailVerified() && isValidId(logId) && isValidWeeklyLog(incoming());
-      allow update: if isEmailVerified() && isValidId(logId) && isValidWeeklyLog(incoming()) && incoming().userId == existing().userId;
-      allow delete: if isAdmin();
+      allow get: if isSignedIn() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow write: if isAdmin() && isValidId(logId);
     }
 
     // Admins Collection
     match /admins/{adminId} {
       allow read: if isSignedIn();
-      allow write: if false; // Only manageable through firebase console for higher security
+      allow write: if isAdmin(); 
     }
 
     // Activity Feed
     match /activities/{activityId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(activityId) && isValidActivityEntry(incoming());
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && isValidId(activityId) && isValidActivityEntry(incoming());
       allow update: if false;
       allow delete: if isAdmin();
     }
 
     // Task Evidence
     match /task_evidence/{evidenceId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(evidenceId) && isValidTaskEvidence(incoming());
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(evidenceId) && isValidTaskEvidence(incoming());
     }
 
     // Asset Logs
     match /asset_logs/{logId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(logId) && isValidAssetLog(incoming());
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidId(logId) && isValidAssetLog(incoming());
     }
 
     // App Users Profiles

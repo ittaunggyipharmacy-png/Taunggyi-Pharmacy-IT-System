@@ -999,8 +999,8 @@ export default function App() {
                   isAdmin={isAdmin} 
                 />
               )}
-              {activeTab === "security" && <SecurityModule backups={backups} setBackups={setBackups} requests={cctvRequests} setRequests={setCctvRequests} searchTerm={searchTerm} />}
-              {activeTab === "renewals" && <RenewalsModule renewals={renewals} setRenewals={setRenewals} />}
+              {activeTab === "security" && <SecurityModule backups={backups} setBackups={setBackups} requests={cctvRequests} setRequests={setCctvRequests} searchTerm={searchTerm} isAdmin={isAdmin} />}
+              {activeTab === "renewals" && <RenewalsModule renewals={renewals} setRenewals={setRenewals} isAdmin={isAdmin} />}
               {activeTab === "purchases" && <PurchasesModule 
                 purchases={purchases} 
                 setPurchases={setPurchases} 
@@ -1008,8 +1008,8 @@ export default function App() {
                 setAssets={setAssets}
                 isAdmin={isAdmin}
               />}
-              {activeTab === "marketing" && <MarketingModule plans={contentPlans} setPlans={setContentPlans} />}
-              {activeTab === "settings" && <SettingsModule settings={settings} setSettings={setSettings} />}
+              {activeTab === "marketing" && <MarketingModule plans={contentPlans} setPlans={setContentPlans} isAdmin={isAdmin} />}
+              {activeTab === "settings" && <SettingsModule settings={settings} setSettings={setSettings} isAdmin={isAdmin} />}
               {activeTab === "help" && <HelpSupportModule />}
               {activeTab === "files" && <FileManagerModule isAdmin={isAdmin} quota={quota} setQuota={setQuota} />}
               {activeTab === "kpi" && <KPIDashboard />}
@@ -1058,18 +1058,18 @@ export default function App() {
   );
 }
 
-function SettingsModule({ settings, setSettings }: { settings: SystemSettings, setSettings: (s: SystemSettings) => void }) {
+function SettingsModule({ settings, setSettings, isAdmin }: { settings: SystemSettings, setSettings: (s: SystemSettings) => void, isAdmin: boolean }) {
   const [newDept, setNewDept] = useState("");
   const [newLoc, setNewLoc] = useState("");
 
   const addDept = () => {
-    if (!newDept.trim()) return;
+    if (!isAdmin || !newDept.trim()) return;
     setSettings({ ...settings, departments: [...settings.departments, newDept.trim()] });
     setNewDept("");
   };
 
   const addLoc = () => {
-    if (!newLoc.trim()) return;
+    if (!isAdmin || !newLoc.trim()) return;
     setSettings({ ...settings, locations: [...settings.locations, newLoc.trim()] });
     setNewLoc("");
   };
@@ -1079,7 +1079,7 @@ function SettingsModule({ settings, setSettings }: { settings: SystemSettings, s
       <div className="enterprise-card p-6 lg:p-10">
         <h2 className="text-xl lg:text-2xl font-bold text-slate-800 tracking-tight uppercase">System Configuration</h2>
         <p className="text-[10px] lg:text-xs text-slate-400 mt-2 lg:mt-3 leading-relaxed font-bold tracking-widest uppercase">
-          Manage Organizational Structures & Master Data
+          {isAdmin ? "Manage Organizational Structures & Master Data" : "View-Only: Organizational Structures & Master Data"}
         </p>
       </div>
 
@@ -1091,21 +1091,23 @@ function SettingsModule({ settings, setSettings }: { settings: SystemSettings, s
             </div>
             <h3 className="font-bold text-slate-800 uppercase tracking-tight">Departments</h3>
           </div>
-          <div className="flex gap-2 mb-6">
-            <input 
-              type="text" 
-              value={newDept}
-              onChange={e => setNewDept(e.target.value)}
-              placeholder="New department name..."
-              className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
-            />
-            <button 
-              onClick={addDept}
-              className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-100"
-            >
-              Add
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="flex gap-2 mb-6">
+              <input 
+                type="text" 
+                value={newDept}
+                onChange={e => setNewDept(e.target.value)}
+                placeholder="New department name..."
+                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
+              />
+              <button 
+                onClick={addDept}
+                className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-100"
+              >
+                Add
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {settings.departments.map(d => (
               <span key={d} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-widest">
@@ -1122,21 +1124,23 @@ function SettingsModule({ settings, setSettings }: { settings: SystemSettings, s
             </div>
             <h3 className="font-bold text-slate-800 uppercase tracking-tight">Locations</h3>
           </div>
-          <div className="flex gap-2 mb-6">
-            <input 
-              type="text" 
-              value={newLoc}
-              onChange={e => setNewLoc(e.target.value)}
-              placeholder="New location name..."
-              className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
-            />
-            <button 
-              onClick={addLoc}
-              className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-100"
-            >
-              Add
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="flex gap-2 mb-6">
+              <input 
+                type="text" 
+                value={newLoc}
+                onChange={e => setNewLoc(e.target.value)}
+                placeholder="New location name..."
+                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
+              />
+              <button 
+                onClick={addLoc}
+                className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-100"
+              >
+                Add
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {settings.locations.map(l => (
               <span key={l} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-widest">
@@ -1981,12 +1985,14 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
           >
             <Download size={16} /> Export
           </button>
-          <button 
-            onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
-          >
-            <Plus size={16} /> New Entry
-          </button>
+          {isAdmin && (
+            <button 
+              onClick={() => setIsAdding(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
+            >
+              <Plus size={16} /> New Entry
+            </button>
+          )}
         </div>
       </div>
 
@@ -2308,6 +2314,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none shadow-sm"
                     rows={2}
                   />
+                {isAdmin && (
                   <div className="flex gap-4">
                     <button 
                       onClick={() => handleAddAction(selectedTicket.id)}
@@ -2322,15 +2329,14 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                     >
                       Close Node
                     </button>
-                    {isAdmin && (
-                      <button 
-                        onClick={() => handleDeleteTicket(selectedTicket.id)}
-                        className="py-3 px-6 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-rose-100 transition-all"
-                      >
-                        Delete Node
-                      </button>
-                    )}
+                    <button 
+                      onClick={() => handleDeleteTicket(selectedTicket.id)}
+                      className="py-3 px-6 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-rose-100 transition-all"
+                    >
+                      Delete Node
+                    </button>
                   </div>
+                )}
                 </div>
               )}
             </motion.div>
@@ -2696,12 +2702,14 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
           >
             <Download size={16} /> Export
           </button>
-          <button 
-            onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
-          >
-            <Plus size={16} /> Register Asset
-          </button>
+          {isAdmin && (
+            <button 
+              onClick={() => setIsAdding(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
+            >
+              <Plus size={16} /> Register Asset
+            </button>
+          )}
         </div>
       </div>
 
@@ -3436,12 +3444,13 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
   );
 }
 
-function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm }: { 
+function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm, isAdmin }: { 
   backups: BackupLog[], 
   setBackups: (b: BackupLog[]) => void,
   requests: CCTVRequest[],
   setRequests: (r: CCTVRequest[]) => void,
-  searchTerm: string
+  searchTerm: string,
+  isAdmin: boolean
 }) {
   const [isAddingRequest, setIsAddingRequest] = useState(false);
   const [newRequest, setNewRequest] = useState<Partial<CCTVRequest>>({
@@ -3513,12 +3522,14 @@ function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm
                 Data Integrity Cluster
               </h2>
             </div>
-            <button 
-              onClick={handlePerformBackup}
-              className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
-            >
-              Trigger Backup
-            </button>
+            {isAdmin && (
+              <button 
+                onClick={handlePerformBackup}
+                className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
+              >
+                Trigger Backup
+              </button>
+            )}
           </div>
           <div className="enterprise-card overflow-hidden">
             {/* Desktop Table */}
@@ -3575,12 +3586,18 @@ function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm
             Any unauthorized review, copying, or sharing of footage is strictly PROHIBITED and will result in disciplinary action.
           </p>
           <div className="relative z-10">
-            <button 
-              onClick={() => setIsAddingRequest(true)}
-              className="w-full sm:w-auto px-6 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all shadow-lg shadow-red-900/40"
-            >
-              Submit Footage Request
-            </button>
+            {isAdmin ? (
+              <button 
+                onClick={() => setIsAddingRequest(true)}
+                className="w-full sm:w-auto px-6 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all shadow-lg shadow-red-900/40"
+              >
+                Submit Footage Request
+              </button>
+            ) : (
+              <p className="text-[10px] text-red-400 font-bold uppercase tracking-widest italic border border-red-500/20 p-3 rounded-xl bg-red-500/5">
+                Contact IT Supervisor for footage review.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -3738,7 +3755,7 @@ function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm
   );
 }
 
-function RenewalsModule({ renewals, setRenewals }: { renewals: RenewalRecord[], setRenewals: (r: RenewalRecord[]) => void }) {
+function RenewalsModule({ renewals, setRenewals, isAdmin }: { renewals: RenewalRecord[], setRenewals: (r: RenewalRecord[]) => void, isAdmin: boolean }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [infoRenewal, setInfoRenewal] = useState<RenewalRecord | null>(null);
@@ -3776,7 +3793,7 @@ function RenewalsModule({ renewals, setRenewals }: { renewals: RenewalRecord[], 
     .reduce((sum, r) => sum + r.price, 0);
 
   const handleSave = () => {
-    if (!newRenewal.serviceName || !newRenewal.shopName || !newRenewal.expireDate || !newRenewal.price) return;
+    if (!isAdmin || !newRenewal.serviceName || !newRenewal.shopName || !newRenewal.expireDate || !newRenewal.price) return;
     const renewal: Partial<RenewalRecord> = {
       ...newRenewal,
       id: editingId || undefined,
@@ -3823,12 +3840,14 @@ function RenewalsModule({ renewals, setRenewals }: { renewals: RenewalRecord[], 
                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Active Services</div>
                 <div className="text-2xl font-bold text-slate-900 font-mono">{renewals.length}</div>
              </div>
-             <button 
-                onClick={() => setIsAdding(true)}
-                className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center hover:bg-indigo-700 transition-all text-white shadow-lg shadow-indigo-200"
-             >
-                <Plus size={24} />
-             </button>
+             {isAdmin && (
+               <button 
+                  onClick={() => setIsAdding(true)}
+                  className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center hover:bg-indigo-700 transition-all text-white shadow-lg shadow-indigo-200"
+               >
+                  <Plus size={24} />
+               </button>
+             )}
           </div>
        </div>
 
@@ -3922,13 +3941,15 @@ function RenewalsModule({ renewals, setRenewals }: { renewals: RenewalRecord[], 
                             >
                                <Info size={16} />
                             </button>
-                            <button 
-                              onClick={() => startEdit(r)}
-                              className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all border border-slate-200"
-                              title="Edit Record"
-                            >
-                               <Edit2 size={16} />
-                            </button>
+                            {isAdmin && (
+                              <button 
+                                onClick={() => startEdit(r)}
+                                className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all border border-slate-200"
+                                title="Edit Record"
+                              >
+                                 <Edit2 size={16} />
+                              </button>
+                            )}
                          </div>
                       </td>
                     </tr>
@@ -4366,21 +4387,23 @@ function PurchasesModule({
               <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Total Records</div>
               <div className="text-2xl font-bold text-slate-900 font-mono">{combinedPurchases.length}</div>
            </div>
-           <div className="flex items-center gap-2">
-             <button 
-               onClick={handleExportPurchases}
-               className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center hover:bg-emerald-100 transition-all text-emerald-600 border border-emerald-200"
-               title="Export Purchases"
-             >
-               <Download size={16} />
-             </button>
-             <button 
-                onClick={() => setIsAdding(true)}
-                className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-700 transition-all text-white shadow-sm"
-             >
-                <Plus size={20} />
-             </button>
-           </div>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleExportPurchases}
+                className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center hover:bg-emerald-100 transition-all text-emerald-600 border border-emerald-200"
+                title="Export Purchases"
+              >
+                <Download size={16} />
+              </button>
+              {isAdmin && (
+                <button 
+                   onClick={() => setIsAdding(true)}
+                   className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-700 transition-all text-white shadow-sm"
+                >
+                   <Plus size={20} />
+                </button>
+              )}
+            </div>
         </div>
       </div>
 
@@ -4681,7 +4704,7 @@ function PurchasesModule({
   );
 }
 
-function MarketingModule({ plans, setPlans }: { plans: ContentPlan[], setPlans: (p: ContentPlan[]) => void }) {
+function MarketingModule({ plans, setPlans, isAdmin }: { plans: ContentPlan[], setPlans: (p: ContentPlan[]) => void, isAdmin: boolean }) {
   const [isAddingPlan, setIsAddingPlan] = useState(false);
 
   return (
@@ -4704,18 +4727,22 @@ function MarketingModule({ plans, setPlans }: { plans: ContentPlan[], setPlans: 
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsAddingPlan(true)}
-              className="hidden lg:flex items-center gap-2 py-2 px-4 bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-600 hover:text-white transition-all"
-            >
-              <Plus size={16} /> Add Strategy
-            </button>
-            <button 
-              onClick={() => setIsAddingPlan(true)}
-              className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-cyan-400 lg:hidden"
-            >
-              <Plus size={24} />
-            </button>
+            {isAdmin && (
+              <>
+                <button 
+                  onClick={() => setIsAddingPlan(true)}
+                  className="hidden lg:flex items-center gap-2 py-2 px-4 bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-600 hover:text-white transition-all"
+                >
+                  <Plus size={16} /> Add Strategy
+                </button>
+                <button 
+                  onClick={() => setIsAddingPlan(true)}
+                  className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-cyan-400 lg:hidden"
+                >
+                  <Plus size={24} />
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -4806,26 +4833,30 @@ function MarketingModule({ plans, setPlans }: { plans: ContentPlan[], setPlans: 
               </div>
             </div>
 
-            <div className="mt-8 lg:mt-10 flex flex-col sm:flex-row gap-3 lg:gap-4">
-              <button className="flex-1 py-4 sm:py-3.5 px-6 bg-cyan-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-500 transition-all shadow-lg shadow-cyan-900/40">
-                Commit & Dispatch
-              </button>
-              <button className="flex-1 py-4 sm:py-3.5 px-6 bg-white/5 text-slate-400 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-colors">
-                Modify
-              </button>
-            </div>
+            {isAdmin && (
+              <div className="mt-8 lg:mt-10 flex flex-col sm:flex-row gap-3 lg:gap-4">
+                <button className="flex-1 py-4 sm:py-3.5 px-6 bg-cyan-600 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-500 transition-all shadow-lg shadow-cyan-900/40">
+                  Commit & Dispatch
+                </button>
+                <button className="flex-1 py-4 sm:py-3.5 px-6 bg-white/5 text-slate-400 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-colors">
+                  Modify
+                </button>
+              </div>
+            )}
           </div>
         ))}
-        <button 
-          onClick={() => setIsAddingPlan(true)}
-          className="border-2 border-dashed border-white/10 rounded-[2rem] lg:rounded-[2.5rem] p-8 lg:p-12 flex flex-col items-center justify-center text-slate-500 hover:border-cyan-500/40 hover:text-cyan-400 transition-all group bg-white/5 backdrop-blur-sm shadow-xl"
-        >
-          <div className="w-12 h-12 lg:w-14 lg:h-14 rounded-xl lg:rounded-2xl flex items-center justify-center bg-white/5 group-hover:bg-cyan-500/10 border border-white/5 transition-all mb-4 lg:mb-6">
-            <Plus size={24} className="lg:w-7 lg:h-7" />
-          </div>
-          <p className="font-bold text-xs lg:text-sm tracking-tight uppercase">New Content Blueprint</p>
-          <p className="text-[9px] lg:text-[10px] uppercase font-bold mt-2 opacity-40 tracking-widest">SOP-001 Protocol</p>
-        </button>
+        {isAdmin && (
+          <button 
+            onClick={() => setIsAddingPlan(true)}
+            className="border-2 border-dashed border-white/10 rounded-[2rem] lg:rounded-[2.5rem] p-8 lg:p-12 flex flex-col items-center justify-center text-slate-500 hover:border-cyan-500/40 hover:text-cyan-400 transition-all group bg-white/5 backdrop-blur-sm shadow-xl"
+          >
+            <div className="w-12 h-12 lg:w-14 lg:h-14 rounded-xl lg:rounded-2xl flex items-center justify-center bg-white/5 group-hover:bg-cyan-500/10 border border-white/5 transition-all mb-4 lg:mb-6">
+              <Plus size={24} className="lg:w-7 lg:h-7" />
+            </div>
+            <p className="font-bold text-xs lg:text-sm tracking-tight uppercase">New Content Blueprint</p>
+            <p className="text-[9px] lg:text-[10px] uppercase font-bold mt-2 opacity-40 tracking-widest">SOP-001 Protocol</p>
+          </button>
+        )}
       </div>
     </div>
   );
