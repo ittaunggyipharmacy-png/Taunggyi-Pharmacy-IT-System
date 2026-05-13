@@ -20,6 +20,10 @@ service cloud.firestore {
       return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    function isSuperAdmin() {
+      return isSignedIn() && request.auth.token.email == "it.taunggyipharmacy@gmail.com";
+    }
+
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -244,7 +248,7 @@ service cloud.firestore {
     // Admins Collection
     match /admins/{adminId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin(); 
+      allow write: if isSuperAdmin(); 
     }
 
     // Activity Feed
@@ -272,8 +276,8 @@ service cloud.firestore {
       allow get: if isSignedIn();
       allow list: if isAdmin();
       allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == userId && !incoming().diff(existing()).affectedKeys().hasAny(['role']));
-      allow delete: if isAdmin();
+      allow update: if isSuperAdmin() || (isSignedIn() && request.auth.uid == userId && !incoming().diff(existing()).affectedKeys().hasAny(['role']));
+      allow delete: if isSuperAdmin();
     }
   }
 }

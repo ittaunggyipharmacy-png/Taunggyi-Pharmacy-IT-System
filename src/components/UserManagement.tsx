@@ -22,7 +22,7 @@ const ROLE_CONFIG = {
   [UserRole.STAFF]: { icon: Users, color: "text-slate-600", bg: "bg-slate-50", label: "Staff" },
 };
 
-export const UserManagement = () => {
+export const UserManagement = ({ isSuperAdmin }: { isSuperAdmin: boolean }) => {
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -44,6 +44,7 @@ export const UserManagement = () => {
   };
 
   const handleRoleChange = async (uid: string, newRole: UserRole) => {
+    if (!isSuperAdmin) return;
     setUpdating(uid);
     try {
       await updateSystemUserRole(uid, newRole);
@@ -120,10 +121,10 @@ export const UserManagement = () => {
                 <div className="flex flex-col gap-1 w-full md:w-auto">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Level</label>
                   <select
-                    disabled={updating === user.uid}
+                    disabled={updating === user.uid || !isSuperAdmin}
                     value={user.role}
                     onChange={(e) => handleRoleChange(user.uid, e.target.value as UserRole)}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all appearance-none cursor-pointer bg-slate-50 ${updating === user.uid ? 'opacity-50 grayscale' : 'hover:border-indigo-300 focus:ring-4 focus:ring-indigo-50 border-slate-200'}`}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-bold outline-none border transition-all appearance-none cursor-pointer bg-slate-50 ${updating === user.uid || !isSuperAdmin ? 'opacity-50 cursor-not-allowed' : 'hover:border-indigo-300 focus:ring-4 focus:ring-indigo-50 border-slate-200'}`}
                   >
                     {Object.entries(UserRole).map(([key, value]) => (
                       <option key={key} value={value}>{value}</option>

@@ -649,7 +649,14 @@ export default function App() {
     return () => clearInterval(interval);
   }, [backups, assets]);
 
-
+  useEffect(() => {
+    if (authReady && currentUser && !isAdmin) {
+      const allowedTabs = ["tickets", "assets"];
+      if (!allowedTabs.includes(activeTab)) {
+        setActiveTab("tickets");
+      }
+    }
+  }, [isAdmin, authReady, activeTab, currentUser]);
 
   if (!authReady) {
     return (
@@ -711,7 +718,7 @@ export default function App() {
     { id: "files", label: "Cloud Files", icon: HardDrive },
     { id: "settings", label: "System Settings", icon: Settings },
     { id: "help", label: "Help & Support", icon: HelpCircle },
-  ];
+  ].filter(item => isAdmin || item.id === "tickets" || item.id === "assets");
 
   return (
     <div className="flex h-screen bg-[#f8fafc] overflow-hidden font-sans text-slate-900">
@@ -852,9 +859,9 @@ export default function App() {
                   )}
                 >
                   <Bell size={20} />
-                  {(pendingTicketsCount + (pendingDailyKpiCount > 0 ? 1 : 0)) > 0 && (
+                  {(pendingTicketsCount + (isAdmin && pendingDailyKpiCount > 0 ? 1 : 0)) > 0 && (
                     <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white animate-pulse">
-                      {pendingTicketsCount + (pendingDailyKpiCount > 0 ? 1 : 0)}
+                      {pendingTicketsCount + (isAdmin && pendingDailyKpiCount > 0 ? 1 : 0)}
                     </span>
                   )}
                 </button>
@@ -872,7 +879,7 @@ export default function App() {
                         <button className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest hover:underline">Mark all read</button>
                       </div>
                       <div className="max-h-[400px] overflow-y-auto">
-                        {pendingDailyKpiCount > 0 && (
+                        {isAdmin && pendingDailyKpiCount > 0 && (
                           <div 
                             onClick={() => {
                               setActiveTab("daily-kpi");
@@ -937,15 +944,17 @@ export default function App() {
                 </AnimatePresence>
               </div>
 
-              <button 
-                onClick={() => setActiveTab("settings")}
-                className={cn(
-                  "p-2 transition-all rounded-xl",
-                  activeTab === "settings" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                )}
-              >
-                <Settings size={20} />
-              </button>
+              {isAdmin && (
+                <button 
+                  onClick={() => setActiveTab("settings")}
+                  className={cn(
+                    "p-2 transition-all rounded-xl",
+                    activeTab === "settings" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                  )}
+                >
+                  <Settings size={20} />
+                </button>
+              )}
             </div>
 
             <div className="h-8 w-px bg-slate-200 mx-2" />
@@ -1015,7 +1024,7 @@ export default function App() {
               {activeTab === "kpi" && <KPIDashboard />}
               {activeTab === "daily-kpi" && <KPITracker />}
               {activeTab === "skills" && isAdmin && <SkillMatrix />}
-              {activeTab === "users" && isAdmin && <UserManagement />}
+              {activeTab === "users" && isAdmin && <UserManagement isSuperAdmin={currentUser?.email === "it.taunggyipharmacy@gmail.com"} />}
               {activeTab === "reports" && isAdmin && (
                 <ReportsModule 
                   activities={activities} 
