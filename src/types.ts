@@ -60,6 +60,24 @@ export interface SkillEntry {
   level: number; // 1 to 5
 }
 
+export enum UserRole {
+  IT_SUPERVISOR = "IT Supervisor",
+  MERCHANDISING_SUPERVISOR = "Merchandising Supervisor",
+  IT_DIGITAL_MARKETING = "IT Digital Marketing",
+  ADMIN = "System Admin",
+  STAFF = "Staff"
+}
+
+export interface SystemUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  photoURL?: string;
+  createdAt: any;
+  lastLogin: any;
+}
+
 export interface EmployeeProfile {
   id: string; // userId
   name: string;

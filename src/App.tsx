@@ -112,7 +112,9 @@ import {
   getDailyLog,
   fetchStorageFiles,
   fetchStorageQuota,
-  deleteStorageFile
+  deleteStorageFile,
+  syncSystemUser,
+  updateSystemUserRole
 } from "./services/firestoreService";
 
 import { 
@@ -132,11 +134,14 @@ import {
   ActivityEntry,
   TaskEvidence,
   DailyLog,
-  EmployeeProfile
+  EmployeeProfile,
+  SystemUser,
+  UserRole
 } from "./types";
 import { KPITracker } from "./components/KPITracker";
 import KPIDashboard from "./components/KPIDashboard";
 import SkillMatrix from "./components/SkillMatrix";
+import { UserManagement } from "./components/UserManagement";
 
 
 const safeFormat = (date: any, formatStr: string, fallback: string = "--") => {
@@ -351,10 +356,11 @@ const INITIAL_SCHEDULE: BackupSchedule[] = [
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [userProfile, setUserProfile] = useState<SystemUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authReady, setAuthReady] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "assets" | "security" | "marketing" | "renewals" | "purchases" | "files" | "settings" | "help" | "kpi" | "daily-kpi" | "reports" | "skills">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "assets" | "security" | "marketing" | "renewals" | "purchases" | "files" | "settings" | "help" | "kpi" | "daily-kpi" | "reports" | "skills" | "users">("dashboard");
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [evidence, setEvidence] = useState<TaskEvidence[]>([]);
   const [allDailyLogs, setAllDailyLogs] = useState<DailyLog[]>([]);
@@ -406,9 +412,18 @@ export default function App() {
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
+        const profile = await syncSystemUser(user);
+        setUserProfile(profile);
         const adminStatus = await checkAdminStatus(user.uid);
-        setIsAdmin(adminStatus);
+        setIsAdmin(
+          adminStatus || 
+          profile?.role === UserRole.ADMIN || 
+          profile?.role === UserRole.IT_SUPERVISOR || 
+          profile?.role === UserRole.MERCHANDISING_SUPERVISOR || 
+          profile?.role === UserRole.IT_DIGITAL_MARKETING
+        );
       } else {
+        setUserProfile(null);
         setIsAdmin(false);
       }
       setAuthReady(true);
@@ -684,7 +699,10 @@ export default function App() {
     ...(isAdmin ? [{ id: "reports", label: "Reporting & Dash", icon: BarChart2 }] : []),
     { id: "kpi", label: "KPI Dashboard", icon: ClipboardList },
     { id: "daily-kpi", label: "Daily KPI Tracker", icon: Calendar, badge: pendingDailyKpiCount > 0 ? pendingDailyKpiCount : undefined },
-    ...(isAdmin ? [{ id: "skills", label: "Team Skill Matrix", icon: Users }] : []),
+    ...(isAdmin ? [
+      { id: "skills", label: "Team Skill Matrix", icon: Users },
+      { id: "users", label: "User Access Control", icon: ShieldCheck }
+    ] : []),
     { id: "assets", label: "Assets Inventory", icon: Package },
     { id: "purchases", label: "Purchase Records", icon: ShoppingCart },
     { id: "renewals", label: "Renewal Tracker", icon: RefreshCw },
@@ -934,8 +952,10 @@ export default function App() {
 
             <div className="flex items-center gap-3">
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-bold text-slate-800 leading-none">{currentUser.displayName || "David Jones"}</p>
-                <p className="text-[10px] text-slate-400 font-medium mt-1">Super Admin</p>
+                <p className="text-sm font-bold text-slate-800 leading-none">{currentUser.displayName || "User"}</p>
+                <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-widest">
+                  {userProfile?.role || "Staff"}
+                </p>
               </div>
               <div className="relative group cursor-pointer">
                 {currentUser.photoURL ? (
@@ -995,6 +1015,7 @@ export default function App() {
               {activeTab === "kpi" && <KPIDashboard />}
               {activeTab === "daily-kpi" && <KPITracker />}
               {activeTab === "skills" && isAdmin && <SkillMatrix />}
+              {activeTab === "users" && isAdmin && <UserManagement />}
               {activeTab === "reports" && isAdmin && (
                 <ReportsModule 
                   activities={activities} 

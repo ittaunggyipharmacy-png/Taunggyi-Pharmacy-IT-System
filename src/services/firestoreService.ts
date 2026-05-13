@@ -31,8 +31,89 @@ const MONTHLY_LOG_COLLECTION = 'monthly_logs';
 const ACTIVITY_COLLECTION = 'activities';
 const EVIDENCE_COLLECTION = 'task_evidence';
 const EMPLOYEE_COLLECTION = 'employees';
+const USER_COLLECTION = 'app_users';
 
-import { EmployeeProfile } from '../types';
+import { EmployeeProfile, SystemUser, UserRole } from '../types';
+
+export const getSystemUser = async (uid: string): Promise<SystemUser | null> => {
+  try {
+    const docRef = doc(db, USER_COLLECTION, uid);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data() as SystemUser;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching system user", error);
+    return null;
+  }
+};
+
+export const syncSystemUser = async (firebaseUser: any) => {
+  try {
+    const userRef = doc(db, USER_COLLECTION, firebaseUser.uid);
+    const snap = await getDoc(userRef);
+    
+    if (!snap.exists()) {
+      // Check if they are in the admins collection to bootstrap
+      const isAdmin = await checkAdminStatus(firebaseUser.uid);
+      const newUser: SystemUser = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || "",
+        displayName: firebaseUser.displayName || "",
+        role: isAdmin ? UserRole.ADMIN : UserRole.STAFF,
+        photoURL: firebaseUser.photoURL || "",
+        createdAt: serverTimestamp(),
+        lastLogin: serverTimestamp()
+      };
+      await setDoc(userRef, newUser);
+      return newUser;
+    } else {
+      await setDoc(userRef, { 
+        lastLogin: serverTimestamp(),
+        displayName: firebaseUser.displayName || snap.data().displayName,
+        photoURL: firebaseUser.photoURL || snap.data().photoURL
+      }, { merge: true });
+      return snap.data() as SystemUser;
+    }
+  } catch (error) {
+    console.error("Error syncing system user", error);
+    return null;
+  }
+};
+
+export const updateSystemUserRole = async (uid: string, role: UserRole) => {
+  try {
+    const userRef = doc(db, USER_COLLECTION, uid);
+    await setDoc(userRef, { role, updatedAt: serverTimestamp() }, { merge: true });
+    
+    // Also sync to 'admins' collection if they have an elevated role
+    const elevatedRoles = [
+      UserRole.ADMIN, 
+      UserRole.IT_SUPERVISOR, 
+      UserRole.MERCHANDISING_SUPERVISOR, 
+      UserRole.IT_DIGITAL_MARKETING
+    ];
+    
+    if (elevatedRoles.includes(role)) {
+      await setDoc(doc(db, 'admins', uid), { active: true });
+    } else {
+      await deleteDoc(doc(db, 'admins', uid));
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, USER_COLLECTION);
+  }
+};
+
+export const getAllSystemUsers = async (): Promise<SystemUser[]> => {
+  try {
+    const snap = await getDocs(collection(db, USER_COLLECTION));
+    return snap.docs.map(doc => doc.data() as SystemUser);
+  } catch (error) {
+    console.error("Error fetching all users", error);
+    return [];
+  }
+};
 
 export const saveEmployeeProfile = async (profile: Partial<EmployeeProfile>) => {
   try {
