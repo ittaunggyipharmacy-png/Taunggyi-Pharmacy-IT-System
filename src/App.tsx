@@ -122,7 +122,9 @@ import {
   fetchStorageQuota,
   deleteStorageFile,
   syncSystemUser,
-  updateSystemUserRole
+  updateSystemUserRole,
+  saveSettings,
+  getSettings
 } from "./services/firestoreService";
 
 import { 
@@ -433,6 +435,14 @@ export default function App() {
   }, [allDailyLogs, currentUser]);
 
   useEffect(() => {
+    const init = async () => {
+      const dbSettings = await getSettings();
+      if (dbSettings) {
+        setSettings(dbSettings);
+      }
+    };
+    init();
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
@@ -724,16 +734,15 @@ export default function App() {
     );
   }
 
-  const navItems = [
+  const isSpecialUser = userProfile?.role === UserRole.IT_DIGITAL_MARKETING || userProfile?.role === UserRole.MERCHANDISING_SUPERVISOR;
+
+  const allNavItems = [
     { id: "tickets", label: "IT Support Log", icon: Ticket, badge: pendingTicketsCount > 0 ? pendingTicketsCount : undefined },
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    ...(isAdmin ? [{ id: "reports", label: "Reporting & Dash", icon: BarChart2 }] : []),
+    { id: "reports", label: "Reporting & Dash", icon: BarChart2 },
     { id: "kpi", label: "KPI Dashboard", icon: ClipboardList },
     { id: "daily-kpi", label: "Daily KPI Tracker", icon: Calendar, badge: pendingDailyKpiCount > 0 ? pendingDailyKpiCount : undefined },
-    ...(isAdmin ? [
-      { id: "skills", label: "Team Skill Matrix", icon: Users },
-      { id: "users", label: "User Access Control", icon: ShieldCheck }
-    ] : []),
+    { id: "skills", label: "Team Skill Matrix", icon: Users },
     { id: "assets", label: "Assets Inventory", icon: Package },
     { id: "purchases", label: "Purchase Records", icon: ShoppingCart },
     { id: "renewals", label: "Renewal Tracker", icon: RefreshCw },
@@ -742,7 +751,23 @@ export default function App() {
     { id: "files", label: "Cloud Files", icon: HardDrive },
     { id: "settings", label: "System Settings", icon: Settings },
     { id: "help", label: "Help & Support", icon: HelpCircle },
-  ].filter(item => isAdmin || item.id === "tickets" || item.id === "assets" || item.id === "files");
+  ];
+
+  const navItems = allNavItems.filter(item => {
+    // Admin always sees everything
+    if (isAdmin) return true;
+
+    // Check custom permissions in settings
+    if (userProfile?.role && settings.menuPermissions?.[userProfile.role]) {
+      return settings.menuPermissions[userProfile.role].includes(item.id);
+    }
+    
+    // Default fallback (previous hardcoded logic)
+    if (isSpecialUser) {
+        return ["tickets", "daily-kpi", "skills", "assets", "purchases", "renewals", "security", "marketing", "files"].includes(item.id);
+    }
+    return ["tickets", "daily-kpi"].includes(item.id);
+  });
 
   return (
     <div className="flex h-screen bg-[#f8fafc] dark:bg-slate-950 overflow-hidden font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
@@ -1052,13 +1077,12 @@ export default function App() {
                 isAdmin={isAdmin}
               />}
               {activeTab === "marketing" && <MarketingModule plans={contentPlans} setPlans={setContentPlans} isAdmin={isAdmin} />}
-              {activeTab === "settings" && <SettingsModule settings={settings} setSettings={setSettings} isAdmin={isAdmin} />}
+              {activeTab === "settings" && <SettingsModule settings={settings} setSettings={setSettings} isAdmin={isAdmin} allNavItems={allNavItems} />}
               {activeTab === "help" && <HelpSupportModule />}
               {activeTab === "files" && <FileManagerModule isAdmin={isAdmin} quota={quota} setQuota={setQuota} />}
               {activeTab === "kpi" && <KPIDashboard />}
               {activeTab === "daily-kpi" && <KPITracker userRole={userProfile?.role} />}
               {activeTab === "skills" && isAdmin && <SkillMatrix />}
-              {activeTab === "users" && (userProfile?.role === UserRole.ADMIN || userProfile?.role === UserRole.IT_SUPERVISOR) && <UserManagement isSuperAdmin={currentUser?.email === "it.taunggyipharmacy@gmail.com"} />}
               {activeTab === "reports" && isAdmin && (
                 <ReportsModule 
                   activities={activities} 
@@ -1101,20 +1125,85 @@ export default function App() {
   );
 }
 
-function SettingsModule({ settings, setSettings, isAdmin }: { settings: SystemSettings, setSettings: (s: SystemSettings) => void, isAdmin: boolean }) {
+function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { settings: SystemSettings, setSettings: (s: SystemSettings) => void, isAdmin: boolean, allNavItems: any[] }) {
   const [newDept, setNewDept] = useState("");
   const [newLoc, setNewLoc] = useState("");
+  const [newBranchName, setNewBranchName] = useState("");
+  const [newBranchLoc, setNewBranchLoc] = useState("");
+  const [newBranchPhone, setNewBranchPhone] = useState("");
+  const [newPassLabel, setNewPassLabel] = useState("");
+  const [newPassAccount, setNewPassAccount] = useState("");
+  const [newPassVal, setNewPassVal] = useState("");
 
   const addDept = () => {
     if (!isAdmin || !newDept.trim()) return;
-    setSettings({ ...settings, departments: [...settings.departments, newDept.trim()] });
+    const newSettings = { ...settings, departments: [...settings.departments, newDept.trim()] };
+    setSettings(newSettings);
+    saveSettings(newSettings);
     setNewDept("");
   };
 
   const addLoc = () => {
     if (!isAdmin || !newLoc.trim()) return;
-    setSettings({ ...settings, locations: [...settings.locations, newLoc.trim()] });
+    const newSettings = { ...settings, locations: [...settings.locations, newLoc.trim()] };
+    setSettings(newSettings);
+    saveSettings(newSettings);
     setNewLoc("");
+  };
+
+  const addBranchNote = () => {
+    if (!isAdmin || !newBranchName.trim() || !newBranchLoc.trim() || !newBranchPhone.trim()) return;
+    const newNote = {
+        id: Date.now().toString(),
+        name: newBranchName.trim(),
+        location: newBranchLoc.trim(),
+        phone: newBranchPhone.trim()
+    };
+    const newSettings = { 
+        ...settings, 
+        branchNotes: [...(settings.branchNotes || []), newNote] 
+    };
+    setSettings(newSettings);
+    saveSettings(newSettings);
+    setNewBranchName("");
+    setNewBranchLoc("");
+    setNewBranchPhone("");
+  };
+  
+  const addPasswordNote = () => {
+    if (!isAdmin || !newPassLabel.trim() || !newPassAccount.trim() || !newPassVal.trim()) return;
+    const newNote = {
+        id: Date.now().toString(),
+        label: newPassLabel.trim(),
+        account: newPassAccount.trim(),
+        password: newPassVal.trim()
+    };
+    const newSettings = { 
+        ...settings, 
+        passwordNotes: [...(settings.passwordNotes || []), newNote] 
+    };
+    setSettings(newSettings);
+    saveSettings(newSettings);
+    setNewPassLabel("");
+    setNewPassAccount("");
+    setNewPassVal("");
+  };
+
+  const togglePermission = (role: string, itemId: string) => {
+    if (!isAdmin) return;
+    const currentPerms = settings.menuPermissions?.[role] || [];
+    let newPerms;
+    if (currentPerms.includes(itemId)) {
+      newPerms = currentPerms.filter(id => id !== itemId);
+    } else {
+      newPerms = [...currentPerms, itemId];
+    }
+    const newSettings = { 
+      ...settings, 
+      menuPermissions: { ...settings.menuPermissions, [role]: newPerms } 
+    };
+    setSettings(newSettings);
+    saveSettings(newSettings);
   };
 
   return (
@@ -1122,74 +1211,158 @@ function SettingsModule({ settings, setSettings, isAdmin }: { settings: SystemSe
       <div className="enterprise-card p-6 lg:p-10">
         <h2 className="text-xl lg:text-2xl font-bold text-slate-800 tracking-tight uppercase">System Configuration</h2>
         <p className="text-[10px] lg:text-xs text-slate-400 mt-2 lg:mt-3 leading-relaxed font-bold tracking-widest uppercase">
-          {isAdmin ? "Manage Organizational Structures & Master Data" : "View-Only: Organizational Structures & Master Data"}
+          {isAdmin ? "Manage Organizational Structures & Menu Access Control" : "View-Only: Organizational Structures & Menu Access Control"}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 gap-8">
+        {/* Menu Permissions Section */}
         <div className="enterprise-card p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-              <Layers size={20} />
-            </div>
-            <h3 className="font-bold text-slate-800 uppercase tracking-tight">Departments</h3>
+          <h3 className="font-bold text-slate-800 uppercase tracking-tight mb-6">Menu Access Control</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="text-left py-2">Role</th>
+                  {allNavItems.map(item => <th key={item.id} className="text-center py-2 px-2 text-[10px] uppercase">{item.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {Object.values(UserRole).map(role => (
+                  <tr key={role} className="border-t border-slate-100">
+                    <td className="py-2 font-bold">{role}</td>
+                    {allNavItems.map(item => (
+                      <td key={item.id} className="text-center py-2 px-2">
+                        <input 
+                          type="checkbox"
+                          checked={settings.menuPermissions?.[role]?.includes(item.id) || false}
+                          onChange={() => togglePermission(role, item.id)}
+                          disabled={!isAdmin}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        </div>
+
+        {/* User Management Section */}
+        <div className="enterprise-card p-6">
+          <UserManagement isSuperAdmin={isAdmin} />
+        </div>
+
+        {/* Password Notes Section */}
+        <div className="enterprise-card p-6">
+          <h3 className="font-bold text-slate-800 uppercase tracking-tight mb-6">Account Credentials</h3>
           {isAdmin && (
-            <div className="flex gap-2 mb-6">
-              <input 
-                type="text" 
-                value={newDept}
-                onChange={e => setNewDept(e.target.value)}
-                placeholder="New department name..."
-                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
-              />
-              <button 
-                onClick={addDept}
-                className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-100"
-              >
-                Add
-              </button>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-6">
+              <input type="text" value={newPassLabel} onChange={e => setNewPassLabel(e.target.value)} placeholder="Label (e.g. Gmail)..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              <input type="text" value={newPassAccount} onChange={e => setNewPassAccount(e.target.value)} placeholder="Account..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              <input type="text" value={newPassVal} onChange={e => setNewPassVal(e.target.value)} placeholder="Password..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              <button onClick={addPasswordNote} className="px-6 py-3 bg-amber-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-amber-500 transition-colors shadow-lg">Save</button>
             </div>
           )}
-          <div className="flex flex-wrap gap-2">
-            {settings.departments.map(d => (
-              <span key={d} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-                {d}
-              </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(settings.passwordNotes || []).map(note => (
+                <div key={note.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl">
+                    <p className="font-bold text-sm text-slate-800">{note.label}</p>
+                    <p className="text-xs text-slate-500 mt-1">Acc: {note.account}</p>
+                    <p className="text-xs text-amber-600 mt-1 font-mono">Pass: {note.password}</p>
+                </div>
             ))}
           </div>
         </div>
 
+        {/* Branch Notes Section */}
         <div className="enterprise-card p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
-              <Globe size={20} />
-            </div>
-            <h3 className="font-bold text-slate-800 uppercase tracking-tight">Locations</h3>
-          </div>
+          <h3 className="font-bold text-slate-800 uppercase tracking-tight mb-6">Branch Locations & Contacts</h3>
           {isAdmin && (
-            <div className="flex gap-2 mb-6">
-              <input 
-                type="text" 
-                value={newLoc}
-                onChange={e => setNewLoc(e.target.value)}
-                placeholder="New location name..."
-                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
-              />
-              <button 
-                onClick={addLoc}
-                className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-100"
-              >
-                Add
-              </button>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-6">
+              <input type="text" value={newBranchName} onChange={e => setNewBranchName(e.target.value)} placeholder="Branch Name..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              <input type="text" value={newBranchLoc} onChange={e => setNewBranchLoc(e.target.value)} placeholder="Location..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              <input type="text" value={newBranchPhone} onChange={e => setNewBranchPhone(e.target.value)} placeholder="Phone..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+              <button onClick={addBranchNote} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-blue-500 transition-colors shadow-lg">Add Note</button>
             </div>
           )}
-          <div className="flex flex-wrap gap-2">
-            {settings.locations.map(l => (
-              <span key={l} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-                {l}
-              </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(settings.branchNotes || []).map(note => (
+                <div key={note.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl">
+                    <p className="font-bold text-sm text-slate-800">{note.name}</p>
+                    <p className="text-xs text-slate-500 mt-1">{note.location}</p>
+                    <p className="text-xs text-indigo-600 mt-1 font-mono">{note.phone}</p>
+                </div>
             ))}
+          </div>
+        </div>
+
+        {/* Existing Dept/Loc UI */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="enterprise-card p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                <Layers size={20} />
+              </div>
+              <h3 className="font-bold text-slate-800 uppercase tracking-tight">Departments</h3>
+            </div>
+            {isAdmin && (
+              <div className="flex gap-2 mb-6">
+                <input 
+                  type="text" 
+                  value={newDept}
+                  onChange={e => setNewDept(e.target.value)}
+                  placeholder="New department name..."
+                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
+                />
+                <button 
+                  onClick={addDept}
+                  className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-100"
+                >
+                  Add
+                </button>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {settings.departments.map(d => (
+                <span key={d} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+                  {d}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="enterprise-card p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                <Globe size={20} />
+              </div>
+              <h3 className="font-bold text-slate-800 uppercase tracking-tight">Locations</h3>
+            </div>
+            {isAdmin && (
+              <div className="flex gap-2 mb-6">
+                <input 
+                  type="text" 
+                  value={newLoc}
+                  onChange={e => setNewLoc(e.target.value)}
+                  placeholder="New location name..."
+                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/20"
+                />
+                <button 
+                  onClick={addLoc}
+                  className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-100"
+                >
+                  Add
+                </button>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {settings.locations.map(l => (
+                <span key={l} className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-widest">
+                  {l}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       </div>

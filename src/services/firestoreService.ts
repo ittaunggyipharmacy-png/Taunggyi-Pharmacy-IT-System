@@ -32,6 +32,29 @@ const ACTIVITY_COLLECTION = 'activities';
 const EVIDENCE_COLLECTION = 'task_evidence';
 const EMPLOYEE_COLLECTION = 'employees';
 const USER_COLLECTION = 'app_users';
+const SETTINGS_COLLECTION = 'system_config';
+const SETTINGS_DOC_ID = 'main';
+
+export const saveSettings = async (settings: SystemSettings) => {
+  try {
+    await setDoc(doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID), cleanData(settings), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, SETTINGS_COLLECTION);
+  }
+};
+
+export const getSettings = async (): Promise<SystemSettings | null> => {
+  try {
+    const snap = await getDoc(doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID));
+    if (snap.exists()) {
+      return snap.data() as SystemSettings;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching settings", error);
+    return null;
+  }
+};
 
 import { EmployeeProfile, SystemUser, UserRole } from '../types';
 

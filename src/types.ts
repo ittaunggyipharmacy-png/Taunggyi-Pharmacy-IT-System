@@ -265,8 +265,27 @@ export interface WeeklyLog {
   updatedAt: any;
 }
 
+export interface BranchNote {
+  id: string;
+  name: string; // e.g. Branch Name
+  location: string;
+  phone: string;
+}
+
+export interface PasswordNote {
+  id: string;
+  label: string; // e.g. "Gmail", "Router PPPoE"
+  account: string;
+  password: string;
+}
+
 export interface SystemSettings {
   departments: string[];
   locations: string[];
   itContacts: { name: string; role: string; phone: string }[];
+  branchNotes?: BranchNote[];
+  passwordNotes?: PasswordNote[];
+  menuPermissions?: {
+    [role: string]: string[];
+  };
 }

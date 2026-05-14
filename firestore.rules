@@ -173,6 +173,12 @@ service cloud.firestore {
 
     // --- Collection Routes ---
 
+    // System Config
+    match /system_config/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
     // Purchase Records
     match /purchase_records/{recordId} {
       allow read: if isSignedIn();
