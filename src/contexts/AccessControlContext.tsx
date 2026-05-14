@@ -1,16 +1,18 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserRole, RolePermission } from '../types';
-import { fetchRolePermissions } from '../services/firestoreService';
+import { fetchRolePermissions, saveRolePermission } from '../services/firestoreService';
 
 interface AccessControlContextType {
   permissions: RolePermission[];
   canAccess: (role: UserRole, menuId: string) => boolean;
+  updatePermission: (role: string, menuId: string, allowed: boolean) => Promise<void>;
   loading: boolean;
 }
 
 const AccessControlContext = createContext<AccessControlContextType>({
   permissions: [],
   canAccess: () => false,
+  updatePermission: async () => {},
   loading: true,
 });
 
@@ -32,8 +34,30 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
     return rolePermission?.allowed_menus[menuId] === true;
   };
 
+  const updatePermission = async (role: string, menuId: string, allowed: boolean) => {
+    let rolePermission = permissions.find(p => p.role === role);
+    
+    if (!rolePermission) {
+        rolePermission = { role, allowed_menus: {} };
+    }
+
+    const updatedRolePermission = {
+        ...rolePermission,
+        allowed_menus: {
+            ...rolePermission.allowed_menus,
+            [menuId]: allowed
+        }
+    };
+
+    // Update local state
+    setPermissions(prev => prev.map(p => p.role === role ? updatedRolePermission : p).concat(!permissions.find(p => p.role === role) ? [updatedRolePermission] : []));
+    
+    // Save to Firestore
+    await saveRolePermission(updatedRolePermission);
+  };
+
   return (
-    <AccessControlContext.Provider value={{ permissions, canAccess, loading }}>
+    <AccessControlContext.Provider value={{ permissions, canAccess, updatePermission, loading }}>
       {children}
     </AccessControlContext.Provider>
   );

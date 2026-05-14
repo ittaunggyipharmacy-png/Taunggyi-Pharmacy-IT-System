@@ -454,9 +454,7 @@ export default function App() {
         setIsAdmin(
           adminStatus || 
           profile?.role === UserRole.ADMIN || 
-          profile?.role === UserRole.IT_SUPERVISOR || 
-          profile?.role === UserRole.MERCHANDISING_SUPERVISOR || 
-          profile?.role === UserRole.IT_DIGITAL_MARKETING
+          profile?.role === UserRole.IT_SUPERVISOR
         );
       } else {
         setUserProfile(null);
@@ -1137,6 +1135,7 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { setti
   const [newPassVal, setNewPassVal] = useState("");
   const [editingPasswordNote, setEditingPasswordNote] = useState<any | null>(null);
   const [editingBranchNote, setEditingBranchNote] = useState<any | null>(null);
+  const { permissions, updatePermission } = useAccessControl();
 
   const addDept = () => {
     if (!isAdmin || !newDept.trim()) return;
@@ -1192,21 +1191,11 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { setti
     setNewPassVal("");
   };
 
-  const togglePermission = (role: string, itemId: string) => {
+  const togglePermission = async (role: string, itemId: string) => {
     if (!isAdmin) return;
-    const currentPerms = settings.menuPermissions?.[role] || [];
-    let newPerms;
-    if (currentPerms.includes(itemId)) {
-      newPerms = currentPerms.filter(id => id !== itemId);
-    } else {
-      newPerms = [...currentPerms, itemId];
-    }
-    const newSettings = { 
-      ...settings, 
-      menuPermissions: { ...settings.menuPermissions, [role]: newPerms } 
-    };
-    setSettings(newSettings);
-    saveSettings(newSettings);
+    const currentPerm = permissions.find(p => p.role === role);
+    const isAllowed = currentPerm?.allowed_menus[itemId] === true;
+    await updatePermission(role, itemId, !isAllowed);
   };
 
   return (
@@ -1238,7 +1227,7 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { setti
                       <td key={item.id} className="text-center py-2 px-2">
                         <input 
                           type="checkbox"
-                          checked={settings.menuPermissions?.[role]?.includes(item.id) || false}
+                          checked={permissions.find(p => p.role === role)?.allowed_menus[item.id] || false}
                           onChange={() => togglePermission(role, item.id)}
                           disabled={!isAdmin}
                         />
