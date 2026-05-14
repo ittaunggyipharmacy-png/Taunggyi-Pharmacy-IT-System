@@ -709,7 +709,7 @@ export default function App() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md bg-slate-900/50 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center"
+          className="w-full max-w-md md:max-w-lg bg-slate-900/50 backdrop-blur-xl border border-white/10 rounded-3xl p-8 text-center"
         >
           <div className="w-20 h-20 bg-cyan-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-cyan-500/30">
             <ShieldCheck className="text-cyan-400" size={40} />
@@ -758,15 +758,25 @@ export default function App() {
     if (isAdmin) return true;
 
     // Check custom permissions in settings
-    if (userProfile?.role && settings.menuPermissions?.[userProfile.role]) {
-      return settings.menuPermissions[userProfile.role].includes(item.id);
+    if (userProfile?.role) {
+      // If ANY menu permissions are defined, enforce them for all roles
+      if (settings.menuPermissions && Object.keys(settings.menuPermissions).length > 0) {
+        const rolePerms = settings.menuPermissions[userProfile.role] || [];
+        const allowed = rolePerms.includes(item.id);
+        console.log(`Nav filter (Customized): ${item.id} -> ${allowed}`);
+        return allowed;
+      }
     }
     
     // Default fallback (previous hardcoded logic)
     if (isSpecialUser) {
+        console.log(`Nav filter fallback (Special): ${item.id} -> ${["tickets", "daily-kpi", "skills", "assets", "purchases", "renewals", "security", "marketing", "files"].includes(item.id)}`);
         return ["tickets", "daily-kpi", "skills", "assets", "purchases", "renewals", "security", "marketing", "files"].includes(item.id);
     }
-    return ["tickets", "daily-kpi"].includes(item.id);
+    
+    const allowed = ["tickets", "daily-kpi"].includes(item.id);
+    console.log(`Nav filter fallback (Default): ${item.id} -> ${allowed}`);
+    return allowed;
   });
 
   return (
@@ -1564,8 +1574,13 @@ function ReportsModule({ activities, evidence, allDailyLogs, tickets, employees 
   tickets: ITTicket[],
   employees: EmployeeProfile[]
 }) {
+  const [dateRange, setDateRange] = useState({ start: format(subDays(new Date(), 30), "yyyy-MM-dd"), end: format(new Date(), "yyyy-MM-dd") });
+
+  const filteredDailyLogs = allDailyLogs.filter(log => log.date >= dateRange.start && log.date <= dateRange.end);
+  const filteredTickets = tickets.filter(t => t.requestTime.slice(0, 10) >= dateRange.start && t.requestTime.slice(0, 10) <= dateRange.end);
+
   const exportKPISummary = () => {
-    const data = allDailyLogs.map(log => {
+    const data = filteredDailyLogs.map(log => {
       const completion = Object.values(log.tasks).filter(Boolean).length;
       return {
         Date: log.date,
@@ -1628,13 +1643,17 @@ function ReportsModule({ activities, evidence, allDailyLogs, tickets, employees 
           <h2 className="text-2xl font-bold text-slate-800">IT Supervisor Dashboard</h2>
           <p className="text-sm text-slate-500">Real-time Performance & Subordinate Monitoring</p>
         </div>
-        <button 
-          onClick={exportKPISummary}
-          className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-100"
-        >
-          <Download size={16} />
-          Export KPI Report (XLSX)
-        </button>
+        <div className="flex items-center gap-4">
+          <input type="date" value={dateRange.start} onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))} className="px-3 py-2 border rounded-xl" />
+          <input type="date" value={dateRange.end} onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))} className="px-3 py-2 border rounded-xl" />
+          <button 
+            onClick={exportKPISummary}
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-100"
+          >
+            <Download size={16} />
+            Export KPI Report (XLSX)
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -2185,7 +2204,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
     
     const entry: ActionEntry = {
       timestamp: new Date().toISOString(),
-      performer: auth.currentUser?.email || "IT Agent",
+      performer: auth.currentUser?.displayName || auth.currentUser?.email || "IT Agent",
       action: newAction.trim()
     };
 
@@ -2206,6 +2225,9 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
     });
   };
 
+  const [assignedUser, setAssignedUser] = useState("");
+  const [assignedUserName, setAssignedUserName] = useState("");
+
   const handleAssignTicket = async (ticketId: string, userId: string, userName: string) => {
     const targetTicket = tickets.find(t => t.id === ticketId);
     if (!targetTicket) return;
@@ -2224,7 +2246,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
         ...targetTicket.actions,
         {
           timestamp: new Date().toISOString(),
-          performer: auth.currentUser?.email || "Supervisor",
+          performer: auth.currentUser?.displayName || auth.currentUser?.email || "Supervisor",
           action: `Ticket assigned to ${userName}. Response time: ${responseTimeInMinutes} mins.`
         }
       ]
@@ -2279,11 +2301,12 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
   };
 
   const handleExportTickets = () => {
-    const data = tickets.map(t => ({
-      ID: t.id,
+    const data = filteredTickets.map(t => ({
+      ID: String(filteredTickets.indexOf(t) + 1).padStart(5, '0'),
       Issue: t.problemType,
       Priority: t.priority,
       Requester: t.requesterName,
+      "Assigned To": t.assignedToName || "-",
       Status: t.status,
       "Request Time": safeFormat(t.requestTime, "yyyy-MM-dd HH:mm:ss"),
       "Action History": t.actions.map(a => `[${safeFormat(a.timestamp, "HH:mm")}] ${a.performer}: ${a.action}`).join("; "),
@@ -2500,7 +2523,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
               animate={{ y: 0, opacity: 1, scale: 1 }}
               exit={{ y: 20, opacity: 0, scale: 0.95 }}
               onClick={(e) => e.stopPropagation()}
-              className="enterprise-modal p-6 sm:p-8 w-full h-full sm:h-auto sm:max-w-md rounded-none sm:rounded-3xl overflow-y-auto relative shadow-2xl"
+              className="enterprise-modal p-6 sm:p-8 w-full h-full sm:h-auto sm:max-w-2xl md:max-w-3xl max-h-[90vh] rounded-none sm:rounded-3xl overflow-y-auto relative shadow-2xl"
             >
               <button 
                 onClick={() => setIsAdding(false)}
