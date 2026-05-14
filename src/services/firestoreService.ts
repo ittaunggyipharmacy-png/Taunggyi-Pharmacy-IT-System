@@ -33,6 +33,7 @@ const EVIDENCE_COLLECTION = 'task_evidence';
 const EMPLOYEE_COLLECTION = 'employees';
 const USER_COLLECTION = 'app_users';
 const SETTINGS_COLLECTION = 'system_config';
+const ROLE_PERMISSIONS_COLLECTION = 'role_permissions';
 const SETTINGS_DOC_ID = 'main';
 
 export const saveSettings = async (settings: SystemSettings) => {
@@ -40,6 +41,24 @@ export const saveSettings = async (settings: SystemSettings) => {
     await setDoc(doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID), cleanData(settings), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, SETTINGS_COLLECTION);
+  }
+};
+
+export const fetchRolePermissions = async (): Promise<RolePermission[]> => {
+  try {
+    const snap = await getDocs(collection(db, ROLE_PERMISSIONS_COLLECTION));
+    return snap.docs.map(doc => doc.data() as RolePermission);
+  } catch (error) {
+    console.error("Error fetching role permissions", error);
+    return [];
+  }
+};
+
+export const saveRolePermission = async (rolePermission: RolePermission) => {
+  try {
+    await setDoc(doc(db, ROLE_PERMISSIONS_COLLECTION, rolePermission.role), cleanData(rolePermission), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, ROLE_PERMISSIONS_COLLECTION);
   }
 };
 
@@ -56,7 +75,7 @@ export const getSettings = async (): Promise<SystemSettings | null> => {
   }
 };
 
-import { EmployeeProfile, SystemUser, UserRole } from '../types';
+import { EmployeeProfile, SystemUser, UserRole, RolePermission } from '../types';
 
 export const getSystemUser = async (uid: string): Promise<SystemUser | null> => {
   try {

@@ -171,7 +171,19 @@ service cloud.firestore {
         && data.name is string;
     }
 
+    function isValidRolePermission(data) {
+      return data.keys().hasAll(['role', 'allowed_menus'])
+        && data.role is string && data.role.size() > 0
+        && data.allowed_menus is map;
+    }
+
     // --- Collection Routes ---
+
+    // Role Permissions
+    match /role_permissions/{roleId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidRolePermission(incoming());
+    }
 
     // System Config
     match /system_config/{configId} {

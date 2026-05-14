@@ -151,6 +151,7 @@ import {
 import { KPITracker } from "./components/KPITracker";
 import { MultiSelectDropdown } from "./components/MultiSelectDropdown";
 import KPIDashboard from "./components/KPIDashboard";
+import { useAccessControl } from './contexts/AccessControlContext';
 import SkillMatrix from "./components/SkillMatrix";
 import { UserManagement } from "./components/UserManagement";
 
@@ -363,6 +364,7 @@ const INITIAL_SCHEDULE: BackupSchedule[] = [
 ];
 
 export default function App() {
+  const { canAccess, loading: accessLoading } = useAccessControl();
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userProfile, setUserProfile] = useState<SystemUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -756,27 +758,16 @@ export default function App() {
   const navItems = allNavItems.filter(item => {
     // Admin always sees everything
     if (isAdmin) return true;
+    
+    // Wait for permissions to load
+    if (accessLoading) return false;
 
-    // Check custom permissions in settings
+    // Use our new AccessControlContext
     if (userProfile?.role) {
-      // If ANY menu permissions are defined, enforce them for all roles
-      if (settings.menuPermissions && Object.keys(settings.menuPermissions).length > 0) {
-        const rolePerms = settings.menuPermissions[userProfile.role] || [];
-        const allowed = rolePerms.includes(item.id);
-        console.log(`Nav filter (Customized): ${item.id} -> ${allowed}`);
-        return allowed;
-      }
+      return canAccess(userProfile.role, item.id);
     }
     
-    // Default fallback (previous hardcoded logic)
-    if (isSpecialUser) {
-        console.log(`Nav filter fallback (Special): ${item.id} -> ${["tickets", "daily-kpi", "skills", "assets", "purchases", "renewals", "security", "marketing", "files"].includes(item.id)}`);
-        return ["tickets", "daily-kpi", "skills", "assets", "purchases", "renewals", "security", "marketing", "files"].includes(item.id);
-    }
-    
-    const allowed = ["tickets", "daily-kpi"].includes(item.id);
-    console.log(`Nav filter fallback (Default): ${item.id} -> ${allowed}`);
-    return allowed;
+    return false;
   });
 
   return (
@@ -1144,6 +1135,8 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { setti
   const [newPassLabel, setNewPassLabel] = useState("");
   const [newPassAccount, setNewPassAccount] = useState("");
   const [newPassVal, setNewPassVal] = useState("");
+  const [editingPasswordNote, setEditingPasswordNote] = useState<any | null>(null);
+  const [editingBranchNote, setEditingBranchNote] = useState<any | null>(null);
 
   const addDept = () => {
     if (!isAdmin || !newDept.trim()) return;
@@ -1276,11 +1269,29 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { setti
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {(settings.passwordNotes || []).map(note => (
-                <div key={note.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl">
+              editingPasswordNote?.id === note.id ? (
+                <div key={note.id} className="p-4 bg-amber-50 border border-amber-200 rounded-xl relative">
+                  <input type="text" value={editingPasswordNote.label} onChange={e => setEditingPasswordNote({...editingPasswordNote, label: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Label" />
+                  <input type="text" value={editingPasswordNote.account} onChange={e => setEditingPasswordNote({...editingPasswordNote, account: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Account" />
+                  <input type="text" value={editingPasswordNote.password} onChange={e => setEditingPasswordNote({...editingPasswordNote, password: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Password" />
+                  <button onClick={() => {
+                     setSettings(p => ({...p, passwordNotes: p.passwordNotes?.map(n => n.id === note.id ? editingPasswordNote : n)}));
+                     setEditingPasswordNote(null);
+                  }} className="mt-2 w-full bg-amber-600 text-white p-2 rounded text-xs font-bold uppercase">Save</button>
+                </div>
+              ) : (
+                <div key={note.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl relative group">
                     <p className="font-bold text-sm text-slate-800">{note.label}</p>
                     <p className="text-xs text-slate-500 mt-1">Acc: {note.account}</p>
                     <p className="text-xs text-amber-600 mt-1 font-mono">Pass: {note.password}</p>
+                    {isAdmin && (
+                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-2">
+                        <button onClick={() => setEditingPasswordNote(note)} className="text-slate-400 hover:text-indigo-500 text-xs">Edit</button>
+                        <button onClick={() => setSettings(p => ({...p, passwordNotes: p.passwordNotes?.filter(n => n.id !== note.id)}))} className="text-slate-400 hover:text-red-500 text-xs">Delete</button>
+                      </div>
+                    )}
                 </div>
+              )
             ))}
           </div>
         </div>
@@ -1298,11 +1309,29 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { setti
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {(settings.branchNotes || []).map(note => (
-                <div key={note.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl">
+              editingBranchNote?.id === note.id ? (
+                <div key={note.id} className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl relative">
+                  <input type="text" value={editingBranchNote.name} onChange={e => setEditingBranchNote({...editingBranchNote, name: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Branch Name" />
+                  <input type="text" value={editingBranchNote.location} onChange={e => setEditingBranchNote({...editingBranchNote, location: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Location" />
+                  <input type="text" value={editingBranchNote.phone} onChange={e => setEditingBranchNote({...editingBranchNote, phone: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Phone" />
+                  <button onClick={() => {
+                     setSettings(p => ({...p, branchNotes: p.branchNotes?.map(n => n.id === note.id ? editingBranchNote : n)}));
+                     setEditingBranchNote(null);
+                  }} className="mt-2 w-full bg-indigo-600 text-white p-2 rounded text-xs font-bold uppercase">Save</button>
+                </div>
+              ) : (
+                <div key={note.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl relative group">
                     <p className="font-bold text-sm text-slate-800">{note.name}</p>
                     <p className="text-xs text-slate-500 mt-1">{note.location}</p>
                     <p className="text-xs text-indigo-600 mt-1 font-mono">{note.phone}</p>
+                    {isAdmin && (
+                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-2">
+                        <button onClick={() => setEditingBranchNote(note)} className="text-slate-400 hover:text-indigo-500 text-xs">Edit</button>
+                        <button onClick={() => setSettings(p => ({...p, branchNotes: p.branchNotes?.filter(n => n.id !== note.id)}))} className="text-slate-400 hover:text-red-500 text-xs">Delete</button>
+                      </div>
+                    )}
                 </div>
+              )
             ))}
           </div>
         </div>
@@ -2227,6 +2256,8 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
 
   const [assignedUser, setAssignedUser] = useState("");
   const [assignedUserName, setAssignedUserName] = useState("");
+  const [editingPasswordId, setEditingPasswordId] = useState<string | null>(null);
+  const [editingBranchId, setEditingBranchId] = useState<string | null>(null);
 
   const handleAssignTicket = async (ticketId: string, userId: string, userName: string) => {
     const targetTicket = tickets.find(t => t.id === ticketId);

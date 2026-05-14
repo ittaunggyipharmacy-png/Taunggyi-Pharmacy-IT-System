@@ -235,6 +235,16 @@
         "email": { "type": "string" },
         "role": { "type": "string" }
       }
+    },
+    "RolePermission": {
+      "title": "Role Permission",
+      "description": "Permission mapping for a role.",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string" },
+        "allowed_menus": { "type": "object" }
+      },
+      "required": ["role", "allowed_menus"]
     }
   },
   "firestore": {
@@ -297,6 +307,10 @@
     "employees": {
       "schema": "EmployeeProfile",
       "description": "Information and skill records of employees."
+    },
+    "role_permissions": {
+      "schema": "RolePermission",
+      "description": "Collection of permissions for different roles."
     }
   }
 }

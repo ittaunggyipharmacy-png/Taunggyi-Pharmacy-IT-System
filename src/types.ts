@@ -289,3 +289,8 @@ export interface SystemSettings {
     [role: string]: string[];
   };
 }
+
+export interface RolePermission {
+  role: string;
+  allowed_menus: Record<string, boolean>;
+}
