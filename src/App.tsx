@@ -2306,6 +2306,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
       Issue: t.problemType,
       Priority: t.priority,
       Requester: t.requesterName,
+      Department: t.department || "-",
       "Assigned To": t.assignedToName || "-",
       Status: t.status,
       "Request Time": safeFormat(t.requestTime, "yyyy-MM-dd HH:mm:ss"),
