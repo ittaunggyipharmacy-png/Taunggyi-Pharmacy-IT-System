@@ -185,12 +185,12 @@ export const savePurchaseRecord = async (record: Partial<PurchaseRecord>) => {
     
     const recordId = recordRef.id;
 
-    await setDoc(recordRef, {
+    await setDoc(recordRef, cleanData({
       ...record,
       id: recordId,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
-    });
+    }));
 
     // Automatically create a shadow entry in it_assets
     const shadowAssetId = `ASSET-SHADOW-${recordId}`;
@@ -208,11 +208,11 @@ export const savePurchaseRecord = async (record: Partial<PurchaseRecord>) => {
       specs: `Automatic entry from Purchase Record ${recordId}. Supplier: ${record.supplier}`,
     };
     
-    await setDoc(assetRef, {
+    await setDoc(assetRef, cleanData({
       ...shadowAsset,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
-    });
+    }));
 
     return { recordId, assetId: shadowAssetId };
   } catch (error) {
@@ -229,10 +229,10 @@ export const saveRenewal = async (renewal: Partial<RenewalRecord>) => saveGeneri
 export const saveDailyLog = async (log: Partial<DailyLog>) => {
   try {
     const docRef = doc(db, DAILY_LOG_COLLECTION, log.id!);
-    await setDoc(docRef, {
+    await setDoc(docRef, cleanData({
       ...log,
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    }), { merge: true });
     return log.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `${DAILY_LOG_COLLECTION}/${log.id}`);
@@ -255,10 +255,10 @@ export const getDailyLog = async (id: string) => {
 export const saveMonthlyLog = async (log: Partial<MonthlyLog>) => {
   try {
     const docRef = doc(db, MONTHLY_LOG_COLLECTION, log.id!);
-    await setDoc(docRef, {
+    await setDoc(docRef, cleanData({
       ...log,
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    }), { merge: true });
     return log.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `${MONTHLY_LOG_COLLECTION}/${log.id}`);
@@ -281,10 +281,10 @@ export const getMonthlyLog = async (id: string) => {
 export const saveWeeklyLog = async (log: Partial<WeeklyLog>) => {
   try {
     const docRef = doc(db, WEEKLY_LOG_COLLECTION, log.id!);
-    await setDoc(docRef, {
+    await setDoc(docRef, cleanData({
       ...log,
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    }), { merge: true });
     return log.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `${WEEKLY_LOG_COLLECTION}/${log.id}`);
@@ -304,6 +304,29 @@ export const getWeeklyLog = async (id: string) => {
   }
 };
 
+const cleanData = (data: any): any => {
+  if (data === null || typeof data !== 'object') {
+    return data;
+  }
+  
+  if (data instanceof Date) {
+    return data;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map(item => cleanData(item)).filter(item => item !== undefined);
+  }
+
+  const clean: any = {};
+  Object.keys(data).forEach(key => {
+    const value = data[key];
+    if (value !== undefined) {
+      clean[key] = cleanData(value);
+    }
+  });
+  return clean;
+};
+
 const saveGenericRecord = async (collectionName: string, data: any) => {
   try {
     const docRef = data.id 
@@ -312,11 +335,11 @@ const saveGenericRecord = async (collectionName: string, data: any) => {
     
     const id = docRef.id;
 
-    await setDoc(docRef, {
+    await setDoc(docRef, cleanData({
       ...data,
       id: id,
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    }), { merge: true });
 
     return id;
   } catch (error) {
@@ -327,14 +350,14 @@ const saveGenericRecord = async (collectionName: string, data: any) => {
 export const updateAssetAssignment = async (assetId: string, assignedUser: string, location: string, department: string, status: string, additionalFields: Partial<ITAsset> = {}) => {
   try {
     const assetRef = doc(db, ASSET_COLLECTION, assetId);
-    await setDoc(assetRef, {
+    await setDoc(assetRef, cleanData({
       assignedTo: assignedUser,
       status: status,
       department: department || "",
       location: location || "",
       ...additionalFields,
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    }), { merge: true });
 
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, ASSET_COLLECTION);

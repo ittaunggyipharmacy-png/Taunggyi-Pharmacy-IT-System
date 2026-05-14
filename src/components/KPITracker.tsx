@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { format, startOfToday, subDays, isToday, parseISO, startOfMonth, subMonths, getDay, startOfWeek } from "date-fns";
+import { cn } from "../lib/utils";
 
 const safeFormat = (date: any, formatStr: string, fallback: string = "--") => {
   if (!date) return fallback;
@@ -41,7 +42,7 @@ const safeFormat = (date: any, formatStr: string, fallback: string = "--") => {
     return fallback;
   }
 };
-import { DailyLog, MonthlyLog, WeeklyLog, KPITask } from "../types";
+import { DailyLog, MonthlyLog, WeeklyLog, KPITask, UserRole } from "../types";
 import { 
   saveDailyLog, getDailyLog, 
   saveMonthlyLog, getMonthlyLog, 
@@ -76,6 +77,7 @@ const TASKS: Task[] = [
 
   // Marketing (Daily)
   { id: "mkt_photos", category: "Marketing", text: "Shoot 20 Product Photos and post to Viber", type: "daily", maxCount: 20 },
+  { id: "mkt_drive", category: "Marketing", text: "Upload photos taken for Digital Marketing to Google Drive", type: "daily" },
   { id: "mkt_inquiry", category: "Marketing", text: "Respond to online inquiries (Messenger, Viber, Comments)", type: "daily" },
 
   // Marketing (Weekly)
@@ -95,17 +97,19 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-export const KPITracker: React.FC = () => {
+export const KPITracker: React.FC<{ userRole?: UserRole }> = ({ userRole }) => {
   const [view, setView] = useState<"daily" | "weekly" | "monthly">("daily");
   const [selectedDate, setSelectedDate] = useState(format(startOfToday(), "yyyy-MM-dd"));
   const [selectedWeek, setSelectedWeek] = useState(format(startOfWeek(startOfToday()), "yyyy-'W'II"));
   const [selectedMonth, setSelectedMonth] = useState(format(startOfMonth(startOfToday()), "yyyy-MM"));
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [completedTasks, setCompletedTasks] = useState<Record<string, any>>({});
+  const [customTasks, setCustomTasks] = useState<{id: string; text: string; category: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
 
   const currentUser = auth.currentUser;
+  const isSupervisor = userRole === UserRole.IT_SUPERVISOR || userRole === UserRole.ADMIN;
 
   useEffect(() => {
     if (currentUser) {
@@ -121,14 +125,17 @@ export const KPITracker: React.FC = () => {
         const logId = `${selectedDate}_${currentUser.uid}`;
         const log = await getDailyLog(logId);
         setCompletedTasks(log?.tasks || {});
+        setCustomTasks(log?.customTasks || []);
       } else if (view === "weekly") {
         const logId = `${selectedWeek}_${currentUser.uid}`;
         const log = await getWeeklyLog(logId);
         setCompletedTasks(log?.tasks || {});
+        setCustomTasks(log?.customTasks || []);
       } else {
         const logId = `${selectedMonth}_${currentUser.uid}`;
         const log = await getMonthlyLog(logId);
         setCompletedTasks(log?.tasks || {});
+        setCustomTasks(log?.customTasks || []);
       }
     } catch (err) {
       console.error("Failed to load log", err);
@@ -193,9 +200,14 @@ export const KPITracker: React.FC = () => {
   };
 
   const currentTasks = TASKS.filter(t => t.type === view);
+  
   const filteredTasks = activeCategory === "All" 
-    ? currentTasks 
+    ? [...currentTasks] 
     : currentTasks.filter(t => t.category === activeCategory);
+  
+  const filteredCustomTasks = activeCategory === "All"
+    ? customTasks
+    : customTasks.filter(t => t.category === activeCategory);
 
   const isTaskDueToday = (task: Task) => {
     if (view !== "weekly") return false;
@@ -209,8 +221,14 @@ export const KPITracker: React.FC = () => {
     const tasks = category && category !== "All" 
       ? currentTasks.filter(t => t.category === category)
       : currentTasks;
-    
-    if (tasks.length === 0) return 0;
+      
+    // Custom tasks progress
+    const cTasks = category && category !== "All"
+      ? customTasks.filter(t => t.category === category)
+      : customTasks;
+      
+    const totalTasks = tasks.length + cTasks.length;
+    if (totalTasks === 0) return 0;
     
     let totalProgress = 0;
     tasks.forEach(t => {
@@ -221,12 +239,18 @@ export const KPITracker: React.FC = () => {
         totalProgress += val ? 1 : 0;
       }
     });
+    cTasks.forEach(t => {
+      const val = completedTasks[t.id];
+      totalProgress += val ? 1 : 0;
+    });
 
-    return Math.round((totalProgress / tasks.length) * 100);
+    return Math.round((totalProgress / totalTasks) * 100);
   };
 
   const [showEvidenceModal, setShowEvidenceModal] = useState<string | null>(null);
   const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [isAddingCustomTask, setIsAddingCustomTask] = useState<string | null>(null); // State for adding task to a category
+  const [newCustomTaskText, setNewCustomTaskText] = useState("");
 
   const handleEvidenceUpload = async () => {
     if (!currentUser || !showEvidenceModal || !evidenceUrl) return;
@@ -259,6 +283,35 @@ export const KPITracker: React.FC = () => {
       alert("Evidence uploaded successfully!");
     } catch (err) {
       console.error("Failed to upload evidence", err);
+    }
+  };
+
+  const handleAddCustomTask = async () => {
+    if (!currentUser || !isAddingCustomTask || !newCustomTaskText) return;
+    
+    const newTask = { id: `custom_${Date.now()}`, text: newCustomTaskText, category: isAddingCustomTask };
+    const newCustomTasks = [...customTasks, newTask];
+    setCustomTasks(newCustomTasks);
+    
+    // Save to Firebase
+    const logId = view === "daily" ? `${selectedDate}_${currentUser.uid}` : 
+                  view === "weekly" ? `${selectedWeek}_${currentUser.uid}` : 
+                  `${selectedMonth}_${currentUser.uid}`;
+    
+    try {
+      if (view === "daily") {
+        await saveDailyLog({ id: logId, date: selectedDate, userId: currentUser.uid, tasks: completedTasks, customTasks: newCustomTasks });
+      } else if (view === "weekly") {
+        await saveWeeklyLog({ id: logId, week: selectedWeek, userId: currentUser.uid, tasks: completedTasks, customTasks: newCustomTasks });
+      } else {
+        await saveMonthlyLog({ id: logId, month: selectedMonth, userId: currentUser.uid, tasks: completedTasks, customTasks: newCustomTasks });
+      }
+      setIsAddingCustomTask(null);
+      setNewCustomTaskText("");
+    } catch (err) {
+      console.error("Failed to save custom task", err);
+      // Revert state
+      loadLogs();
     }
   };
 
@@ -436,15 +489,22 @@ export const KPITracker: React.FC = () => {
                               </div>
                             ) : (
                               <button 
-                                onClick={() => updateTask(task.id, !value ? new Date().toISOString() : false)}
-                                className={`transition-colors ${isCompleted ? "text-emerald-500" : "text-slate-300 hover:text-indigo-400"}`}
+                                onClick={() => {
+                                  if (isSupervisor) {
+                                    updateTask(task.id, !value ? new Date().toISOString() : false);
+                                  } else if (!isCompleted) {
+                                    updateTask(task.id, new Date().toISOString());
+                                  }
+                                }}
+                                className={`transition-colors ${isCompleted ? "text-emerald-500" : "text-slate-300 hover:text-indigo-400"} ${!isSupervisor && isCompleted ? "cursor-not-allowed" : ""}`}
+                                disabled={!isSupervisor && isCompleted}
                               >
                                 {isCompleted ? <CheckCircle2 size={24} /> : <Circle size={24} />}
                               </button>
                             )}
 
                             {/* Evidence Upload Trigger */}
-                            {(task.id === "mkt_photos" || task.id === "merch_visit" || task.id === "it_asset") && (
+                            {(task.id === "mkt_photos" || task.id === "mkt_drive" || task.id === "merch_visit" || task.id === "it_asset") && (
                               <button 
                                 onClick={() => setShowEvidenceModal(task.id)}
                                 className="p-1.5 bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-200 transition-colors"
@@ -502,21 +562,38 @@ export const KPITracker: React.FC = () => {
                           {task.maxCount && (
                             <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-xl border border-slate-100 w-fit">
                               <div className="flex items-center gap-1">
-                                <button 
-                                  onClick={() => updateTask(task.id, Math.max(0, (Number(value) || 0) - 1))}
-                                  className="p-1 hover:bg-white rounded-lg text-slate-400 disabled:opacity-30"
-                                  disabled={!value}
-                                >
-                                  <Minus size={14} />
-                                </button>
-                                <span className="w-12 text-center font-black text-slate-800">{value || 0} / {task.maxCount}</span>
-                                <button 
-                                  onClick={() => updateTask(task.id, Math.min(task.maxCount!, (Number(value) || 0) + 1))}
-                                  className="p-1 hover:bg-white rounded-lg text-slate-400 disabled:opacity-30"
-                                  disabled={value === task.maxCount}
-                                >
-                                  <Plus size={14} />
-                                </button>
+                                {isSupervisor && (
+                                  <button 
+                                    onClick={() => updateTask(task.id, Math.max(0, (Number(value) || 0) - 1))}
+                                    className="p-1 hover:bg-white rounded-lg text-slate-400 disabled:opacity-30"
+                                    disabled={!value}
+                                  >
+                                    <Minus size={14} />
+                                  </button>
+                                )}
+                                
+                                {isSupervisor ? (
+                                  <input 
+                                    type="number"
+                                    value={value || 0}
+                                    onChange={(e) => updateTask(task.id, Math.min(task.maxCount!, Math.max(0, parseInt(e.target.value) || 0)))}
+                                    className="w-12 bg-white border border-slate-200 rounded text-center font-black text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                  />
+                                ) : (
+                                  <span className="w-12 text-center font-black text-slate-800">{value || 0} / {task.maxCount}</span>
+                                )}
+                                
+                                <span className="text-[10px] font-bold text-slate-400 mx-1">/ {task.maxCount}</span>
+
+                                {(isSupervisor || !isCompleted) && (
+                                  <button 
+                                    onClick={() => updateTask(task.id, Math.min(task.maxCount!, (Number(value) || 0) + 1))}
+                                    className="p-1 hover:bg-white rounded-lg text-slate-400 disabled:opacity-30"
+                                    disabled={value === task.maxCount}
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                )}
                               </div>
                               <div className="w-32 h-1.5 bg-slate-200 rounded-full overflow-hidden">
                                 <motion.div 
@@ -531,6 +608,35 @@ export const KPITracker: React.FC = () => {
                       </motion.div>
                     );
                   })}
+                  {filteredCustomTasks.map((task) => {
+                    const value = completedTasks[task.id];
+                    const isCompleted = !!value;
+                    return (
+                        <div key={task.id} className="p-5 flex items-start gap-4 border-t border-slate-50">
+                            <button onClick={() => updateTask(task.id, !value ? new Date().toISOString() : false)} className={cn("mt-1", isCompleted ? "text-emerald-500" : "text-slate-300")}>
+                                {isCompleted ? <CheckCircle2 size={24} /> : <Circle size={24} />}
+                            </button>
+                            <div className="flex-1">
+                                <p className={cn("text-base font-semibold", isCompleted ? "text-slate-400 line-through" : "text-slate-700")}>{task.text}</p>
+                                <span className={cn("text-[9px] font-bold px-2 py-0.5 rounded-full border", CATEGORY_COLORS[task.category])}>{task.category} (Custom)</span>
+                            </div>
+                        </div>
+                    );
+                  })}
+                  
+                  {isSupervisor && (
+                    <div className="p-4 border-t border-slate-50">
+                        <button 
+                          onClick={() => {
+                            const categoryToAdd = activeCategory === "All" ? (TASKS[0]?.category || "General") : activeCategory;
+                            setIsAddingCustomTask(categoryToAdd);
+                          }} 
+                          className="text-xs font-bold text-indigo-600 flex items-center gap-2"
+                        >
+                            <Plus size={16} /> Add Custom Task {activeCategory !== "All" ? `to ${activeCategory}` : ""}
+                        </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -584,6 +690,58 @@ export const KPITracker: React.FC = () => {
                     className="flex-1 px-6 py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50"
                   >
                     Confirm Upload
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        
+        {isAddingCustomTask && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddingCustomTask(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl p-8"
+            >
+              <h3 className="text-xl font-bold text-slate-800 mb-2">Add Custom Task</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                Add a new task for <span className="font-bold text-indigo-600">{isAddingCustomTask}</span>
+              </p>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Task Description</label>
+                  <input 
+                    type="text"
+                    value={newCustomTaskText}
+                    onChange={e => setNewCustomTaskText(e.target.value)}
+                    placeholder="Enter task description"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-sans"
+                  />
+                </div>
+                
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setIsAddingCustomTask(null)}
+                    className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-slate-200 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleAddCustomTask}
+                    disabled={!newCustomTaskText}
+                    className="flex-1 px-6 py-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-100 disabled:opacity-50"
+                  >
+                    Add Task
                   </button>
                 </div>
               </div>

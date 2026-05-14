@@ -28,44 +28,44 @@ const KPIDashboard: React.FC = () => {
   }, [calculatedKpis]);
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen">
-      <h2 className="text-3xl font-black text-slate-800 mb-8 uppercase tracking-widest">IT Department KPI Dashboard</h2>
+    <div className="p-6 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-300">
+      <h2 className="text-3xl font-black text-slate-800 dark:text-slate-100 mb-8 uppercase tracking-widest">IT Department KPI Dashboard</h2>
       
       {Object.entries(groupedKpis).map(([role, kpis]) => (
-        <div key={role} className="mb-8 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="bg-slate-800 px-6 py-4">
+        <div key={role} className="mb-8 bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden transition-all duration-300">
+          <div className="bg-slate-800 dark:bg-slate-950 px-6 py-4">
             <h3 className="text-white font-bold text-lg uppercase tracking-wider">{role}</h3>
           </div>
-          <table className="min-w-full divide-y divide-slate-100">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-black text-slate-500 uppercase tracking-wider">KPI Title</th>
-                <th className="px-6 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-wider">Target</th>
-                <th className="px-6 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-wider">Actual</th>
-                <th className="px-6 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-wider">Actual %</th>
-                <th className="px-6 py-3 text-center text-xs font-black text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-wider">Weight</th>
-                <th className="px-6 py-3 text-right text-xs font-black text-slate-500 uppercase tracking-wider">Weighted Score</th>
+          <table className="min-w-full divide-y divide-slate-100 dark:divide-slate-800">
+            <thead className="bg-slate-50 dark:bg-slate-800/50">
+              <tr className="text-slate-600 dark:text-slate-400 font-semibold uppercase tracking-wider text-xs">
+                <th className="px-6 py-3 text-left">KPI Title</th>
+                <th className="px-6 py-3 text-right">Target</th>
+                <th className="px-6 py-3 text-right">Actual</th>
+                <th className="px-6 py-3 text-right">Actual %</th>
+                <th className="px-6 py-3 text-center">Status</th>
+                <th className="px-6 py-3 text-right">Weight</th>
+                <th className="px-6 py-3 text-right">Weighted Score</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {kpis.map(k => (
-                <tr key={k.id} className="hover:bg-slate-50/50">
-                  <td className="px-6 py-4 text-sm font-medium text-slate-700">{k.title} ({k.unit})</td>
+                <tr key={k.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                  <td className="px-6 py-4 text-sm font-medium text-slate-700 dark:text-slate-300">{k.title} ({k.unit})</td>
                   <td className="px-6 py-4 text-right">
-                    <input type="number" value={k.target} onChange={(e) => handleInputChange(k.id, 'target', e.target.value)} className="w-20 border border-slate-200 rounded-lg p-2 text-right font-mono" />
+                    <input type="number" value={k.target} onChange={(e) => handleInputChange(k.id, 'target', e.target.value)} className="w-20 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-right font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" />
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <input type="number" value={k.actual} onChange={(e) => handleInputChange(k.id, 'actual', e.target.value)} className="w-20 border border-slate-200 rounded-lg p-2 text-right font-mono" />
+                    <input type="number" value={k.actual} onChange={(e) => handleInputChange(k.id, 'actual', e.target.value)} className="w-20 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-right font-mono bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" />
                   </td>
-                  <td className="px-6 py-4 text-right text-sm font-bold text-slate-600">{k.actualPercentage.toFixed(2)}%</td>
+                  <td className="px-6 py-4 text-right text-sm font-bold text-slate-600 dark:text-slate-400">{k.actualPercentage.toFixed(2)}%</td>
                   <td className="px-6 py-4 text-center">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${k.status === 'Achieved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${k.status === 'Achieved' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'}`}>
                       {k.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right text-sm font-bold text-slate-500">{k.weight.toFixed(2)}%</td>
-                  <td className="px-6 py-4 text-right text-sm font-black text-slate-800">{k.weightedScore.toFixed(2)}</td>
+                  <td className="px-6 py-4 text-right text-sm font-bold text-slate-500 dark:text-slate-400">{k.weight.toFixed(2)}%</td>
+                  <td className="px-6 py-4 text-right text-sm font-black text-slate-800 dark:text-slate-100">{k.weightedScore.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

@@ -91,10 +91,11 @@ service cloud.firestore {
     }
 
     function isValidTaskEvidence(data) {
-      return data.keys().hasAll(['taskId', 'logId', 'imageUrl'])
+      return data.keys().hasAll(['taskId', 'logId', 'imageUrl', 'userId'])
         && data.taskId is string
         && data.logId is string
-        && data.imageUrl is string;
+        && data.imageUrl is string
+        && data.userId is string && data.userId == request.auth.uid;
     }
 
     function isValidEmployee(data) {
@@ -262,7 +263,9 @@ service cloud.firestore {
     // Task Evidence
     match /task_evidence/{evidenceId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(evidenceId) && isValidTaskEvidence(incoming());
+      allow create: if isSignedIn() && isValidId(evidenceId) && isValidTaskEvidence(incoming());
+      allow update: if false;
+      allow delete: if isAdmin();
     }
 
     // Asset Logs

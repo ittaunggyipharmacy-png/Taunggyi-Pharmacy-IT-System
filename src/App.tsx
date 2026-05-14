@@ -20,9 +20,11 @@ import {
   HardDrive,
   Camera,
   ChevronRight,
+  ChevronDown,
   Download,
   X,
   Search,
+  Printer,
   Menu,
   RefreshCw,
   ShoppingCart,
@@ -37,6 +39,10 @@ import {
   Activity,
   Layers,
   PieChart,
+  Tag,
+  Settings2,
+  Database,
+  ClipboardList,
   AlertCircle,
   FileText,
   Upload,
@@ -56,13 +62,14 @@ import {
   MousePointer2,
   Usb,
   Wind,
-  ClipboardList,
   Info,
   ExternalLink,
   Phone,
   CreditCard,
   Users,
-  Wrench
+  Wrench,
+  Sun,
+  Moon
 } from "lucide-react";
 import { utils, writeFile } from "xlsx";
 import { motion, AnimatePresence } from "motion/react";
@@ -70,6 +77,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { format, subDays, parseISO } from "date-fns";
+import { cn } from "./lib/utils";
 import { 
   BarChart, 
   Bar, 
@@ -139,6 +147,7 @@ import {
   UserRole
 } from "./types";
 import { KPITracker } from "./components/KPITracker";
+import { MultiSelectDropdown } from "./components/MultiSelectDropdown";
 import KPIDashboard from "./components/KPIDashboard";
 import SkillMatrix from "./components/SkillMatrix";
 import { UserManagement } from "./components/UserManagement";
@@ -177,9 +186,6 @@ const isHistorical = (dateStr: string) => {
   return diffDays > 30;
 };
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 const formatId = (id: string) => {
   if (!id) return "";
@@ -378,7 +384,25 @@ export default function App() {
   
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem("theme");
+      return saved === "dark" || (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    }
+    return false;
+  });
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Theme management logic
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem("theme", "light");
+    }
+  }, [isDarkMode]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const pendingTicketsCount = tickets.filter(t => t.status === Status.PENDING || t.status === Status.IN_PROGRESS).length;
@@ -391,7 +415,7 @@ export default function App() {
     const dailyTaskIds = [
       "it_uptime", "it_maint", "it_support", "it_backup", "it_access", "it_asset",
       "merch_stock", "merch_promo", "merch_visit",
-      "mkt_photos", "mkt_inquiry"
+      "mkt_photos", "mkt_drive", "mkt_inquiry"
     ];
     
     if (!todayLog) return dailyTaskIds.length;
@@ -718,10 +742,10 @@ export default function App() {
     { id: "files", label: "Cloud Files", icon: HardDrive },
     { id: "settings", label: "System Settings", icon: Settings },
     { id: "help", label: "Help & Support", icon: HelpCircle },
-  ].filter(item => isAdmin || item.id === "tickets" || item.id === "assets");
+  ].filter(item => isAdmin || item.id === "tickets" || item.id === "assets" || item.id === "files");
 
   return (
-    <div className="flex h-screen bg-[#f8fafc] overflow-hidden font-sans text-slate-900">
+    <div className="flex h-screen bg-[#f8fafc] dark:bg-slate-950 overflow-hidden font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -745,12 +769,12 @@ export default function App() {
             : 0
         }}
         className={cn(
-          "bg-white border-r border-slate-200 flex flex-col z-50 fixed inset-y-0 left-0 lg:relative lg:translate-x-0 shadow-sm transition-all duration-300",
+          "bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-50 fixed inset-y-0 left-0 lg:relative lg:translate-x-0 shadow-sm transition-all duration-300",
           !isSidebarOpen && "lg:w-20"
         )}
       >
         <div className={cn(
-          "h-20 px-6 flex items-center shrink-0 border-b border-slate-100",
+          "h-20 px-6 flex items-center shrink-0 border-b border-slate-100 dark:border-slate-800",
           isSidebarOpen ? "justify-between" : "justify-center"
         )}>
           {isSidebarOpen && (
@@ -762,9 +786,9 @@ export default function App() {
               <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
                 <Box size={20} />
               </div>
-              <div className="font-bold text-slate-800 tracking-tight leading-none">
+              <div className="font-bold text-slate-800 dark:text-slate-100 tracking-tight leading-none">
                 managez.<br/>
-                <span className="text-slate-400 font-medium text-[10px] uppercase tracking-wider">Powered by Lex Corp.</span>
+                <span className="text-slate-400 dark:text-slate-500 font-medium text-[10px] uppercase tracking-wider">Powered by Lex Corp.</span>
               </div>
             </motion.div>
           )}
@@ -785,8 +809,8 @@ export default function App() {
               className={cn(
                 "w-full flex items-center gap-4 px-6 py-4 transition-all duration-200 group text-left",
                 activeTab === item.id 
-                  ? "bg-indigo-50/80 text-indigo-600 border-r-4 border-indigo-600" 
-                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                  ? "bg-indigo-50/80 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-r-4 border-indigo-600 dark:border-indigo-400" 
+                  : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-slate-100"
               )}
             >
               <item.icon size={20} className={cn(activeTab === item.id ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600")} />
@@ -805,14 +829,14 @@ export default function App() {
         </nav>
 
         {isSidebarOpen && (
-          <div className="p-6 bg-slate-50/50">
+          <div className="p-6 bg-slate-50/50 dark:bg-slate-800/20">
              <div className="flex items-center gap-3 mb-4">
-               <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+               <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                   <Activity size={20} />
                </div>
                <div className="flex-1">
-                  <p className="text-xs font-bold text-slate-800">Overall usage 45% (51 °C)</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">23 Dec 2020, 6:00 pm</p>
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Overall usage 45% (51 °C)</p>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">23 Dec 2020, 6:00 pm</p>
                </div>
              </div>
           </div>
@@ -821,31 +845,40 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 pb-20 lg:pb-0">
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 shrink-0">
+        <header className="h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-8 shrink-0 transition-colors duration-300">
           <div className="flex items-center gap-3 lg:gap-4">
             <button 
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 transition-colors"
+              className="p-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-slate-400 transition-colors"
             >
               <Menu size={24} />
             </button>
-            <div className="h-8 w-px bg-slate-200 mx-2 hidden sm:block" />
+            <div className="h-8 w-px bg-slate-200 dark:bg-slate-800 mx-2 hidden sm:block" />
             <div className="hidden sm:block">
-               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Inventory Management</p>
-               <h2 className="text-sm font-bold text-slate-800 tracking-tight">{navItems.find(i => i.id === activeTab)?.label}</h2>
+               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Inventory Management</p>
+               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">{navItems.find(i => i.id === activeTab)?.label}</h2>
             </div>
           </div>
 
           <div className="flex items-center gap-3 lg:gap-6">
+            {/* Theme Toggle */}
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-all border border-slate-200 dark:border-slate-700"
+              title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+
             {/* Search */}
             <div className="relative hidden md:block group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-indigo-600" size={16} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 transition-colors group-focus-within:text-indigo-600" size={16} />
               <input 
                 type="text" 
                 placeholder="Search assets, tickets, specs (RAM/CPU)..." 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 bg-slate-100/50 border border-slate-200 transition-all focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 focus:bg-white rounded-xl text-sm w-48 lg:w-64 outline-none text-slate-800"
+                className="pl-10 pr-4 py-2 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 transition-all focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-800 rounded-xl text-sm w-48 lg:w-64 outline-none text-slate-800 dark:text-slate-100"
               />
             </div>
 
@@ -855,12 +888,12 @@ export default function App() {
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
                   className={cn(
                     "relative p-2 transition-all rounded-xl",
-                    isNotificationsOpen ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                    isNotificationsOpen ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200 dark:shadow-none" : "text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
                   )}
                 >
                   <Bell size={20} />
                   {(pendingTicketsCount + (isAdmin && pendingDailyKpiCount > 0 ? 1 : 0)) > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white animate-pulse">
+                    <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white dark:border-slate-900 animate-pulse">
                       {pendingTicketsCount + (isAdmin && pendingDailyKpiCount > 0 ? 1 : 0)}
                     </span>
                   )}
@@ -872,11 +905,11 @@ export default function App() {
                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden"
+                      className="absolute right-0 mt-3 w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 z-50 overflow-hidden"
                     >
-                      <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                        <h3 className="font-bold text-slate-800 text-sm italic">Notifications中心</h3>
-                        <button className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest hover:underline">Mark all read</button>
+                      <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <h3 className="font-bold text-slate-800 dark:text-slate-100 text-sm italic">Notifications中心</h3>
+                        <button className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest hover:underline">Mark all read</button>
                       </div>
                       <div className="max-h-[400px] overflow-y-auto">
                         {isAdmin && pendingDailyKpiCount > 0 && (
@@ -885,24 +918,24 @@ export default function App() {
                               setActiveTab("daily-kpi");
                               setIsNotificationsOpen(false);
                             }}
-                            className="p-4 hover:bg-slate-50 transition-colors cursor-pointer border-b border-rose-50 border-l-4 border-l-rose-500"
+                            className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer border-b border-rose-50 dark:border-rose-950/30 border-l-4 border-l-rose-500"
                           >
                             <div className="flex justify-between items-start mb-1">
-                              <p className="text-xs font-bold text-slate-800 italic uppercase tracking-wider">Missing Daily Logs</p>
-                              <span className="text-[9px] text-rose-500 font-bold bg-rose-50 px-1.5 py-0.5 rounded-full">ACTION REQUIRED</span>
+                              <p className="text-xs font-bold text-slate-800 dark:text-slate-200 italic uppercase tracking-wider">Missing Daily Logs</p>
+                              <span className="text-[9px] text-rose-500 font-bold bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded-full">ACTION REQUIRED</span>
                             </div>
                             <div className="flex items-center gap-2">
                               <AlertCircle size={10} className="text-rose-500" />
-                              <p className="text-[10px] text-slate-500">{pendingDailyKpiCount} Operational tasks remaining for today</p>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400">{pendingDailyKpiCount} Operational tasks remaining for today</p>
                             </div>
                           </div>
                         )}
                         {tickets.filter(t => t.status === Status.PENDING || t.status === Status.IN_PROGRESS).length === 0 && pendingDailyKpiCount === 0 ? (
                           <div className="p-8 text-center">
-                            <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                              <BellOff className="text-slate-300" size={24} />
+                            <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
+                              <BellOff className="text-slate-300 dark:text-slate-600" size={24} />
                             </div>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No active tickets</p>
+                            <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">No active tickets</p>
                           </div>
                         ) : (
                           tickets
@@ -915,11 +948,11 @@ export default function App() {
                                   setActiveTab("tickets");
                                   setIsNotificationsOpen(false);
                                 }}
-                                className="p-4 hover:bg-slate-50 transition-colors cursor-pointer border-b border-slate-50 last:border-0 border-l-4 border-l-transparent hover:border-l-indigo-600"
+                                className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer border-b border-slate-50 dark:border-slate-800 last:border-0 border-l-4 border-l-transparent hover:border-l-indigo-600"
                               >
                                 <div className="flex justify-between items-start mb-1">
-                                  <p className="text-xs font-bold text-slate-800">{ticket.problemType}</p>
-                                  <span className="text-[9px] text-slate-400 font-mono italic">
+                                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{ticket.problemType}</p>
+                                  <span className="text-[9px] text-slate-400 dark:text-slate-500 font-mono italic">
                                     {safeFormat(ticket.requestTime, "HH:mm")}
                                   </span>
                                 </div>
@@ -999,13 +1032,14 @@ export default function App() {
               transition={{ duration: 0.2 }}
             >
               {activeTab === "dashboard" && <Dashboard tickets={tickets} assets={assets} backups={backups} quota={quota} />}
-              {activeTab === "tickets" && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} />}
+              {activeTab === "tickets" && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} />}
               {activeTab === "assets" && (
                 <AssetsModule 
                   assets={assets} 
                   setAssets={setAssets} 
                   searchTerm={searchTerm} 
                   isAdmin={isAdmin} 
+                  settings={settings}
                 />
               )}
               {activeTab === "security" && <SecurityModule backups={backups} setBackups={setBackups} requests={cctvRequests} setRequests={setCctvRequests} searchTerm={searchTerm} isAdmin={isAdmin} />}
@@ -1022,9 +1056,9 @@ export default function App() {
               {activeTab === "help" && <HelpSupportModule />}
               {activeTab === "files" && <FileManagerModule isAdmin={isAdmin} quota={quota} setQuota={setQuota} />}
               {activeTab === "kpi" && <KPIDashboard />}
-              {activeTab === "daily-kpi" && <KPITracker />}
+              {activeTab === "daily-kpi" && <KPITracker userRole={userProfile?.role} />}
               {activeTab === "skills" && isAdmin && <SkillMatrix />}
-              {activeTab === "users" && isAdmin && <UserManagement isSuperAdmin={currentUser?.email === "it.taunggyipharmacy@gmail.com"} />}
+              {activeTab === "users" && (userProfile?.role === UserRole.ADMIN || userProfile?.role === UserRole.IT_SUPERVISOR) && <UserManagement isSuperAdmin={currentUser?.email === "it.taunggyipharmacy@gmail.com"} />}
               {activeTab === "reports" && isAdmin && (
                 <ReportsModule 
                   activities={activities} 
@@ -1167,8 +1201,8 @@ function HelpSupportModule() {
   return (
     <div className="space-y-8 pb-20 lg:pb-0">
       <div className="enterprise-card p-6 lg:p-10">
-        <h2 className="text-xl lg:text-2xl font-bold text-slate-800 tracking-tight uppercase">Knowledge Base & Support</h2>
-        <p className="text-[10px] lg:text-xs text-slate-400 mt-2 lg:mt-3 leading-relaxed font-bold tracking-widest uppercase">
+        <h2 className="text-xl lg:text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight uppercase">Knowledge Base & Support</h2>
+        <p className="text-[10px] lg:text-xs text-slate-400 dark:text-slate-500 mt-2 lg:mt-3 leading-relaxed font-bold tracking-widest uppercase">
           Standard Operating Procedures & Support Channels
         </p>
       </div>
@@ -1176,8 +1210,8 @@ function HelpSupportModule() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           <div className="enterprise-card p-8">
-            <h3 className="text-lg font-bold text-slate-800 mb-6 uppercase tracking-tight flex items-center gap-3">
-              <FileText className="text-indigo-600" size={24} />
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6 uppercase tracking-tight flex items-center gap-3">
+              <FileText className="text-indigo-600 dark:text-indigo-400" size={24} />
               IT-SOP-001 Protocol
             </h3>
             <div className="prose prose-slate prose-sm max-w-none space-y-4 text-slate-600">
@@ -1195,15 +1229,15 @@ function HelpSupportModule() {
 
         <div className="space-y-6">
           <div className="enterprise-card p-6">
-            <h3 className="font-bold text-slate-800 mb-4 uppercase tracking-tight">IT Hotlines</h3>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4 uppercase tracking-tight">IT Hotlines</h3>
             <div className="space-y-4">
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Technical Support</p>
-                <p className="text-sm font-bold text-slate-800 mt-1">09-940-931-313</p>
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Technical Support</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mt-1">09-940-931-313</p>
               </div>
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Urgent Escalation</p>
-                <p className="text-sm font-bold text-slate-800 mt-1">09-XXX-XXX-XXX</p>
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Urgent Escalation</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mt-1">09-XXX-XXX-XXX</p>
               </div>
             </div>
           </div>
@@ -1217,7 +1251,7 @@ function HelpSupportModule() {
 
 import { saveEmployeeProfile } from './services/firestoreService';
 
-function SkillsModule({ employees }: { employees: EmployeeProfile[] }) {
+function SkillsModule({ employees, settings }: { employees: EmployeeProfile[], settings: SystemSettings }) {
   const [isAdding, setIsAdding] = useState(false);
   const [newEmployee, setNewEmployee] = useState<Partial<EmployeeProfile>>({ department: "IT", skills: [] });
 
@@ -1249,8 +1283,8 @@ function SkillsModule({ employees }: { employees: EmployeeProfile[] }) {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Team Skill Matrix</h2>
-          <p className="text-sm text-slate-500">Track and manage employee competencies</p>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Team Skill Matrix</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Track and manage employee competencies</p>
         </div>
         <button 
           onClick={() => setIsAdding(true)}
@@ -1262,24 +1296,25 @@ function SkillsModule({ employees }: { employees: EmployeeProfile[] }) {
       </div>
 
       {isAdding && (
-         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm mb-8">
-           <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><User size={20} className="text-indigo-600" /> New Employee Profile</h3>
+         <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm mb-8">
+           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2"><User size={20} className="text-indigo-600 dark:text-indigo-400" /> New Employee Profile</h3>
            <form onSubmit={handleSave} className="space-y-6">
              <div className="grid grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Name</label>
-                  <input type="text" required value={newEmployee.name || ""} onChange={e => setNewEmployee({...newEmployee, name: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl" placeholder="John Doe" />
+                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Name</label>
+                  <input type="text" required value={newEmployee.name || ""} onChange={e => setNewEmployee({...newEmployee, name: e.target.value})} className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600" placeholder="John Doe" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Department</label>
-                  <select value={newEmployee.department} onChange={e => setNewEmployee({...newEmployee, department: e.target.value as any})} className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white">
-                    {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Department</label>
+                  <select value={newEmployee.department} onChange={e => setNewEmployee({...newEmployee, department: e.target.value as any})} className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                    <option value="">Select Department</option>
+                    {settings.departments.map(d => <option key={d} value={d} className="bg-white dark:bg-slate-800">{d}</option>)}
                   </select>
                 </div>
              </div>
 
              <div>
-               <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Assign Skills</label>
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4">Assign Skills</label>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {SKILL_CATEGORIES.map(category => {
                    const currLevel = newEmployee.skills?.find(s => s.category === category)?.level || 0;
@@ -1292,7 +1327,7 @@ function SkillsModule({ employees }: { employees: EmployeeProfile[] }) {
                               key={lvl}
                               type="button"
                               onClick={() => updateSkill(category, lvl)}
-                              className={`w-6 h-6 rounded flex items-center justify-center text-xs ${lvl <= currLevel ? 'bg-amber-400 text-white' : 'bg-slate-200 text-slate-400 hover:bg-slate-300'}`}
+                              className={`w-6 h-6 rounded flex items-center justify-center text-xs transition-colors ${lvl <= currLevel ? 'bg-amber-400 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 hover:bg-slate-300 dark:hover:bg-slate-600'}`}
                             >
                               ★
                             </button>
@@ -1304,8 +1339,8 @@ function SkillsModule({ employees }: { employees: EmployeeProfile[] }) {
                </div>
              </div>
 
-             <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-               <button type="button" onClick={() => setIsAdding(false)} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-slate-200">Cancel</button>
+             <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+               <button type="button" onClick={() => setIsAdding(false)} className="px-6 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-slate-200 dark:hover:bg-slate-700">Cancel</button>
                <button type="submit" className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-indigo-500">Save Profile</button>
              </div>
            </form>
@@ -1317,25 +1352,25 @@ function SkillsModule({ employees }: { employees: EmployeeProfile[] }) {
           <div key={emp.id} className="enterprise-card p-6 flex flex-col h-full">
             <div className="flex justify-between items-start mb-6">
               <div>
-                <h3 className="text-lg font-black text-slate-900">{emp.name}</h3>
-                <span className="inline-block px-2 py-1 mt-1 bg-indigo-50 text-indigo-700 text-[10px] font-bold uppercase tracking-widest rounded">{emp.department}</span>
+                <h3 className="text-lg font-black text-slate-900 dark:text-slate-100">{emp.name}</h3>
+                <span className="inline-block px-2 py-1 mt-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 text-[10px] font-bold uppercase tracking-widest rounded">{emp.department}</span>
               </div>
-              <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 font-bold">
+              <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-400 dark:text-slate-500 font-bold">
                 {emp.name.charAt(0)}
               </div>
             </div>
 
             <div className="flex-1 space-y-4">
-              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Skill Matrix</h4>
+              <h4 className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800 pb-2">Skill Matrix</h4>
               {emp.skills?.length === 0 ? (
-                <p className="text-xs text-slate-400 italic">No skills recorded.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 italic">No skills recorded.</p>
               ) : (
                 emp.skills?.sort((a,b) => b.level - a.level).map(skill => (
                   <div key={skill.category} className="flex justify-between items-center">
-                    <span className="text-sm font-medium text-slate-700">{skill.category}</span>
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{skill.category}</span>
                     <div className="flex gap-1">
                       {[1,2,3,4,5].map(lvl => (
-                        <div key={lvl} className={`w-3 h-3 rounded-full ${lvl <= skill.level ? 'bg-amber-400' : 'bg-slate-100'}`} />
+                        <div key={lvl} className={`w-3 h-3 rounded-full ${lvl <= skill.level ? 'bg-amber-400' : 'bg-slate-100 dark:bg-slate-800'}`} />
                       ))}
                     </div>
                   </div>
@@ -1532,10 +1567,10 @@ function ReportsModule({ activities, evidence, allDailyLogs, tickets, employees 
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    <th className="text-left text-[10px] font-black text-slate-400 uppercase tracking-wider pb-3">Staff Member</th>
-                    <th className="text-left text-[10px] font-black text-slate-400 uppercase tracking-wider pb-3">Department</th>
-                    <th className="text-left text-[10px] font-black text-slate-400 uppercase tracking-wider pb-3">KPI Completion</th>
-                    <th className="text-left text-[10px] font-black text-slate-400 uppercase tracking-wider pb-3">Avg Skill Level</th>
+                    <th className="text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider pb-3">Staff Member</th>
+                    <th className="text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider pb-3">Department</th>
+                    <th className="text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider pb-3">KPI Completion</th>
+                    <th className="text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wider pb-3">Avg Skill Level</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1629,7 +1664,7 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
     <div className="flex flex-col xl:flex-row gap-6">
       <div className="flex-1 space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-slate-800">Inventory dashboard</h1>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Inventory dashboard</h1>
           <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm">
             <Plus size={18} />
             <span>Add items</span>
@@ -1659,10 +1694,10 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
           <div className="enterprise-card p-6">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-lg font-bold text-slate-800">Inventory counter</h3>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Inventory counter</h3>
                 <div className="flex gap-4 mt-2">
-                   <button className="text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 pb-1">Device</button>
-                   <button className="text-sm font-medium text-slate-400 hover:text-slate-600">Spare parts</button>
+                   <button className="text-sm font-bold text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400 pb-1">Device</button>
+                   <button className="text-sm font-medium text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">Spare parts</button>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -1696,8 +1731,8 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
           {/* Workstations Chart */}
           <div className="enterprise-card p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold text-slate-800">Workstations</h3>
-              <button className="p-2 text-slate-400 hover:text-slate-600 transition-colors"><Download size={16} /></button>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Workstations</h3>
+              <button className="p-2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"><Download size={16} /></button>
             </div>
             <div className="flex gap-4 mb-6">
                <button className="text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 pb-1">State count</button>
@@ -1724,8 +1759,8 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
                 </RePieChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                 <p className="text-xs text-slate-500 font-bold uppercase">Total</p>
-                 <p className="text-2xl font-bold text-slate-800">100%</p>
+                 <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase">Total</p>
+                 <p className="text-2xl font-bold text-slate-800 dark:text-slate-100">100%</p>
               </div>
             </div>
 
@@ -1744,13 +1779,13 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
       {/* Right License Sidebar */}
       <div className="w-full xl:w-80 space-y-6 shrink-0">
         <div className="enterprise-card p-6 min-h-full">
-           <h3 className="text-lg font-bold text-slate-800 mb-6">Purchased license</h3>
+           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6">Purchased license</h3>
            <div className="relative mb-6">
-             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
              <input 
                type="text" 
                placeholder="Search" 
-               className="w-full pl-10 pr-4 py-2 bg-slate-100/50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+               className="w-full pl-10 pr-4 py-2 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-800 dark:text-slate-100"
              />
            </div>
            
@@ -1784,11 +1819,121 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
   );
 }
 
-function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: ITTicket[], setTickets: (t: ITTicket[]) => void, searchTerm: string, isAdmin: boolean }) {
+/**
+ * Standard Multi-level Searchable Dropdown for Enterprise UI
+ */
+function SearchableDropdown({ 
+  options, 
+  value, 
+  onChange, 
+  placeholder, 
+  label, 
+  icon: Icon,
+  className 
+}: {
+  options: string[];
+  value: string;
+  onChange: (val: string) => void;
+  placeholder: string;
+  label?: string;
+  icon?: any;
+  className?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredOptions = options.filter(o => 
+    (o || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className={cn("relative group", className)} ref={dropdownRef}>
+      {label && <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-1">{label}</label>}
+      <button 
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "w-full flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[11px] font-bold transition-all text-slate-700 dark:text-slate-300 hover:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 outline-none",
+          isOpen ? "ring-2 ring-indigo-500/10 border-indigo-400" : ""
+        )}
+      >
+        <div className="flex items-center gap-2 truncate">
+          {Icon && <Icon size={12} className="text-slate-400 shrink-0" />}
+          <span className="truncate">{value === "All" || !value ? placeholder : value}</span>
+        </div>
+        <ChevronDown size={14} className={cn("text-slate-400 transition-transform shrink-0", isOpen ? "rotate-180" : "rotate-0")} />
+      </button>
+      
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div 
+            initial={{ opacity: 0, y: 5, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 5, scale: 0.98 }}
+            className="absolute z-[100] mt-2 w-full min-w-[200px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden"
+          >
+            <div className="p-2 border-b border-slate-100 dark:border-slate-800">
+               <div className="relative">
+                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
+                 <input 
+                   autoFocus
+                   type="text" 
+                   value={search}
+                   onChange={e => setSearch(e.target.value)}
+                   className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800/50 border-none rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500/10 dark:text-white"
+                   placeholder="Search options..."
+                 />
+               </div>
+            </div>
+            <div className="max-h-60 overflow-y-auto py-1 custom-scrollbar">
+              {["All", ...options].length === 0 && <div className="px-4 py-3 text-[10px] text-slate-400 italic text-center">No options available</div>}
+              {["All", ...filteredOptions].map((opt, i) => (
+                <button
+                  key={`${opt}-${i}`}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt);
+                    setIsOpen(false);
+                    setSearch("");
+                  }}
+                  className={cn(
+                    "w-full text-left px-4 py-2.5 text-xs transition-colors flex items-center justify-between",
+                    value === opt ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-bold" : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  )}
+                >
+                  <span>{opt}</span>
+                  {value === opt && <CheckCircle2 size={12} />}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: { tickets: ITTicket[], setTickets: (t: ITTicket[]) => void, searchTerm: string, isAdmin: boolean, settings: SystemSettings }) {
   const [isAdding, setIsAdding] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<ITTicket | null>(null);
   const [newAction, setNewAction] = useState("");
   const [ticketSearch, setTicketSearch] = useState("");
+  
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterPriority, setFilterPriority] = useState("All");
+  const [filterDept, setFilterDept] = useState("All");
+
   const [newTicket, setNewTicket] = useState<Partial<ITTicket>>({
     priority: Priority.MEDIUM,
     status: Status.PENDING
@@ -1796,13 +1941,15 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
 
   // Auto-save logic
   useEffect(() => {
+    // Ensuring isAdding is false on mount
+    setIsAdding(false);
+    
     const savedDraft = localStorage.getItem("it_ticket_draft");
     if (savedDraft) {
       try {
         const draft = JSON.parse(savedDraft);
         if (draft.problemType || draft.requesterName) {
           setNewTicket(prev => ({ ...prev, ...draft }));
-          setIsAdding(true);
         }
       } catch (e) {
         console.error("Failed to load draft", e);
@@ -1818,15 +1965,20 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
 
   const filteredTickets = tickets.filter(ticket => {
     const searchLower = (searchTerm || ticketSearch).toLowerCase();
-    return (
-      (searchTerm === "" && ticketSearch === "") ||
+    
+    const matchesStatus = filterStatus === "All" || ticket.status === filterStatus;
+    const matchesPriority = filterPriority === "All" || ticket.priority === filterPriority;
+    const matchesDept = filterDept === "All" || ticket.department === filterDept;
+
+    const matchesSearch = (searchTerm === "" && ticketSearch === "") ||
       ticket.id.toLowerCase().includes(searchLower) ||
       ticket.problemType.toLowerCase().includes(searchLower) ||
       ticket.requesterName.toLowerCase().includes(searchLower) ||
       ticket.status.toLowerCase().includes(searchLower) ||
-      ticket.priority.toLowerCase().includes(searchLower)
-    );
-  });
+      ticket.priority.toLowerCase().includes(searchLower);
+
+    return matchesStatus && matchesPriority && matchesDept && matchesSearch;
+  }).sort((a, b) => new Date(b.requestTime).getTime() - new Date(a.requestTime).getTime());
 
   const currentTickets = filteredTickets.filter(t => !isHistorical(t.requestTime));
   const historicalTickets = filteredTickets.filter(t => isHistorical(t.requestTime));
@@ -1840,6 +1992,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
       requestTime: new Date().toISOString(),
       requesterName: newTicket.requesterName!,
       requesterBranch: newTicket.requesterBranch || "Unknown",
+      department: newTicket.department || "IT",
       description: newTicket.description || "",
       actions: [],
       status: Status.PENDING,
@@ -1972,51 +2125,86 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center enterprise-card p-6">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 enterprise-card p-6">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 tracking-tight">IT Support Log (SOP-001)</h2>
-          <p className="text-xs text-slate-400 mt-1 uppercase font-bold tracking-widest leading-loose">Active nodes: {tickets.filter(t => t.status !== Status.COMPLETED).length}</p>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+            <ClipboardList size={20} className="text-indigo-600" />
+            IT Support Log (SOP-001)
+          </h2>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 uppercase font-black tracking-[0.2em]">Ticketing & Resolution Tracking</p>
         </div>
-        <div className="flex gap-3 items-center">
-          <div className="relative hidden sm:block">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+        
+        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-center">
+          <div className="relative w-full sm:w-64 group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={14} />
             <input 
               type="text" 
               placeholder="Search tickets..." 
               value={ticketSearch}
               onChange={(e) => setTicketSearch(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all w-48 lg:w-64"
+              className="w-full pl-9 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[11px] font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-400 transition-all shadow-sm"
             />
           </div>
-          <button 
-            onClick={handleExportTickets}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-100 transition-all border border-emerald-200"
-          >
-            <Download size={16} /> Export
-          </button>
-          {isAdmin && (
+          <div className="flex gap-2 w-full sm:w-auto">
             <button 
-              onClick={() => setIsAdding(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
+              onClick={handleExportTickets}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-indigo-400 transition-all border border-slate-200 dark:border-slate-800 shadow-sm"
             >
-              <Plus size={16} /> New Entry
+              <Download size={14} /> Export
             </button>
-          )}
+            {isAdmin && (
+              <button 
+                onClick={() => setIsAdding(true)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20"
+              >
+                <Plus size={14} /> New Entry
+              </button>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* Enhanced Ticket Filtering */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 enterprise-card p-6">
+        <SearchableDropdown 
+          label="Status Cluster"
+          placeholder="All Active Tickets"
+          options={Object.values(Status)}
+          value={filterStatus}
+          onChange={setFilterStatus}
+          icon={Activity}
+        />
+        <SearchableDropdown 
+          label="Priority Tier"
+          placeholder="All Priority Levels"
+          options={Object.values(Priority)}
+          value={filterPriority}
+          onChange={setFilterPriority}
+          icon={AlertTriangle}
+        />
+        <SearchableDropdown 
+          label="Department View"
+          placeholder="All Departments"
+          options={settings.departments}
+          value={filterDept}
+          onChange={setFilterDept}
+          icon={Users}
+        />
       </div>
 
       <div className="enterprise-card overflow-hidden">
         {/* Desktop Table View */}
         <div className="hidden lg:block">
           <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr className="uppercase tracking-widest text-slate-400 font-bold text-[9px]">
-                <th className="px-6 py-4">Date</th>
-                <th className="px-6 py-4">Requester</th>
-                <th className="px-6 py-4">Issue</th>
-                <th className="px-6 py-4">Priority</th>
-                <th className="px-6 py-4">Action Taken</th>
-                <th className="px-6 py-4 text-right">Status</th>
+            <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+              <tr className="uppercase tracking-widest text-[#475569] dark:text-slate-300 font-bold text-[9px]">
+                <th className="px-6 py-4">DATE</th>
+                <th className="px-6 py-4">REQUESTER</th>
+                <th className="px-6 py-4 text-center">DEPT</th>
+                <th className="px-6 py-4">ISSUE</th>
+                <th className="px-6 py-4">PRIORITY</th>
+                <th className="px-6 py-4">ACTION TAKEN</th>
+                <th className="px-6 py-4 text-right">STATUS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -2043,6 +2231,9 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                       <td className="px-6 py-4">
                         <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">{ticket.requesterName}</span>
                         <p className="text-[9px] text-slate-400 font-mono mt-0.5">{formatId(ticket.id)}</p>
+                      </td>
+                      <td className="px-6 py-4 text-[10px] text-slate-500 font-bold uppercase">
+                        {ticket.department || "-"}
                       </td>
                       <td className="px-6 py-4">
                         <p className="text-xs font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors line-clamp-1">{ticket.problemType}</p>
@@ -2127,13 +2318,23 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
 
       <AnimatePresence>
         {isAdding && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4">
+          <div 
+            onClick={() => setIsAdding(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4"
+          >
             <motion.div 
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 20, opacity: 0 }}
-              className="enterprise-modal p-6 sm:p-8 w-full h-full sm:h-auto sm:max-w-md rounded-none sm:rounded-3xl overflow-y-auto"
+              initial={{ y: 20, opacity: 0, scale: 0.95 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 20, opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="enterprise-modal p-6 sm:p-8 w-full h-full sm:h-auto sm:max-w-md rounded-none sm:rounded-3xl overflow-y-auto relative shadow-2xl"
             >
+              <button 
+                onClick={() => setIsAdding(false)}
+                className="absolute right-6 top-6 p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors"
+              >
+                <X size={20} />
+              </button>
               <h3 className="text-xl font-bold text-slate-800 mb-8 tracking-tight">System Node Registration</h3>
               <div className="space-y-6">
                 <div>
@@ -2145,6 +2346,19 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                     placeholder="Staff identifier..." 
                     className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                   />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Department</label>
+                  <select 
+                    value={newTicket.department || ""}
+                    onChange={e => setNewTicket({...newTicket, department: e.target.value})}
+                    className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="">Select Department</option>
+                    {settings.departments.map(dept => (
+                      <option key={dept} value={dept}>{dept}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Branch / Store</label>
@@ -2208,12 +2422,16 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
         )}
 
         {selectedTicket && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4">
+          <div 
+            onClick={() => setSelectedTicket(null)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4"
+          >
             <motion.div 
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 20, opacity: 0 }}
-              className="enterprise-modal p-0 w-full h-full sm:h-auto sm:max-w-2xl rounded-none sm:rounded-3xl overflow-hidden flex flex-col sm:max-h-[85vh]"
+              initial={{ y: 20, opacity: 0, scale: 0.95 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 20, opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="enterprise-modal p-0 w-full h-full sm:h-auto sm:max-w-2xl rounded-none sm:rounded-3xl overflow-hidden flex flex-col sm:max-h-[85vh] shadow-2xl"
             >
               <div className="p-6 sm:p-8 border-b border-slate-100 bg-white flex items-center justify-between shrink-0">
                 <div>
@@ -2258,10 +2476,10 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
                     <div className="mb-8 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
                       <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-3">Assign Task to Agent</p>
                       <div className="flex flex-wrap gap-2">
-                        {["IT Staff A", "IT Staff B", "Field Engineer", "Admin"].map(staff => (
+                        {["IT Supervisor", "Merchandising Supervisor", "IT Digital Marketing"].map(staff => (
                           <button 
                             key={staff}
-                            onClick={() => handleAssignTicket(selectedTicket.id, staff.toLowerCase().replace(' ', '_'), staff)}
+                            onClick={() => handleAssignTicket(selectedTicket.id, staff.toLowerCase().replace(/\s+/g, '_'), staff)}
                             className="px-3 py-1.5 bg-white border border-indigo-200 text-indigo-600 rounded-lg text-[10px] font-bold uppercase transition-all hover:bg-indigo-600 hover:text-white"
                           >
                             Assign to {staff}
@@ -2356,21 +2574,48 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin }: { tickets: 
   );
 }
 
-function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAsset[], setAssets: (a: ITAsset[]) => void, searchTerm: string, isAdmin: boolean }) {
+function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { assets: ITAsset[], setAssets: (a: ITAsset[]) => void, searchTerm: string, isAdmin: boolean, settings: SystemSettings }) {
   const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<ITAsset | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [newAsset, setNewAsset] = useState<Partial<ITAsset>>({ category: "Computer", status: "Active" });
-  const [filterDept, setFilterDept] = useState("All");
-  const [filterUser, setFilterUser] = useState("All");
-  const [filterCategory, setFilterCategory] = useState("All");
-  const [filterStatus, setFilterStatus] = useState("All");
+  
+  // Hierarchical Filter State
+  const [filterCategory, setFilterCategory] = useState<string[]>([]);
+  const [filterBrand, setFilterBrand] = useState<string[]>([]);
+  const [filterModel, setFilterModel] = useState<string[]>([]);
+  const [filterSpec, setFilterSpec] = useState<string[]>([]);
+  const [filterDept, setFilterDept] = useState<string[]>([]);
+  const [filterUser, setFilterUser] = useState<string[]>([]);
+  const [filterStatus, setFilterStatus] = useState<string[]>([]);
+  const [assetSearch, setAssetSearch] = useState("");
 
-  const departments = ["All", ...Array.from(new Set(assets.map(a => a.department || a.location).filter(Boolean)))];
-  const users = ["All", ...Array.from(new Set(assets.map(a => a.assignedTo).filter(Boolean)))];
-  const categories = ["All", ...Array.from(new Set(assets.map(a => a.category).filter(Boolean)))];
-  const statuses = ["All", ...Array.from(new Set(assets.map(a => a.status).filter(Boolean)))];
+  // Options memoized per level
+  const categories = useMemo(() => Array.from(new Set(assets.map(a => a.category).filter(Boolean))).sort(), [assets]);
+  
+  const brands = useMemo(() => {
+    const filtered = filterCategory.length === 0 ? assets : assets.filter(a => filterCategory.includes(a.category));
+    return Array.from(new Set(filtered.map(a => a.brand).filter(Boolean))).sort();
+  }, [assets, filterCategory]);
+
+  const models = useMemo(() => {
+    let filtered = filterCategory.length === 0 ? assets : assets.filter(a => filterCategory.includes(a.category));
+    if (filterBrand.length > 0) filtered = filtered.filter(a => filterBrand.includes(a.brand));
+    return Array.from(new Set(filtered.map(a => a.model).filter(Boolean))).sort();
+  }, [assets, filterCategory, filterBrand]);
+
+  const specs = useMemo(() => {
+    let filtered = filterCategory.length === 0 ? assets : assets.filter(a => filterCategory.includes(a.category));
+    if (filterBrand.length > 0) filtered = filtered.filter(a => filterBrand.includes(a.brand));
+    if (filterModel.length > 0) filtered = filtered.filter(a => filterModel.includes(a.model));
+    return Array.from(new Set(filtered.map(a => a.specs).filter(Boolean))).sort();
+  }, [assets, filterCategory, filterBrand, filterModel]);
+
+  const departments = useMemo(() => Array.from(new Set(assets.map(a => a.department || a.location).filter(Boolean))).sort(), [assets]);
+  const users = useMemo(() => Array.from(new Set(assets.map(a => a.assignedTo).filter(Boolean))).sort(), [assets]);
+  const statuses = useMemo(() => Array.from(new Set(assets.map(a => a.status).filter(Boolean))).sort(), [assets]);
+
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDelete = async (assetId: string, e: React.MouseEvent) => {
@@ -2390,29 +2635,31 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
     }
   };
 
+  // Auto-reset dependent filters
+  useEffect(() => { setFilterBrand([]); setFilterModel([]); setFilterSpec([]); }, [filterCategory]);
+  useEffect(() => { setFilterModel([]); setFilterSpec([]); }, [filterBrand]);
+  useEffect(() => { setFilterSpec([]); }, [filterModel]);
+
   const filteredAssets = assets.filter(asset => {
     const assetDept = asset.department || asset.location;
-    const matchesDept = filterDept === "All" || assetDept === filterDept;
-    const matchesUser = filterUser === "All" || asset.assignedTo === filterUser;
-    const matchesCategory = filterCategory === "All" || asset.category === filterCategory;
-    const matchesStatus = filterStatus === "All" || asset.status === filterStatus;
+    const matchesDept = filterDept.length === 0 || filterDept.includes(assetDept);
+    const matchesUser = filterUser.length === 0 || filterUser.includes(asset.assignedTo || "");
+    const matchesCategory = filterCategory.length === 0 || filterCategory.includes(asset.category);
+    const matchesBrand = filterBrand.length === 0 || filterBrand.includes(asset.brand || "");
+    const matchesModel = filterModel.length === 0 || filterModel.includes(asset.model);
+    const matchesSpec = filterSpec.length === 0 || filterSpec.includes(asset.specs || "");
+    const matchesStatus = filterStatus.length === 0 || filterStatus.includes(asset.status);
     
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = searchTerm === "" || 
+    const searchLower = (searchTerm || assetSearch).toLowerCase();
+    const matchesSearch = searchLower === "" || 
       asset.id.toLowerCase().includes(searchLower) ||
       asset.model.toLowerCase().includes(searchLower) ||
       (asset.brand?.toLowerCase() || "").includes(searchLower) ||
       (asset.serialNumber?.toLowerCase() || "").includes(searchLower) ||
       (asset.assignedTo?.toLowerCase() || "").includes(searchLower) ||
-      (asset.department?.toLowerCase() || "").includes(searchLower) ||
-      (asset.location?.toLowerCase() || "").includes(searchLower) ||
-      (asset.specs?.toLowerCase() || "").includes(searchLower) ||
-      (asset.peripherals?.keyboard?.toLowerCase() || "").includes(searchLower) ||
-      (asset.peripherals?.mouse?.toLowerCase() || "").includes(searchLower) ||
-      (asset.peripherals?.usb?.toLowerCase() || "").includes(searchLower) ||
-      (asset.peripherals?.fan?.toLowerCase() || "").includes(searchLower);
+      (asset.specs?.toLowerCase() || "").includes(searchLower);
 
-    return matchesDept && matchesUser && matchesCategory && matchesStatus && matchesSearch;
+    return matchesDept && matchesUser && matchesCategory && matchesBrand && matchesModel && matchesSpec && matchesStatus && matchesSearch;
   });
 
   const currentAssets = filteredAssets.filter(a => !isHistorical(a.purchaseDate));
@@ -2459,6 +2706,7 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
           {
             purchasePrice: newAsset.purchasePrice,
             purchaseDate: newAsset.purchaseDate,
+            maintenanceDueDate: newAsset.maintenanceDueDate,
             uom: newAsset.uom,
             specs: newAsset.specs,
             brand: newAsset.brand,
@@ -2602,6 +2850,220 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
     writeFile(workbook, `IT_Asset_Inventory_${format(new Date(), "yyyyMMdd")}.xlsx`);
   };
 
+  const handlePrintAsset = (asset: ITAsset) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const html = `
+      <html>
+        <head>
+          <title>Asset Tag - ${asset.id}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap" rel="stylesheet">
+          <style>
+            @page {
+              size: A6;
+              margin: 0;
+            }
+            body {
+              width: 105mm;
+              height: 148mm;
+              font-family: 'Inter', sans-serif;
+              padding: 0;
+              margin: 0;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #fff;
+            }
+            .sticker {
+              width: 100mm;
+              height: 140mm;
+              background: #fff;
+              border: 1.5mm solid #1e293b;
+              padding: 6mm;
+              box-sizing: border-box;
+              display: flex;
+              flex-direction: column;
+              position: relative;
+            }
+            .header {
+              border-bottom: 3px solid #1e293b;
+              padding-bottom: 4mm;
+              margin-bottom: 6mm;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .logo {
+              font-weight: 800;
+              font-size: 16pt;
+              color: #1e293b;
+              text-transform: uppercase;
+              letter-spacing: 1mm;
+            }
+            .asset-id {
+              font-family: monospace;
+              font-size: 14pt;
+              font-weight: 800;
+              color: #fff;
+              background: #1e293b;
+              padding: 1mm 3mm;
+              border-radius: 1mm;
+            }
+            .content {
+              flex-grow: 1;
+              display: grid;
+              grid-template-columns: 1fr;
+              gap: 0;
+            }
+            .field-box {
+              border: 0.4mm solid #1e293b;
+              margin-bottom: -0.4mm;
+              padding: 2.5mm 3.5mm;
+              display: flex;
+              flex-direction: column;
+            }
+            .label {
+              color: #64748b;
+              font-size: 7.5pt;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.5mm;
+              margin-bottom: 1mm;
+            }
+            .value {
+              color: #0f172a;
+              font-size: 11pt;
+              font-weight: 800;
+              text-transform: uppercase;
+            }
+            .specs {
+              font-size: 10pt;
+              color: #4f46e5;
+              font-style: italic;
+            }
+            .peripherals {
+              margin-top: 5mm;
+              border: 0.4mm solid #1e293b;
+              padding: 3mm;
+            }
+            .peripheral-title {
+              font-size: 7.5pt;
+              font-weight: 800;
+              text-transform: uppercase;
+              color: #1e293b;
+              margin-bottom: 2mm;
+              display: block;
+              text-align: center;
+              border-bottom: 0.2mm solid #1e293b;
+              padding-bottom: 1mm;
+            }
+            .peripheral-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 2mm;
+            }
+            .peripheral-item {
+              font-size: 8pt;
+              color: #334155;
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+              gap: 1.5mm;
+            }
+            .dot {
+              width: 1.5mm;
+              height: 1.5mm;
+              background: #1e293b;
+              border-radius: 50%;
+            }
+            .footer {
+              margin-top: auto;
+              padding-top: 4mm;
+              text-align: center;
+              font-size: 8pt;
+              color: #1e293b;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.5mm;
+            }
+            .print-info {
+              display: flex;
+              justify-content: space-between;
+              font-size: 6.5pt;
+              color: #94a3b8;
+              font-weight: 700;
+              margin-top: 2mm;
+              text-transform: uppercase;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="sticker">
+            <div class="header">
+              <div class="logo">TG PHARMACY IT</div>
+              <div class="asset-id">${asset.id}</div>
+            </div>
+            <div class="content">
+              <div class="field-box">
+                <span class="label">Category</span>
+                <span class="value">${asset.category}</span>
+              </div>
+              <div class="field-box">
+                <span class="label">Brand & Model</span>
+                <span class="value">${asset.brand || ""} ${asset.model}</span>
+              </div>
+              <div class="field-box">
+                <span class="label">Serial Number</span>
+                <span class="value">${asset.serialNumber}</span>
+              </div>
+              <div class="field-box">
+                <span class="label">Specifications</span>
+                <span class="value specs">${asset.specs || "Standard Build"}</span>
+              </div>
+              <div class="field-box">
+                <span class="label">Structure (Dept / Loc)</span>
+                <span class="value">${asset.department || "-"} / ${asset.location}</span>
+              </div>
+              <div class="field-box">
+                <span class="label">Purchase Date</span>
+                <span class="value">${asset.purchaseDate || "N/A"}</span>
+              </div>
+
+              ${asset.category !== "Software" ? `
+                <div class="peripherals">
+                  <span class="peripheral-title">Hardware Peripherals</span>
+                  <div class="peripheral-grid">
+                    ${asset.peripherals?.keyboard ? `<div class="peripheral-item"><div class="dot"></div> KB: ${asset.peripherals.keyboard}</div>` : ''}
+                    ${asset.peripherals?.mouse ? `<div class="peripheral-item"><div class="dot"></div> MS: ${asset.peripherals.mouse}</div>` : ''}
+                    ${asset.peripherals?.usb ? `<div class="peripheral-item"><div class="dot"></div> USB: ${asset.peripherals.usb}</div>` : ''}
+                    ${asset.peripherals?.fan ? `<div class="peripheral-item"><div class="dot"></div> FAN: ${asset.peripherals.fan}</div>` : ''}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+            <div class="footer">
+              IT ASSET IDENTITY • SOP-001
+            </div>
+            <div class="print-info">
+              <span>Security Verified</span>
+              <span>Last Print: ${new Date().toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+          </div>
+          <script>
+            window.onload = () => {
+              window.print();
+              setTimeout(() => { window.close(); }, 750);
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   return (
     <div className="space-y-6">
       {/* Refined Analysis Bar */}
@@ -2658,76 +3120,126 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 enterprise-card p-6">
-        <div className="max-w-xl w-full">
-          <h2 className="text-xl font-bold text-slate-800 tracking-tight">IT Asset Inventory (SOP-001)</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-            <div>
-              <label className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1 ml-1">Dept</label>
-              <select 
-                value={filterDept}
-                onChange={(e) => setFilterDept(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold"
+      <div className="flex flex-col gap-6 enterprise-card p-6">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+              <Database size={20} className="text-indigo-600" />
+              IT Asset Inventory
+            </h2>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 uppercase font-black tracking-[0.2em]">Enterprise Resource Management • SOP-001</p>
+          </div>
+          
+          <div className="flex gap-3 w-full lg:w-auto">
+            <button 
+              onClick={handleExportAssets}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-indigo-400 transition-all border border-slate-200 dark:border-slate-800 shadow-sm"
+            >
+              <Download size={14} /> Export
+            </button>
+            {isAdmin && (
+              <button 
+                onClick={() => setIsAdding(true)}
+                className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20 active:scale-95"
               >
-                {departments.map(dept => <option key={dept} value={dept || ""}>{dept || "None"}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1 ml-1">User</label>
-              <select 
-                value={filterUser}
-                onChange={(e) => setFilterUser(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold"
-              >
-                {users.map(user => <option key={user} value={user || ""}>{user || "Unassigned"}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1 ml-1">Category</label>
-              <select 
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold"
-              >
-                {categories.map(cat => <option key={cat} value={cat || ""}>{cat || "Other"}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1 ml-1">Status</label>
-              <select 
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold"
-              >
-                {statuses.map(status => <option key={status} value={status || ""}>{status || "Unknown"}</option>)}
-              </select>
+                <Plus size={14} /> Register Node
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Dynamic Multi-level Filter System */}
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <MultiSelectDropdown 
+            label="Category"
+            placeholder="All Categories"
+            options={categories}
+            selected={filterCategory}
+            onChange={setFilterCategory}
+            icon={Layers}
+          />
+          <MultiSelectDropdown 
+            label="Brand"
+            placeholder="Select Brands"
+            options={brands}
+            selected={filterBrand}
+            onChange={setFilterBrand}
+            icon={Tag}
+          />
+          <MultiSelectDropdown 
+            label="Model"
+            placeholder="Select Models"
+            options={models}
+            selected={filterModel}
+            onChange={setFilterModel}
+            icon={Cpu}
+          />
+          <MultiSelectDropdown 
+            label="Specification"
+            placeholder="Select Specs"
+            options={specs}
+            selected={filterSpec}
+            onChange={setFilterSpec}
+            icon={Settings2}
+          />
+          <MultiSelectDropdown 
+            label="Status"
+            placeholder="Select Status"
+            options={statuses}
+            selected={filterStatus}
+            onChange={setFilterStatus}
+            icon={CheckCircle2}
+          />
+          <div className="relative group">
+            <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-1">Universal Search</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={14} />
+              <input 
+                type="text" 
+                placeholder="ID, Serial, User..."
+                value={assetSearch}
+                onChange={e => setAssetSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[11px] font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-400 transition-all placeholder:text-slate-400/50"
+              />
             </div>
           </div>
         </div>
-        <div className="flex gap-3 w-full lg:w-auto">
-          <button 
-            onClick={handleExportAssets}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-100 transition-all border border-emerald-200"
-          >
-            <Download size={16} /> Export
-          </button>
-          {isAdmin && (
+
+        {/* Active Filters Display */}
+        {(filterCategory.length > 0 || filterBrand.length > 0 || filterModel.length > 0 || filterSpec.length > 0 || filterDept.length > 0 || filterUser.length > 0 || filterStatus.length > 0 || assetSearch) && (
+          <div className="flex flex-wrap gap-2 items-center text-[10px] p-4 border-t border-slate-100 dark:border-slate-800">
+            <span className="text-slate-400 font-bold uppercase tracking-tight mr-1">Active Clusters:</span>
+            {filterCategory.map(cat => (
+              <span key={cat} className="bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 flex items-center gap-1">
+                Category: {cat} <X size={10} className="cursor-pointer" onClick={() => setFilterCategory(filterCategory.filter(c => c !== cat))} />
+              </span>
+            ))}
+            {filterBrand.map(brand => (
+              <span key={brand} className="bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 flex items-center gap-1">
+                Brand: {brand} <X size={10} className="cursor-pointer" onClick={() => setFilterBrand(filterBrand.filter(b => b !== brand))} />
+              </span>
+            ))}
+            {filterModel.map(model => (
+              <span key={model} className="bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 flex items-center gap-1">
+                Model: {model} <X size={10} className="cursor-pointer" onClick={() => setFilterModel(filterModel.filter(m => m !== model))} />
+              </span>
+            ))}
             <button 
-              onClick={() => setIsAdding(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-sm"
+                onClick={() => { setFilterCategory([]); setFilterBrand([]); setFilterModel([]); setFilterSpec([]); setFilterStatus([]); setFilterDept([]); setFilterUser([]); setAssetSearch(""); }}
+                className="text-slate-400 hover:text-rose-500 font-bold uppercase tracking-widest transition-colors ml-2 underline decoration-dotted"
             >
-              <Plus size={16} /> Register Asset
+                Clear All Segments
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <div className="enterprise-card overflow-hidden">
         {/* Desktop Table View */}
         <div className="hidden lg:block overflow-x-auto">
           <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr className="uppercase tracking-widest text-slate-400">
+            <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+              <tr className="uppercase tracking-widest text-[#475569] dark:text-slate-300 font-bold text-[9px]">
                 <th className="px-6 py-5 whitespace-nowrap">
                   <input 
                     type="checkbox" 
@@ -2736,12 +3248,12 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
                     className="w-3 h-3 rounded border-slate-300 bg-white accent-indigo-600 cursor-pointer"
                   />
                 </th>
-                <th className="px-4 py-5 text-[9px] font-bold">Hardware</th>
-                <th className="px-6 py-5 text-[9px] font-bold">Assigned User</th>
-                <th className="px-6 py-5 text-[9px] font-bold">Location</th>
-                <th className="px-6 py-5 text-[9px] font-bold">Status</th>
-                <th className="px-6 py-5 text-[9px] font-bold text-right">Linked Purchase Date</th>
-                {isAdmin && <th className="px-6 py-5 text-[9px] font-bold text-center">Actions</th>}
+                <th className="px-4 py-5">HARDWARE</th>
+                <th className="px-6 py-5">ASSIGNED USER</th>
+                <th className="px-6 py-5">LOCATION</th>
+                <th className="px-6 py-5">STATUS</th>
+                <th className="px-6 py-5 text-right">PURCHASE DATE</th>
+                {isAdmin && <th className="px-6 py-5 text-center">ACTIONS</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -2826,13 +3338,26 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
                       </td>
                       {isAdmin && (
                         <td className="px-6 py-4 text-center">
-                          <button 
-                            disabled={isDeleting}
-                            onClick={(e) => handleDelete(asset.id, e)}
-                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePrintAsset(asset);
+                              }}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Print A6 Tag"
+                            >
+                              <Printer size={14} />
+                            </button>
+                            <button 
+                              disabled={isDeleting}
+                              onClick={(e) => handleDelete(asset.id, e)}
+                              className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Delete Asset"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -2874,13 +3399,22 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
                     <AlertTriangle size={10} className={cn("animate-pulse", isMaintenanceOverdue(asset.maintenanceDueDate) ? "text-rose-600" : "text-amber-600")} />
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   <div className={cn(
                     "px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider",
                     asset.status === "Active" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
                   )}>
                     {asset.status}
                   </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePrintAsset(asset);
+                    }}
+                    className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors"
+                  >
+                    <Printer size={12} />
+                  </button>
                   {isAdmin && (
                     <button 
                       disabled={isDeleting}
@@ -3176,6 +3710,12 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
               
               <div className="mt-8 pt-6 border-t border-white/10 flex justify-end gap-3">
                 <button 
+                  onClick={() => handlePrintAsset(selectedAsset)}
+                  className="px-6 py-2 bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2"
+                >
+                  <Printer size={14} /> Print A6 Tag
+                </button>
+                <button 
                   onClick={() => {
                     setNewAsset({ ...selectedAsset });
                     setIsEditing(true);
@@ -3346,23 +3886,29 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin }: { assets: ITAs
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Department</label>
-                    <input 
-                      type="text" 
+                    <select 
                       value={newAsset.department || ""}
                       onChange={e => setNewAsset({...newAsset, department: e.target.value})}
-                      placeholder="e.g., MK, Finance" 
                       className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
+                    >
+                      <option value="">Select Department</option>
+                      {settings.departments.map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Location</label>
-                    <input 
-                      type="text" 
+                    <select 
                       value={newAsset.location || ""}
                       onChange={e => setNewAsset({...newAsset, location: e.target.value})}
-                      placeholder="Room or Dept" 
                       className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
+                    >
+                      <option value="">Select Location</option>
+                      {settings.locations.map(loc => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -3545,10 +4091,10 @@ function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Date</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Node Path</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Status</th>
+                  <tr className="text-slate-600 font-semibold uppercase tracking-widest text-[10px]">
+                    <th className="px-6 py-4">Date</th>
+                    <th className="px-6 py-4">Node Path</th>
+                    <th className="px-6 py-4 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -3633,12 +4179,12 @@ function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm
           <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">ID</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Requester</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Footage Date</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Reason</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Approval</th>
+                <tr className="text-slate-600 font-semibold uppercase tracking-widest text-[10px]">
+                  <th className="px-6 py-4">ID</th>
+                  <th className="px-6 py-4">Requester</th>
+                  <th className="px-6 py-4">Footage Date</th>
+                  <th className="px-6 py-4">Reason</th>
+                  <th className="px-6 py-4 text-right">Approval</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -3872,14 +4418,14 @@ function RenewalsModule({ renewals, setRenewals, isAdmin }: { renewals: RenewalR
        <div className="enterprise-card overflow-hidden shadow-xl border-slate-100">
           <div className="overflow-x-auto">
             <table className="w-full text-left font-sans">
-              <thead className="bg-slate-50 border-b border-slate-100">
-                <tr className="uppercase tracking-widest text-slate-500 font-bold text-[10px]">
-                  <th className="px-6 py-4">Shop / Service</th>
-                  <th className="px-6 py-4">Provider Info</th>
-                  <th className="px-6 py-4">Expire Date</th>
-                  <th className="px-6 py-4">Cost</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
+              <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+                <tr className="uppercase tracking-widest text-[#475569] dark:text-slate-300 font-bold text-[9px]">
+                  <th className="px-6 py-4">SHOP / SERVICE</th>
+                  <th className="px-6 py-4">PROVIDER INFO</th>
+                  <th className="px-6 py-4">EXPIRE DATE</th>
+                  <th className="px-6 py-4">COST</th>
+                  <th className="px-6 py-4 text-center">STATUS</th>
+                  <th className="px-6 py-4 text-right">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -4420,16 +4966,16 @@ function PurchasesModule({
           {/* Desktop Table View */}
           <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-left font-sans">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr className="uppercase tracking-widest text-slate-400 font-bold text-[9px]">
-                  <th className="px-6 py-5">Record Date</th>
-                  <th className="px-6 py-5">Item Name</th>
-                  <th className="px-6 py-5">Qty</th>
-                  <th className="px-6 py-5">Price</th>
-                  <th className="px-6 py-5">Status (Inventory)</th>
-                  <th className="px-6 py-5">Vendor Info</th>
-                  <th className="px-6 py-5 text-right">Location</th>
-                  {isAdmin && <th className="px-6 py-5 text-center">Actions</th>}
+              <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+                <tr className="uppercase tracking-widest text-[#475569] dark:text-slate-300 font-bold text-[9px]">
+                  <th className="px-6 py-5">RECORD DATE</th>
+                  <th className="px-6 py-5">ITEM NAME</th>
+                  <th className="px-6 py-5">QTY</th>
+                  <th className="px-6 py-5">PRICE</th>
+                  <th className="px-6 py-5">STATUS (INVENTORY)</th>
+                  <th className="px-6 py-5">VENDOR INFO</th>
+                  <th className="px-6 py-5 text-right">LOCATION</th>
+                  {isAdmin && <th className="px-6 py-5 text-center">ACTIONS</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -5152,12 +5698,12 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
              <div className="overflow-x-auto">
                <table className="w-full text-left border-collapse">
                  <thead>
-                    <tr className="bg-slate-50/30">
-                      <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">File Name</th>
-                      <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Time Added</th>
-                      <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Size</th>
-                      <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Location</th>
-                      <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                    <tr className="bg-slate-50/30 text-slate-600 font-semibold uppercase tracking-widest text-[10px]">
+                      <th className="px-8 py-5">File Name</th>
+                      <th className="px-8 py-5">Time Added</th>
+                      <th className="px-8 py-5">Size</th>
+                      <th className="px-8 py-5">Location</th>
+                      <th className="px-8 py-5 text-right">Actions</th>
                     </tr>
                  </thead>
                  <tbody className="divide-y divide-slate-100">

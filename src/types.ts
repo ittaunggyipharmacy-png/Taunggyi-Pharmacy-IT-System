@@ -26,6 +26,7 @@ export interface ITTicket {
   requestTime: string;
   requesterName: string;
   requesterBranch?: string;
+  department?: string;
   assignedTo?: string;
   assignedToName?: string;
   responseTime?: number; // in minutes
@@ -242,6 +243,7 @@ export interface DailyLog {
   date: string; // yyyy-mm-dd
   userId: string;
   tasks: Record<string, any>; // taskId -> completed
+  customTasks?: { id: string; text: string; category: string }[];
   updatedAt: any;
 }
 
@@ -250,6 +252,7 @@ export interface MonthlyLog {
   month: string; // yyyy-mm
   userId: string;
   tasks: Record<string, boolean | number>; // taskId -> completed or count
+  customTasks?: { id: string; text: string; category: string }[];
   updatedAt: any;
 }
 
@@ -258,6 +261,7 @@ export interface WeeklyLog {
   week: string; // yyyy-Www
   userId: string;
   tasks: Record<string, boolean | number>; // taskId -> completed or count
+  customTasks?: { id: string; text: string; category: string }[];
   updatedAt: any;
 }
 
