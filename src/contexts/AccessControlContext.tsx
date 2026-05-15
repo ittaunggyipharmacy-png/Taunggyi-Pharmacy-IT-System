@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserRole, RolePermission } from '../types';
 import { fetchRolePermissions, saveRolePermission } from '../services/firestoreService';
+import { onSnapshot, collection, query } from 'firebase/firestore';
+import { db } from '../services/firebase';
+import { handleFirestoreError, OperationType } from '../services/firestoreErrors';
 
 interface AccessControlContextType {
   permissions: RolePermission[];
-  canAccess: (role: UserRole, menuId: string) => boolean;
+  canAccess: (role: UserRole | string, menuId: string) => boolean;
   updatePermission: (role: string, menuId: string, allowed: boolean) => Promise<void>;
   loading: boolean;
 }
@@ -21,21 +24,23 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const init = async () => {
-      const data = await fetchRolePermissions();
+    const q = query(collection(db, 'role_permissions'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as RolePermission);
       setPermissions(data);
       setLoading(false);
-    };
-    init();
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'role_permissions');
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const canAccess = (role: UserRole, menuId: string) => {
+  const canAccess = (role: UserRole | string, menuId: string) => {
     // Admin always sees everything
     if (role === UserRole.ADMIN) return true;
     
-    console.log("canAccess check:", role, menuId, permissions);
     const rolePermission = permissions.find(p => p.role === role);
-    console.log("rolePermission found:", rolePermission);
     return rolePermission?.allowed_menus[menuId] === true;
   };
 
@@ -54,10 +59,7 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
         }
     };
 
-    // Update local state
-    setPermissions(prev => prev.map(p => p.role === role ? updatedRolePermission : p).concat(!permissions.find(p => p.role === role) ? [updatedRolePermission] : []));
-    
-    // Save to Firestore
+    // Save to Firestore (local state will update via onSnapshot)
     await saveRolePermission(updatedRolePermission);
   };
 
