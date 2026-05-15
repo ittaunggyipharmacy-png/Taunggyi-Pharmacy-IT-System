@@ -451,11 +451,10 @@ export default function App() {
         const profile = await syncSystemUser(user);
         setUserProfile(profile);
         const adminStatus = await checkAdminStatus(user.uid);
-        setIsAdmin(
-          adminStatus || 
-          profile?.role === UserRole.ADMIN || 
-          profile?.role === UserRole.IT_SUPERVISOR
-        );
+        
+        // Define which roles are treated as super-admins with full access
+        const isSuperAdmin = profile?.role === UserRole.ADMIN || profile?.role === UserRole.IT_SUPERVISOR;
+        setIsAdmin(isSuperAdmin);
       } else {
         setUserProfile(null);
         setIsAdmin(false);
@@ -590,6 +589,20 @@ export default function App() {
       };
     }
   }, [currentUser, isAdmin]);
+
+  useEffect(() => {
+    if (!accessLoading && userProfile && !isAdmin) {
+       // allNavItems is defined in the render, so we'll use a local copy or the same logic
+       const allowedIds = [
+        "tickets", "dashboard", "reports", "kpi", "daily-kpi", "skills", "assets", 
+        "purchases", "renewals", "security", "marketing", "files", "settings", "help"
+       ].filter(id => canAccess(userProfile.role, id));
+
+       if (!canAccess(userProfile.role, activeTab) && allowedIds.length > 0) {
+         setActiveTab(allowedIds[0] as any);
+       }
+    }
+  }, [accessLoading, userProfile, isAdmin, canAccess]);
 
   const handleLogin = async () => {
     try {
@@ -824,32 +837,43 @@ export default function App() {
         </div>
 
         <nav className="flex-1 px-0 space-y-1 mt-4 overflow-y-auto custom-scrollbar">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => {
-                setActiveTab(item.id as any);
-              }}
-              className={cn(
-                "w-full flex items-center gap-4 px-6 py-4 transition-all duration-200 group text-left",
-                activeTab === item.id 
-                  ? "bg-indigo-50/80 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-r-4 border-indigo-600 dark:border-indigo-400" 
-                  : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-slate-100"
-              )}
-            >
-              <item.icon size={20} className={cn(activeTab === item.id ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600")} />
-              {isSidebarOpen && <span className="text-sm font-semibold tracking-tight">{item.label}</span>}
-              {item.badge !== undefined && (
-                <div className={cn(
-                  "ml-auto flex items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white transition-all duration-200",
-                  isSidebarOpen ? "px-1.5 py-0.5 min-w-[1.2rem]" : "absolute top-2 right-2 w-4 h-4 shadow-sm"
-                )}>
-                  {item.badge}
+          {accessLoading ? (
+            <div className="px-6 py-4 space-y-4">
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <div key={i} className="flex items-center gap-4">
+                  <div className="w-5 h-5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
+                  {isSidebarOpen && <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded w-24 animate-pulse" />}
                 </div>
-              )}
-              {!isSidebarOpen && activeTab === item.id && <div className="absolute right-0 w-1 h-6 bg-indigo-600 rounded-l" />}
-            </button>
-          ))}
+              ))}
+            </div>
+          ) : (
+            navItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setActiveTab(item.id as any);
+                }}
+                className={cn(
+                  "w-full flex items-center gap-4 px-6 py-4 transition-all duration-200 group text-left",
+                  activeTab === item.id 
+                    ? "bg-indigo-50/80 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border-r-4 border-indigo-600 dark:border-indigo-400" 
+                    : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-slate-100"
+                )}
+              >
+                <item.icon size={20} className={cn(activeTab === item.id ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600")} />
+                {isSidebarOpen && <span className="text-sm font-semibold tracking-tight">{item.label}</span>}
+                {item.badge !== undefined && (
+                  <div className={cn(
+                    "ml-auto flex items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white transition-all duration-200",
+                    isSidebarOpen ? "px-1.5 py-0.5 min-w-[1.2rem]" : "absolute top-2 right-2 w-4 h-4 shadow-sm"
+                  )}>
+                    {item.badge}
+                  </div>
+                )}
+                {!isSidebarOpen && activeTab === item.id && <div className="absolute right-0 w-1 h-6 bg-indigo-600 rounded-l" />}
+              </button>
+            ))
+          )}
         </nav>
 
         {isSidebarOpen && (
@@ -1055,8 +1079,18 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.2 }}
             >
-              {activeTab === "dashboard" && <Dashboard tickets={tickets} assets={assets} backups={backups} quota={quota} />}
-              {activeTab === "tickets" && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} />}
+              {(activeTab === "dashboard" || activeTab === "tickets") && !canAccess(userProfile?.role as UserRole, activeTab) && !isAdmin && (
+                <div className="flex flex-col items-center justify-center p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                  <div className="w-16 h-16 bg-rose-50 dark:bg-rose-950/20 rounded-2xl flex items-center justify-center text-rose-500 mb-4">
+                    <ShieldAlert size={32} />
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2 italic">Access Restricted</h3>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm max-w-xs">You do not have permission to access the {activeTab} module. Please contact your IT Supervisor.</p>
+                </div>
+              )}
+
+              {activeTab === "dashboard" && canAccess(userProfile?.role as UserRole, "dashboard") && <Dashboard tickets={tickets} assets={assets} backups={backups} quota={quota} />}
+              {activeTab === "tickets" && canAccess(userProfile?.role as UserRole, "tickets") && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} />}
               {activeTab === "assets" && canAccess(userProfile?.role as UserRole, "assets") && (
                 <AssetsModule 
                   assets={assets} 
@@ -2552,41 +2586,59 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
               >
                 <X size={20} />
               </button>
-              <h3 className="text-xl font-bold text-slate-800 mb-8 tracking-tight">System Node Registration</h3>
+              <h3 className="text-xl font-bold text-slate-800 mb-8 tracking-tight italic uppercase tracking-widest border-l-4 border-indigo-600 pl-4">System Node Registration</h3>
               <div className="space-y-6">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Requester ID</label>
-                  <input 
-                    type="text" 
-                    value={newTicket.requesterName || ""}
-                    onChange={e => setNewTicket({...newTicket, requesterName: e.target.value})}
-                    placeholder="Staff identifier..." 
-                    className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Requester ID</label>
+                    <input 
+                      type="text" 
+                      value={newTicket.requesterName || ""}
+                      onChange={e => setNewTicket({...newTicket, requesterName: e.target.value})}
+                      placeholder="Staff identifier..." 
+                      className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Department</label>
+                    <select 
+                      value={newTicket.department || ""}
+                      onChange={e => setNewTicket({...newTicket, department: e.target.value})}
+                      className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value="">Select Department</option>
+                      {settings.departments.map(dept => (
+                        <option key={dept} value={dept}>{dept}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Department</label>
-                  <select 
-                    value={newTicket.department || ""}
-                    onChange={e => setNewTicket({...newTicket, department: e.target.value})}
-                    className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  >
-                    <option value="">Select Department</option>
-                    {settings.departments.map(dept => (
-                      <option key={dept} value={dept}>{dept}</option>
-                    ))}
-                  </select>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Branch / Store</label>
+                    <input 
+                      type="text" 
+                      value={newTicket.requesterBranch || ""}
+                      onChange={e => setNewTicket({...newTicket, requesterBranch: e.target.value})}
+                      placeholder="e.g. Branch 3, Office..." 
+                      className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Priority Classification</label>
+                    <select 
+                      onChange={e => setNewTicket({...newTicket, priority: e.target.value as Priority})}
+                      className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value={Priority.LOW}>Low Intensity</option>
+                      <option value={Priority.MEDIUM}>Standard</option>
+                      <option value={Priority.HIGH}>Elevated</option>
+                      <option value={Priority.CRITICAL}>Critical Override</option>
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Branch / Store</label>
-                  <input 
-                    type="text" 
-                    value={newTicket.requesterBranch || ""}
-                    onChange={e => setNewTicket({...newTicket, requesterBranch: e.target.value})}
-                    placeholder="e.g. Branch 3, Office..." 
-                    className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  />
-                </div>
+
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Issue Diagnostic</label>
                   <textarea 
@@ -2594,7 +2646,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
                     value={newTicket.problemType || ""}
                     onChange={e => setNewTicket({...newTicket, problemType: e.target.value})}
                     placeholder="Brief summary..." 
-                    className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
+                    className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
                   />
                 </div>
                 <div>
@@ -2604,20 +2656,8 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
                     value={newTicket.description || ""}
                     onChange={e => setNewTicket({...newTicket, description: e.target.value})}
                     placeholder="Full details of the issue..." 
-                    className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
+                    className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none"
                   />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Priority Classification</label>
-                  <select 
-                    onChange={e => setNewTicket({...newTicket, priority: e.target.value as Priority})}
-                    className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  >
-                    <option value={Priority.LOW}>Low Intensity</option>
-                    <option value={Priority.MEDIUM}>Standard</option>
-                    <option value={Priority.HIGH}>Elevated</option>
-                    <option value={Priority.CRITICAL}>Critical Override</option>
-                  </select>
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 mt-10">

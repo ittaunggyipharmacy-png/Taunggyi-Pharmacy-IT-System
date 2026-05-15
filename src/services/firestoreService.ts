@@ -132,9 +132,7 @@ export const updateSystemUserRole = async (uid: string, role: UserRole) => {
     // Also sync to 'admins' collection if they have an elevated role
     const elevatedRoles = [
       UserRole.ADMIN, 
-      UserRole.IT_SUPERVISOR, 
-      UserRole.MERCHANDISING_SUPERVISOR, 
-      UserRole.IT_DIGITAL_MARKETING
+      UserRole.IT_SUPERVISOR
     ];
     
     if (elevatedRoles.includes(role)) {
