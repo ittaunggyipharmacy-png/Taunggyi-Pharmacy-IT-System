@@ -1057,7 +1057,7 @@ export default function App() {
             >
               {activeTab === "dashboard" && <Dashboard tickets={tickets} assets={assets} backups={backups} quota={quota} />}
               {activeTab === "tickets" && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} />}
-              {activeTab === "assets" && (
+              {activeTab === "assets" && canAccess(userProfile?.role as UserRole, "assets") && (
                 <AssetsModule 
                   assets={assets} 
                   setAssets={setAssets} 
@@ -1066,21 +1066,21 @@ export default function App() {
                   settings={settings}
                 />
               )}
-              {activeTab === "security" && <SecurityModule backups={backups} setBackups={setBackups} requests={cctvRequests} setRequests={setCctvRequests} searchTerm={searchTerm} isAdmin={isAdmin} />}
-              {activeTab === "renewals" && <RenewalsModule renewals={renewals} setRenewals={setRenewals} isAdmin={isAdmin} />}
-              {activeTab === "purchases" && <PurchasesModule 
+              {activeTab === "security" && canAccess(userProfile?.role as UserRole, "security") && <SecurityModule backups={backups} setBackups={setBackups} requests={cctvRequests} setRequests={setCctvRequests} searchTerm={searchTerm} isAdmin={isAdmin} />}
+              {activeTab === "renewals" && canAccess(userProfile?.role as UserRole, "renewals") && <RenewalsModule renewals={renewals} setRenewals={setRenewals} isAdmin={isAdmin} />}
+              {activeTab === "purchases" && canAccess(userProfile?.role as UserRole, "purchases") && <PurchasesModule 
                 purchases={purchases} 
                 setPurchases={setPurchases} 
                 assets={assets}
                 setAssets={setAssets}
                 isAdmin={isAdmin}
               />}
-              {activeTab === "marketing" && <MarketingModule plans={contentPlans} setPlans={setContentPlans} isAdmin={isAdmin} />}
+              {activeTab === "marketing" && canAccess(userProfile?.role as UserRole, "marketing") && <MarketingModule plans={contentPlans} setPlans={setContentPlans} isAdmin={isAdmin} />}
               {activeTab === "settings" && <SettingsModule settings={settings} setSettings={setSettings} isAdmin={isAdmin} allNavItems={allNavItems} />}
               {activeTab === "help" && <HelpSupportModule />}
-              {activeTab === "files" && <FileManagerModule isAdmin={isAdmin} quota={quota} setQuota={setQuota} />}
-              {activeTab === "kpi" && <KPIDashboard />}
-              {activeTab === "daily-kpi" && <KPITracker userRole={userProfile?.role} />}
+              {activeTab === "files" && canAccess(userProfile?.role as UserRole, "files") && <FileManagerModule isAdmin={isAdmin} quota={quota} setQuota={setQuota} />}
+              {activeTab === "kpi" && canAccess(userProfile?.role as UserRole, "kpi") && <KPIDashboard />}
+              {activeTab === "daily-kpi" && canAccess(userProfile?.role as UserRole, "daily-kpi") && <KPITracker userRole={userProfile?.role} />}
               {activeTab === "skills" && isAdmin && <SkillMatrix />}
               {activeTab === "reports" && isAdmin && (
                 <ReportsModule 

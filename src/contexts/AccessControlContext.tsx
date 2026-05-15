@@ -30,7 +30,12 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const canAccess = (role: UserRole, menuId: string) => {
+    // Admin always sees everything
+    if (role === UserRole.ADMIN) return true;
+    
+    console.log("canAccess check:", role, menuId, permissions);
     const rolePermission = permissions.find(p => p.role === role);
+    console.log("rolePermission found:", rolePermission);
     return rolePermission?.allowed_menus[menuId] === true;
   };
 
