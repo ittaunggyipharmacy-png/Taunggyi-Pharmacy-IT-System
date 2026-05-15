@@ -1871,7 +1871,7 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
   ];
 
   return (
-    <div className="flex flex-col xl:flex-row gap-6">
+    <div className="grid grid-cols-1 xl:grid-cols-[1fr,320px] gap-6">
       <div className="flex-1 space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Inventory dashboard</h1>
@@ -1987,8 +1987,8 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
       </div>
 
       {/* Right License Sidebar */}
-      <div className="w-full xl:w-80 space-y-6 shrink-0">
-        <div className="enterprise-card p-6 min-h-full">
+      <div className="xl:col-start-2 xl:row-start-1">
+        <div className="enterprise-card p-6 h-full">
            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6">Purchased license</h3>
            <div className="relative mb-6">
              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
@@ -4477,7 +4477,7 @@ function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm
                 <Camera size={20} className="text-red-400" />
                 Evidence Review Request
               </h3>
-              <div className="space-y-5 lg:space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 lg:gap-6">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Requester Name</label>
                   <input 
@@ -4495,15 +4495,15 @@ function SecurityModule({ backups, setBackups, requests, setRequests, searchTerm
                     className="w-full px-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:bg-white/10"
                   />
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Justification / Reason</label>
-                  <textarea 
-                    rows={4}
-                    onChange={e => setNewRequest({...newRequest, reason: e.target.value})}
-                    placeholder="Provide specific reason for review..." 
-                    className="w-full px-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:bg-white/10 resize-none"
-                  />
-                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Justification / Reason</label>
+                <textarea 
+                  rows={4}
+                  onChange={e => setNewRequest({...newRequest, reason: e.target.value})}
+                  placeholder="Provide specific reason for review..." 
+                  className="w-full px-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:bg-white/10 resize-none"
+                />
               </div>
               <div className="flex flex-col sm:flex-row gap-3 mt-10">
                 <button 
