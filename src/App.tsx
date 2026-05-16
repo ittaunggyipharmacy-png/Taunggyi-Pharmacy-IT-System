@@ -38,6 +38,8 @@ import {
   MoreVertical,
   Activity,
   Layers,
+  Link2,
+  MinusSquare,
   PieChart,
   Tag,
   Settings2,
@@ -69,9 +71,11 @@ import {
   Users,
   Wrench,
   Sun,
-  Moon
+  Moon,
+  ShieldOff,
+  Ban
 } from "lucide-react";
-import { utils, writeFile } from "xlsx";
+import { utils, writeFile, read } from "xlsx";
 import { motion, AnimatePresence } from "motion/react";
 
 import { clsx, type ClassValue } from "clsx";
@@ -98,7 +102,7 @@ import {
   User as FirebaseUser 
 } from "firebase/auth";
 
-import { auth, storage } from "./services/firebase";
+import { auth, storage, db } from "./services/firebase";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { 
   subscribeToSync, 
@@ -115,7 +119,11 @@ import {
   saveContentPlan,
   saveRenewal,
   saveActivity,
+  clearAllAssets,
   subscribeToSupervisorFeatures,
+  migrateAssetsToSequentialCodes,
+  importLegacyExcelData,
+  importKeyboardsMigration,
   saveDailyLog,
   getDailyLog,
   fetchStorageFiles,
@@ -127,6 +135,8 @@ import {
   getSettings
 } from "./services/firestoreService";
 
+import { Toaster, toast } from "react-hot-toast";
+import { ConfirmationModal } from "./components/ConfirmationModal";
 import { 
   Priority, 
   Status, 
@@ -370,19 +380,20 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authReady, setAuthReady] = useState(false);
 
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "assets" | "security" | "marketing" | "renewals" | "purchases" | "files" | "settings" | "help" | "kpi" | "daily-kpi" | "reports" | "skills" | "users">("dashboard");
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [evidence, setEvidence] = useState<TaskEvidence[]>([]);
   const [allDailyLogs, setAllDailyLogs] = useState<DailyLog[]>([]);
   const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
-  const [tickets, setTickets] = useState<ITTicket[]>(INITIAL_TICKETS);
+  const [tickets, setTickets] = useState<ITTicket[]>([]);
   const [quota, setQuota] = useState<{limit: string, usage: string} | null>(null);
-  const [assets, setAssets] = useState<ITAsset[]>(INITIAL_ASSETS);
-  const [backups, setBackups] = useState<BackupLog[]>(INITIAL_BACKUPS);
+  const [assets, setAssets] = useState<ITAsset[]>([]);
+  const [backups, setBackups] = useState<BackupLog[]>([]);
   const [contentPlans, setContentPlans] = useState<ContentPlan[]>([]);
-  const [cctvRequests, setCctvRequests] = useState<CCTVRequest[]>(INITIAL_CCTV_REQS);
-  const [renewals, setRenewals] = useState<RenewalRecord[]>(INITIAL_RENEWALS);
-  const [purchases, setPurchases] = useState<PurchaseRecord[]>(INITIAL_PURCHASES);
+  const [cctvRequests, setCctvRequests] = useState<CCTVRequest[]>([]);
+  const [renewals, setRenewals] = useState<RenewalRecord[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
   const [reminders, setReminders] = useState<{id: string, message: string, type: 'urgent' | 'info'}[]>([]);
   
@@ -453,7 +464,12 @@ export default function App() {
         const adminStatus = await checkAdminStatus(user.uid);
         
         // Define which roles are treated as super-admins with full access
-        const isSuperAdmin = profile?.role === UserRole.ADMIN || profile?.role === UserRole.IT_SUPERVISOR;
+        const isSuperAdmin = [
+          UserRole.ADMIN, 
+          UserRole.ADMIN_CAPS, 
+          UserRole.IT_SUPERVISOR, 
+          UserRole.IT_SUPERVISOR_CAPS
+        ].includes(profile?.role as UserRole);
         setIsAdmin(isSuperAdmin);
       } else {
         setUserProfile(null);
@@ -481,95 +497,25 @@ export default function App() {
       const unsubSync = subscribeToSync({
         // ... existing sync handlers ...
         onPurchases: (updatedPurchases) => {
-          if (updatedPurchases.length > 0) {
-             setPurchases(prev => {
-               const merged = [...prev];
-               updatedPurchases.forEach(p => {
-                 const idx = merged.findIndex(m => m.id === p.id);
-                 if (idx !== -1) merged[idx] = p;
-                 else merged.unshift(p);
-               });
-               return merged;
-             });
-          }
+          setPurchases(updatedPurchases);
         },
         onAssets: (updatedAssets) => {
-          if (updatedAssets.length > 0) {
-            setAssets(prev => {
-              const merged = [...prev];
-              updatedAssets.forEach(a => {
-                const idx = merged.findIndex(m => m.id === a.id);
-                if (idx !== -1) merged[idx] = a;
-                else merged.unshift(a);
-              });
-              return merged;
-            });
-          }
+          setAssets(updatedAssets);
         },
         onTickets: (updatedTickets) => {
-          if (updatedTickets.length > 0) {
-            setTickets(prev => {
-              const merged = [...prev];
-              updatedTickets.forEach(t => {
-                const idx = merged.findIndex(m => m.id === t.id);
-                if (idx !== -1) merged[idx] = t;
-                else merged.unshift(t);
-              });
-              return merged;
-            });
-          }
+          setTickets(updatedTickets);
         },
         onBackups: (updatedBackups) => {
-          if (updatedBackups.length > 0) {
-            setBackups(prev => {
-              const merged = [...prev];
-              updatedBackups.forEach(b => {
-                const idx = merged.findIndex(m => m.id === b.id);
-                if (idx !== -1) merged[idx] = b;
-                else merged.unshift(b);
-              });
-              return merged;
-            });
-          }
+          setBackups(updatedBackups);
         },
         onCCTV: (updatedCCTV) => {
-          if (updatedCCTV.length > 0) {
-            setCctvRequests(prev => {
-              const merged = [...prev];
-              updatedCCTV.forEach(c => {
-                const idx = merged.findIndex(m => m.id === c.id);
-                if (idx !== -1) merged[idx] = c;
-                else merged.unshift(c);
-              });
-              return merged;
-            });
-          }
+          setCctvRequests(updatedCCTV);
         },
         onPlans: (updatedPlans) => {
-          if (updatedPlans.length > 0) {
-            setContentPlans(prev => {
-              const merged = [...prev];
-              updatedPlans.forEach(p => {
-                const idx = merged.findIndex(m => m.id === p.id);
-                if (idx !== -1) merged[idx] = p;
-                else merged.unshift(p);
-              });
-              return merged;
-            });
-          }
+          setContentPlans(updatedPlans);
         },
         onRenewals: (updatedRenewals) => {
-          if (updatedRenewals.length > 0) {
-            setRenewals(prev => {
-              const merged = [...prev];
-              updatedRenewals.forEach(r => {
-                const idx = merged.findIndex(m => m.id === r.id);
-                if (idx !== -1) merged[idx] = r;
-                else merged.unshift(r);
-              });
-              return merged;
-            });
-          }
+          setRenewals(updatedRenewals);
         }
       });
 
@@ -1082,7 +1028,7 @@ export default function App() {
               {(activeTab === "dashboard" || activeTab === "tickets") && !canAccess(userProfile?.role as UserRole, activeTab) && !isAdmin && (
                 <div className="flex flex-col items-center justify-center p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
                   <div className="w-16 h-16 bg-rose-50 dark:bg-rose-950/20 rounded-2xl flex items-center justify-center text-rose-500 mb-4">
-                    <ShieldAlert size={32} />
+                    <ShieldOff size={32} />
                   </div>
                   <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2 italic">Access Restricted</h3>
                   <p className="text-slate-500 dark:text-slate-400 text-sm max-w-xs">You do not have permission to access the {activeTab} module. Please contact your IT Supervisor.</p>
@@ -1110,7 +1056,7 @@ export default function App() {
                 isAdmin={isAdmin}
               />}
               {activeTab === "marketing" && canAccess(userProfile?.role as UserRole, "marketing") && <MarketingModule plans={contentPlans} setPlans={setContentPlans} isAdmin={isAdmin} />}
-              {activeTab === "settings" && <SettingsModule settings={settings} setSettings={setSettings} isAdmin={isAdmin} allNavItems={allNavItems} />}
+              {activeTab === "settings" && <SettingsModule settings={settings} setSettings={setSettings} isAdmin={isAdmin} allNavItems={allNavItems} setAssets={setAssets} />}
               {activeTab === "help" && <HelpSupportModule />}
               {activeTab === "files" && canAccess(userProfile?.role as UserRole, "files") && <FileManagerModule isAdmin={isAdmin} quota={quota} setQuota={setQuota} />}
               {activeTab === "kpi" && canAccess(userProfile?.role as UserRole, "kpi") && <KPIDashboard />}
@@ -1153,12 +1099,23 @@ export default function App() {
           </button>
         ))}
       </nav>
-
+      
+      <ConfirmationModal 
+        isOpen={confirmTarget !== null}
+        onClose={() => setConfirmTarget(null)}
+        onConfirm={() => {
+          if (confirmTarget) confirmTarget.onConfirm();
+        }}
+        title={confirmTarget?.title || "Confirm Action"}
+        message={confirmTarget?.message}
+        confirmText={confirmTarget?.confirmText || "Confirm"}
+      />
     </div>
   );
 }
 
-function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { settings: SystemSettings, setSettings: (s: SystemSettings) => void, isAdmin: boolean, allNavItems: any[] }) {
+function SettingsModule({ settings, setSettings, isAdmin, allNavItems, setAssets }: { settings: SystemSettings, setSettings: React.Dispatch<React.SetStateAction<SystemSettings>>, isAdmin: boolean, allNavItems: any[], setAssets: React.Dispatch<React.SetStateAction<ITAsset[]>> }) {
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>(null);
   const [newDept, setNewDept] = useState("");
   const [newLoc, setNewLoc] = useState("");
   const [newBranchName, setNewBranchName] = useState("");
@@ -1427,7 +1384,105 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems }: { setti
             </div>
           </div>
         </div>
+
+        <div className="enterprise-card p-6 border border-emerald-100">
+          <h3 className="font-bold text-slate-800 uppercase tracking-tight mb-6">Data Tools</h3>
+          <div className="flex flex-col gap-4">
+            <div className="p-6 bg-emerald-50 rounded-3xl flex flex-col md:flex-row items-center gap-6">
+              <div className="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-600 shadow-sm font-sans italic font-black text-xs">
+                MIG
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <h4 className="font-bold text-emerald-900 mb-1">Standardize Serial Codes</h4>
+                <p className="text-xs text-emerald-700 font-medium leading-relaxed">Runs a one-time database migration to sequentially assign new formatted asset codes (e.g., TG-PC-001) to all existing hardware grouped by category.</p>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isAdmin) return;
+                  setConfirmTarget({
+                    id: "migration1",
+                    message: "Execute one-time Sequential Asset Code migration?",
+                    onConfirm: async () => {
+                      setConfirmTarget(null);
+                      const tid = toast.loading("Executing standard migration...");
+                      try {
+                        const res = await migrateAssetsToSequentialCodes();
+                        toast.success(`Success: updated ${res.processedCount} records!`, { id: tid });
+                      } catch(err) {
+                        toast.error("Migration failed", { id: tid });
+                      }
+                    }
+                  });
+                }}
+                disabled={!isAdmin}
+                className="px-6 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-emerald-100 active:scale-95 disabled:opacity-50"
+              >
+                Run Migration
+              </button>
+            </div>
+            
+            {/* NEW SCRIPT */}
+            <div className="p-6 bg-blue-50 rounded-3xl flex flex-col md:flex-row items-center gap-6">
+              <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600 shadow-sm font-sans italic font-black text-xs">
+                IMP
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <h4 className="font-bold text-blue-900 mb-1">Import Keyboards (SOP)</h4>
+                <p className="text-xs text-blue-700 font-medium leading-relaxed">Runs a one-time import script for standalone keyboards based on the provided TSV list.</p>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isAdmin) return;
+                  setConfirmTarget({
+                    id: "import1",
+                    message: "Execute keyboard spreadsheet import?",
+                    onConfirm: async () => {
+                      setConfirmTarget(null);
+                      const tid = toast.loading("Importing keyboard layout...");
+                      try {
+                        const res = await importKeyboardsMigration();
+                        toast.success(`Success: imported ${res.importedCount} keyboards!`, { id: tid });
+                      } catch(err) {
+                        toast.error("Import failed", { id: tid });
+                      }
+                    }
+                  });
+                }}
+                disabled={!isAdmin}
+                className="px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-blue-100 active:scale-95 disabled:opacity-50 whitespace-nowrap"
+              >
+                Run Import Script
+              </button>
+            </div>
+            
+            {/* RESET DATABASE TOOL */}
+            {isAdmin && (
+              <div className="p-6 bg-rose-50 rounded-3xl flex flex-col md:flex-row items-center gap-6 border border-rose-100 mt-4">
+                <div className="w-12 h-12 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-600 shadow-sm font-sans italic font-black text-xs">
+                  DEL
+                </div>
+                <div className="flex-1 text-center md:text-left">
+                  <h4 className="font-bold text-rose-900 mb-1">Reset Database</h4>
+                  <p className="text-xs text-rose-700 font-medium leading-relaxed">Deletes ALL IT assets in the inventory collection. Use with extreme caution as this action is permanent and irreversible.</p>
+                </div>
+                <ResetAssetsButton setAssets={setAssets} setConfirmTarget={setConfirmTarget} isCompact={true} />
+              </div>
+            )}
+          </div>
+        </div>
+
       </div>
+
+      <ConfirmationModal 
+        isOpen={confirmTarget !== null}
+        onClose={() => setConfirmTarget(null)}
+        onConfirm={() => {
+          if (confirmTarget) confirmTarget.onConfirm();
+        }}
+        title={confirmTarget?.title || "Admin Protocol Confirmation"}
+        message={confirmTarget?.message}
+        confirmText={confirmTarget?.confirmText || "Confirm Execution"}
+      />
     </div>
   );
 }
@@ -1864,6 +1919,60 @@ function ReportsModule({ activities, evidence, allDailyLogs, tickets, employees 
   );
 }
 
+function ResetAssetsButton({ setAssets, setConfirmTarget, isCompact }: { setAssets: React.Dispatch<React.SetStateAction<ITAsset[]>>, setConfirmTarget: React.Dispatch<React.SetStateAction<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>>, isCompact?: boolean }) {
+  const [isClearing, setIsClearing] = useState(false);
+  
+  const handleClear = async () => {
+    const password = window.prompt("EXTREME ACCESS: Enter Administrative Password to authorize database wipe:");
+    if (password !== "Tgp@admin123") {
+      if (password !== null) toast.error("Invalid password. Database reset aborted.");
+      return;
+    }
+
+    setConfirmTarget({
+      id: "clear_all_assets",
+      title: "EXTREME CAUTION: Reset Database",
+      message: "Are you absolutely sure you want to delete ALL IT assets? This action is PERMANENT and will wipe the entire inventory database clean. This cannot be undone.",
+      confirmText: "Wipe Database Now",
+      onConfirm: async () => {
+        setConfirmTarget(null);
+        setIsClearing(true);
+        try {
+          await clearAllAssets();
+          setAssets([]);
+          toast.success("Successfully cleared all assets.");
+        } catch (e) {
+          toast.error("Failed to clear assets. Check permissions.");
+        } finally {
+          setIsClearing(false);
+        }
+      }
+    });
+  };
+
+  if (isCompact) {
+    return (
+      <button
+        onClick={handleClear}
+        disabled={isClearing}
+        className="px-6 py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-rose-100 active:scale-95 disabled:opacity-50 whitespace-nowrap"
+      >
+        {isClearing ? "Wiping Database..." : "Reset Database"}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={handleClear}
+      disabled={isClearing}
+      className="fixed top-4 right-4 z-[9999] bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg transition-all active:scale-95 disabled:opacity-50"
+    >
+      {isClearing ? "Wiping Database..." : "Reset Database / Delete All Assets"}
+    </button>
+  );
+}
+
 function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], assets: ITAsset[], backups: BackupLog[], quota: {limit: string, usage: string} | null }) {
   const activeAssets = assets.filter(a => a.status === "Active").length;
   const underRepairAssets = assets.filter(a => a.status === "Under Repair" || a.status === "Maintenance").length;
@@ -2177,6 +2286,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterPriority, setFilterPriority] = useState("All");
   const [filterDept, setFilterDept] = useState("All");
+  const [filterAssigned, setFilterAssigned] = useState("All");
 
   const [newTicket, setNewTicket] = useState<Partial<ITTicket>>({
     priority: Priority.MEDIUM,
@@ -2213,6 +2323,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
     const matchesStatus = filterStatus === "All" || ticket.status === filterStatus;
     const matchesPriority = filterPriority === "All" || ticket.priority === filterPriority;
     const matchesDept = filterDept === "All" || ticket.department === filterDept;
+    const matchesAssigned = filterAssigned === "All" || ticket.assignedToName === filterAssigned;
 
     const matchesSearch = (searchTerm === "" && ticketSearch === "") ||
       ticket.id.toLowerCase().includes(searchLower) ||
@@ -2221,7 +2332,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
       ticket.status.toLowerCase().includes(searchLower) ||
       ticket.priority.toLowerCase().includes(searchLower);
 
-    return matchesStatus && matchesPriority && matchesDept && matchesSearch;
+    return matchesStatus && matchesPriority && matchesDept && matchesAssigned && matchesSearch;
   }).sort((a, b) => new Date(b.requestTime).getTime() - new Date(a.requestTime).getTime());
 
   const currentTickets = filteredTickets.filter(t => !isHistorical(t.requestTime));
@@ -2327,6 +2438,9 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
       console.error("Failed to assign ticket or update KPI", err);
     }
   };
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [ticketToDelete, setTicketToDelete] = useState<string | null>(null);
+
   const handleCompleteTicket = (ticketId: string) => {
     const targetTicket = tickets.find(t => t.id === ticketId);
     if (!targetTicket) return;
@@ -2344,13 +2458,24 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
     });
   };
 
-  const handleDeleteTicket = async (ticketId: string) => {
+  const handleDeleteTicket = (ticketId: string) => {
     if (!isAdmin) return;
+    setTicketToDelete(ticketId);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteTicket = async () => {
+    if (!ticketToDelete) return;
     try {
-      await deleteTicket(ticketId);
+      await deleteTicket(ticketToDelete);
       setSelectedTicket(null);
+      toast.success("IT Log record purged successfully.");
     } catch (err) {
       console.error("Failed to delete ticket", err);
+      toast.error("Protocol Violation: Deletion failed.");
+    } finally {
+      setShowDeleteModal(false);
+      setTicketToDelete(null);
     }
   };
 
@@ -2416,31 +2541,47 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
       </div>
 
       {/* Enhanced Ticket Filtering */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 enterprise-card p-6">
-        <SearchableDropdown 
-          label="Status Cluster"
-          placeholder="All Active Tickets"
-          options={Object.values(Status)}
-          value={filterStatus}
-          onChange={setFilterStatus}
-          icon={Activity}
-        />
-        <SearchableDropdown 
-          label="Priority Tier"
-          placeholder="All Priority Levels"
-          options={Object.values(Priority)}
-          value={filterPriority}
-          onChange={setFilterPriority}
-          icon={AlertTriangle}
-        />
-        <SearchableDropdown 
-          label="Department View"
-          placeholder="All Departments"
-          options={settings.departments}
-          value={filterDept}
-          onChange={setFilterDept}
-          icon={Users}
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 enterprise-card p-6">
+        <div className="col-span-1">
+          <SearchableDropdown 
+            label="Status Cluster"
+            placeholder="All Active Tickets"
+            options={Object.values(Status)}
+            value={filterStatus}
+            onChange={setFilterStatus}
+            icon={Activity}
+          />
+        </div>
+        <div className="col-span-1">
+          <SearchableDropdown 
+            label="Priority Tier"
+            placeholder="All Priority Levels"
+            options={Object.values(Priority)}
+            value={filterPriority}
+            onChange={setFilterPriority}
+            icon={AlertTriangle}
+          />
+        </div>
+        <div className="col-span-1">
+          <SearchableDropdown 
+            label="Department View"
+            placeholder="All Departments"
+            options={settings.departments}
+            value={filterDept}
+            onChange={setFilterDept}
+            icon={Users}
+          />
+        </div>
+        <div className="col-span-1">
+          <SearchableDropdown 
+            label="Assigned Agent"
+            placeholder="All Personnel"
+            options={Array.from(new Set(tickets.map(t => t.assignedToName).filter(Boolean))) as string[]}
+            value={filterAssigned}
+            onChange={setFilterAssigned}
+            icon={User}
+          />
+        </div>
       </div>
 
       <div className="enterprise-card overflow-hidden">
@@ -2813,12 +2954,14 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
                     >
                       Close Node
                     </button>
-                    <button 
-                      onClick={() => handleDeleteTicket(selectedTicket.id)}
-                      className="py-3 px-6 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-rose-100 transition-all"
-                    >
-                      Delete Node
-                    </button>
+                    {isAdmin && (
+                      <button 
+                        onClick={() => handleDeleteTicket(selectedTicket.id)}
+                        className="py-3 px-6 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-rose-100 transition-all"
+                      >
+                        Delete Node
+                      </button>
+                    )}
                   </div>
                 )}
                 </div>
@@ -2827,19 +2970,109 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings }: {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal 
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setTicketToDelete(null);
+        }}
+        onConfirm={confirmDeleteTicket}
+        title="Protocol: Record Deletion"
+        message="Are you sure you want to permanently remove this IT Support Log record? This action will void the digital audit trail for this specific request."
+        confirmText="Confirm Void"
+      />
     </div>
   );
 }
 
-function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { assets: ITAsset[], setAssets: (a: ITAsset[]) => void, searchTerm: string, isAdmin: boolean, settings: SystemSettings }) {
+function SearchableSelect({ label, value, onChange, options, placeholder }: { label: string, value: string, onChange: (val: string) => void, options: { id: string, label: string }[], placeholder: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const filtered = options.filter(o => 
+    o.label.toLowerCase().includes(search.toLowerCase()) || 
+    o.id.toLowerCase().includes(search.toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">{label}</label>
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 cursor-pointer flex justify-between items-center"
+      >
+        <span className={cn(!value && "text-slate-400")}>
+          {value ? options.find(o => o.id === value)?.label || value : placeholder}
+        </span>
+        <ChevronDown size={14} className={cn("transition-transform", isOpen && "rotate-180")} />
+      </div>
+      
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+          <div className="p-2 border-b border-slate-100">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
+              <input 
+                type="text"
+                autoFocus
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search computer..."
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 rounded-lg text-xs focus:outline-none"
+              />
+            </div>
+          </div>
+          <div className="max-h-48 overflow-y-auto py-2">
+            {filtered.length === 0 ? (
+              <div className="px-4 py-2 text-[10px] text-slate-400 text-center font-bold uppercase">No computers found</div>
+            ) : filtered.map(o => (
+              <button
+                key={o.id}
+                onClick={() => {
+                  onChange(o.id);
+                  setIsOpen(false);
+                  setSearch("");
+                }}
+                className={cn(
+                  "w-full text-left px-4 py-2.5 text-xs hover:bg-slate-50 transition-colors flex flex-col",
+                  value === o.id && "bg-indigo-50 text-indigo-600"
+                )}
+              >
+                <span className="font-bold">{o.label}</span>
+                <span className="text-[10px] opacity-60">{o.id}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { assets: ITAsset[], setAssets: React.Dispatch<React.SetStateAction<ITAsset[]>>, searchTerm: string, isAdmin: boolean, settings: SystemSettings }) {
   const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string | string[]; type: 'asset' | 'bulk-asset' } | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<ITAsset | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [newAsset, setNewAsset] = useState<Partial<ITAsset>>({ category: "Computer", status: "Active" });
   
   // Hierarchical Filter State
   const [filterCategory, setFilterCategory] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [filterBrand, setFilterBrand] = useState<string[]>([]);
   const [filterModel, setFilterModel] = useState<string[]>([]);
   const [filterSpec, setFilterSpec] = useState<string[]>([]);
@@ -2849,7 +3082,11 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
   const [assetSearch, setAssetSearch] = useState("");
 
   // Options memoized per level
-  const categories = useMemo(() => Array.from(new Set(assets.map(a => a.category).filter(Boolean))).sort(), [assets]);
+  const categories = useMemo(() => {
+    const baseCategories = ["Computer", "Monitor", "UPS", "Keyboard", "Mouse", "Printer", "Scanner", "Network", "Mobile", "USB Hub", "Fan", "Peripherals", "Other"];
+    const foundCategories = assets.map(a => a.category).filter(Boolean);
+    return Array.from(new Set([...baseCategories, ...foundCategories])).sort();
+  }, [assets]);
   
   const brands = useMemo(() => {
     const filtered = filterCategory.length === 0 ? assets : assets.filter(a => filterCategory.includes(a.category));
@@ -2873,23 +3110,106 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
   const users = useMemo(() => Array.from(new Set(assets.map(a => a.assignedTo).filter(Boolean))).sort(), [assets]);
   const statuses = useMemo(() => Array.from(new Set(assets.map(a => a.status).filter(Boolean))).sort(), [assets]);
 
-  const [isDeleting, setIsDeleting] = useState(false);
+  const displayedAssets = useMemo(() => {
+    if (selectedCategory === 'All') return assets;
+    
+    if (selectedCategory === 'Peripherals') {
+      return assets.filter(asset => ['Keyboard', 'Mouse', 'Fan', 'USB Hub'].includes(asset.category));
+    }
+    
+    return assets.filter(asset => asset.category === selectedCategory);
+  }, [assets, selectedCategory]);
 
-  const handleDelete = async (assetId: string, e: React.MouseEvent) => {
+  const calculateTotalWorkstationValue = (asset: ITAsset) => {
+    const basePrice = Number(asset.purchasePrice) || asset.itemPrice || 0;
+    const linkedPeripherals = assets.filter(a => a.parentId === asset.id);
+    const peripheralsTotal = linkedPeripherals.reduce((sum, p) => sum + (p.itemPrice || Number(p.purchasePrice) || 0), 0);
+    return basePrice + peripheralsTotal;
+  };
+
+  const handleUnlink = async (childAsset: ITAsset) => {
+    try {
+      await saveAsset({ ...childAsset, parentId: null, status: "Standalone / Spare" });
+      saveActivity({
+        action: `Unlinked ${childAsset.model} from parent workstation`,
+        details: `Asset ID: ${childAsset.id}`
+      });
+    } catch (error) {
+      console.error("Failed to unlink asset", error);
+    }
+  };
+
+  const handleLink = async (childId: string, parentId: string) => {
+    try {
+      const child = assets.find(a => a.id === childId);
+      const parent = assets.find(a => a.id === parentId);
+      if (child && parent) {
+        await saveAsset({ 
+          ...child, 
+          parentId, 
+          status: "Active",
+          assignedTo: parent.assignedTo || "Unassigned",
+          location: parent.location || "Warehouse",
+          department: parent.department || ""
+        });
+        saveActivity({
+          action: `Linked ${child.model} to ${parent.model}`,
+          details: `Hierarchy update: ${child.id} -> ${parent.id}`
+        });
+      }
+    } catch (error) {
+      console.error("Failed to link asset", error);
+      alert("Relational Linkage Failed. Check SOP-001 integrity.");
+    }
+  };
+
+  const handleDeleteAsset = (docId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this asset? This action cannot be undone.")) return;
+    setDeleteTarget({ id: docId, type: 'asset' });
+  };
+
+  const executeDelete = async () => {
+    if (!deleteTarget) return;
     
     setIsDeleting(true);
-    try {
-      await deleteAsset(assetId);
-      // Local filter if subscribeToSync doesn't handle deletions automatically (it should but let's be safe)
-      setAssets(assets.filter(a => a.id !== assetId));
-    } catch (error) {
-      console.error("Delete failed", error);
-      alert("Failed to delete asset. Insufficient permissions.");
-    } finally {
-      setIsDeleting(false);
+    
+    if (deleteTarget.type === 'asset' && typeof deleteTarget.id === 'string') {
+      const docId = deleteTarget.id;
+      const tid = toast.loading("Executing hardware purge...");
+      try {
+        const linkedPeripherals = assets.filter(a => a.parentId === docId);
+        for (const p of linkedPeripherals) {
+          await saveAsset({ ...p, parentId: null, status: "Standalone / Spare" });
+        }
+
+        await deleteAsset(docId);
+        setAssets(prev => prev.filter(item => item.id !== docId));
+        toast.success("Asset configuration purged successfully.", { id: tid });
+        saveActivity({
+          action: `Purged Asset: ${docId}`,
+          details: "Security-cleared manual hardware removal"
+        });
+      } catch (error) {
+        console.error("Delete failed", error);
+        toast.error("Protocol Violation: Deletion request rejected.", { id: tid });
+      }
+    } else if (deleteTarget.type === 'bulk-asset' && Array.isArray(deleteTarget.id)) {
+      const ids = deleteTarget.id;
+      const tid = toast.loading(`Purging ${ids.length} nodes...`);
+      try {
+        for (const id of ids) {
+           await deleteAsset(id);
+        }
+        setAssets(prev => prev.filter(a => !ids.includes(a.id)));
+        setSelectedAssetIds([]);
+        toast.success("Bulk purge complete.", { id: tid });
+      } catch (error) {
+        toast.error("Bulk operation failed.", { id: tid });
+      }
     }
+    
+    setIsDeleting(false);
+    setDeleteTarget(null);
   };
 
   // Auto-reset dependent filters
@@ -2897,7 +3217,7 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
   useEffect(() => { setFilterModel([]); setFilterSpec([]); }, [filterBrand]);
   useEffect(() => { setFilterSpec([]); }, [filterModel]);
 
-  const filteredAssets = assets.filter(asset => {
+  const filteredAssets = displayedAssets.filter(asset => {
     const assetDept = asset.department || asset.location;
     const matchesDept = filterDept.length === 0 || filterDept.includes(assetDept);
     const matchesUser = filterUser.length === 0 || filterUser.includes(asset.assignedTo || "");
@@ -2962,13 +3282,17 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
           newAsset.status || "Active",
           {
             purchasePrice: newAsset.purchasePrice,
+            itemPrice: newAsset.itemPrice,
+            parentId: newAsset.parentId,
             purchaseDate: newAsset.purchaseDate,
             maintenanceDueDate: newAsset.maintenanceDueDate,
             uom: newAsset.uom,
-            specs: newAsset.specs,
             brand: newAsset.brand,
+            specs: newAsset.specs,
+            remarks: newAsset.remarks,
             remark2: newAsset.remark2,
-            peripherals: newAsset.peripherals,
+            purchaseRecordId: newAsset.purchaseRecordId,
+            supplier: newAsset.supplier,
             category: newAsset.category
           }
         );
@@ -2990,14 +3314,20 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
           department: newAsset.department,
           uom: newAsset.uom,
           assignedTo: newAsset.assignedTo || "Unassigned",
-          status: "Active",
+          status: newAsset.status || "Active",
           brand: newAsset.brand,
           specs: newAsset.specs,
           remarks: newAsset.remarks,
           remark2: newAsset.remark2,
           purchasePrice: newAsset.purchasePrice,
+          itemPrice: newAsset.itemPrice,
+          parentId: newAsset.parentId,
           peripherals: newAsset.peripherals
         };
+
+        if (asset.category !== "Computer" && !asset.parentId) {
+          asset.status = "Standalone / Spare";
+        }
 
         await saveAsset(asset);
         setIsAdding(false);
@@ -3077,35 +3407,126 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
     }
   };
 
-  const handleExportAssets = () => {
-    const data = assets.map(a => ({
-      "Asset ID": a.id,
-      Category: a.category,
-      Brand: a.brand || "-",
-      Model: a.model,
-      Specs: a.specs || "-",
-      "Serial Number": a.serialNumber,
-      "Purchase Date": a.purchaseDate,
-      "Maintenance Due": a.maintenanceDueDate || "-",
-      "Assigned To": a.assignedTo,
-      Department: a.department || a.location || "-",
-      Location: a.location,
-      UOM: a.uom || "-",
-      Price: a.purchasePrice || "0",
-      Status: a.status,
-      Remarks: a.remarks || "-",
-      Remark2: a.remark2 || "-",
-      Keyboard: a.peripherals?.keyboard || "-",
-      Mouse: a.peripherals?.mouse || "-",
-      USB: a.peripherals?.usb || "-",
-      Fan: a.peripherals?.fan || "-"
-    }));
+  // အမျိုးအစားအလိုက် Next Sequence Number (TG-Prefix-001) ကို လက်ရှိ Array ထဲကနေ ရှာပေးမည့် Helper Function
+  const getNextAssetCodeFromState = (category: string, currentAssets: any[]) => {
+    let prefix = "TG-ACC-";
+    if (category === "Computer") prefix = "TG-PC-";
+    else if (category === "Keyboard") prefix = "TG-KB-";
+    else if (category === "Mouse") prefix = "TG-MS-";
+    else if (category === "Fan") prefix = "TG-FN-";
+    else if (category === "Mobile") prefix = "TG-PH-";
+    else if (category === "Printer") prefix = "TG-PR-";
+    else if (category === "Scanner") prefix = "TG-SC-";
 
-    const worksheet = utils.json_to_sheet(data);
-    const workbook = utils.book_new();
-    utils.book_append_sheet(workbook, worksheet, "IT Asset Inventory");
-    writeFile(workbook, `IT_Asset_Inventory_${format(new Date(), "yyyyMMdd")}.xlsx`);
+    // လက်ရှိ ရှိပြီးသား ကုဒ်တွေထဲက နောက်ဆုံး နံပါတ်အကြီးဆုံးကို ရှာခြင်း
+    const codes = currentAssets
+      .filter(a => a.category === category && a.asset_code?.startsWith(prefix))
+      .map(a => {
+        const parts = a.asset_code.split('-');
+        const num = parseInt(parts[parts.length - 1], 10);
+        return isNaN(num) ? 0 : num;
+      });
+
+    // အဟောင်း Legacy Format (TG001, PH-TG002) များရှိပါက ၎င်းတို့ထဲမှ နံပါတ်ကိုပါ ရောစစ်ပေးခြင်း
+    const legacyCodes = currentAssets
+      .filter(a => a.category === category && !a.asset_code?.startsWith(prefix))
+      .map(a => {
+        const num = parseInt((a.asset_code || a.id || "").replace(/[^0-9]/g, ""), 10);
+        return isNaN(num) ? 0 : num;
+      });
+
+    const allNumbers = [...codes, ...legacyCodes];
+    const maxNum = allNumbers.length > 0 ? Math.max(...allNumbers) : 0;
+    return `${prefix}${(maxNum + 1).toString().padStart(3, '0')}`;
   };
+
+  // 1. EXCEL EXPORT FUNCTION (၇ ကော်လံ Layout စစ်စစ် ထုတ်ပေးမည့်စနစ်)
+  const handleExportAssets = () => {
+    try {
+      const data = assets.map((a: any) => {
+        const currentParentId = a.parent_asset_id || a.parent_id || a.parentId || "";
+        const parentPC = assets.find(p => p.id === currentParentId || p.asset_code === currentParentId);
+        
+        return {
+          "Asset Code": a.asset_code || a.id || "",
+          "Category": a.category || "",
+          "Brand/Model": a.model || a.brand || a.brand_model || "-",
+          "Serial Number": a.serialNumber || a.serial_number || a.serial || "-",
+          "Specs": a.specs || "",
+          "Purchase Date": a.purchaseDate || a.purchase_date || "",
+          "Price": Number(a.purchasePrice || a.price || a.itemPrice || 0),
+          "Status": a.status || "Active",
+          "Parent Asset Code": parentPC ? (parentPC.asset_code || parentPC.id) : currentParentId,
+          "Assigned User": a.assignedTo || a.assigned_user || "",
+          "Department": a.department || "",
+          "Location": a.location || "",
+          "Section": a.section || "",
+          "UOM": a.uom || "Set",
+          "Maintenance Due": a.maintenanceDueDate || a.maintenance_due || "Not set"
+        };
+      });
+
+      const worksheet = utils.json_to_sheet(data);
+      const workbook = utils.book_new();
+      utils.book_append_sheet(workbook, worksheet, "Assets");
+      
+      // Adjusted column widths for 15 columns
+      worksheet["!cols"] = Array(15).fill({ wch: 15 });
+
+      writeFile(workbook, "Taunggyi_Pharmacy_IT_Inventory.xlsx");
+      toast.success("Excel Export အောင်မြင်စွာ ထုတ်ယူပြီးပါပြီဗျာ။");
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Excel ထုတ်ယူမှု မအောင်မြင်ပါ။");
+    }
+  };
+
+
+  // 2. EXCEL IMPORT FUNCTION (Bulk Upsert: ရှိပြီးသားပြင်မည် / အသစ်ဆိုလျှင် Auto ကုဒ်တိုးသွင်းမည်)
+  const handleImportAssetsFromExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    toast.loading("ဒေတာများကို Database ထဲသို့ ထည့်သွင်းနေပါသည်...", { id: "import-loading" });
+
+    reader.onload = async (evt) => {
+      try {
+        const ab = evt.target?.result;
+        const wb = read(ab, { type: "array" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rows: any[] = utils.sheet_to_json(ws);
+
+        const res = await importLegacyExcelData(rows);
+        if (res.success && res.assets) {
+            // Update React state
+            const updatedAssets = [...assets];
+            res.assets.forEach((newAsset: any) => {
+                const index = updatedAssets.findIndex(a => a.id === newAsset.id);
+                if (index > -1) {
+                    updatedAssets[index] = newAsset;
+                } else {
+                    updatedAssets.push(newAsset);
+                }
+            });
+            setAssets(updatedAssets);
+        }
+        
+        toast.dismiss("import-loading");
+        toast.success(res.message);
+      } catch (error) {
+        console.error("Import processing error:", error);
+        toast.dismiss("import-loading");
+        toast.error("Excel Import လုပ်ဆောင်မှု မအောင်မြင်ပါ။ ဒေတာပုံစံကို ပြန်စစ်ပါ။");
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+    e.target.value = ""; // Input ခလုတ်ကို Reset ပြန်လုပ်ခြင်း
+  };
+
+
 
   const handlePrintAsset = (asset: ITAsset) => {
     const printWindow = window.open("", "_blank");
@@ -3344,37 +3765,55 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
         ))}
       </div>
       
-      {/* Consolidated Breakdown Bar */}
+      {/* Consolidated Breakdown Bar / Category Selector */}
       <div className="flex flex-wrap gap-2 items-center">
-        {Object.entries(analysis.categories).map(([cat, count]) => (
-          <div key={cat} className="bg-white px-3 py-1.5 flex items-center gap-3 border border-slate-200 rounded-lg hover:border-indigo-300 transition-colors shadow-sm">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{cat}</span>
-            <span className="text-xs font-bold text-indigo-600">{count}</span>
-          </div>
-        ))}
+        <button 
+          onClick={() => setSelectedCategory('All')}
+          className={cn(
+            "px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all shadow-sm",
+            selectedCategory === 'All' 
+              ? "bg-indigo-600 border-indigo-600 text-white" 
+              : "bg-white border-slate-200 text-slate-400 hover:border-indigo-300"
+          )}
+        >
+          All Assets
+        </button>
+        
+        <button 
+          onClick={() => setSelectedCategory('Peripherals')}
+          className={cn(
+            "px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all shadow-sm flex items-center gap-2",
+            selectedCategory === 'Peripherals' 
+              ? "bg-amber-600 border-amber-600 text-white" 
+              : "bg-white border-slate-200 text-slate-400 hover:border-amber-300"
+          )}
+        >
+          <Layers size={12} />
+          Peripherals
+        </button>
 
         <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
 
-        <div className="bg-amber-50/50 px-3 py-1.5 flex items-center gap-3 border border-amber-100 rounded-lg shadow-sm">
-          <Keyboard size={12} className="text-amber-600" />
-          <span className="text-[9px] font-bold text-amber-700 uppercase tracking-widest">Keyboards</span>
-          <span className="text-xs font-bold text-amber-600">{analysis.peripherals.keyboards}</span>
-        </div>
-        <div className="bg-slate-50 px-3 py-1.5 flex items-center gap-3 border border-slate-200 rounded-lg shadow-sm">
-          <MousePointer2 size={12} className="text-slate-600" />
-          <span className="text-[9px] font-bold text-slate-700 uppercase tracking-widest">Mice</span>
-          <span className="text-xs font-bold text-slate-600">{analysis.peripherals.mice}</span>
-        </div>
-        <div className="bg-indigo-50/50 px-3 py-1.5 flex items-center gap-3 border border-indigo-100 rounded-lg shadow-sm">
-          <Usb size={12} className="text-indigo-600" />
-          <span className="text-[9px] font-bold text-indigo-700 uppercase tracking-widest">USB Hubs</span>
-          <span className="text-xs font-bold text-indigo-600">{analysis.peripherals.usbHubs}</span>
-        </div>
-        <div className="bg-cyan-50/50 px-3 py-1.5 flex items-center gap-3 border border-cyan-100 rounded-lg shadow-sm">
-          <Wind size={12} className="text-cyan-600" />
-          <span className="text-[9px] font-bold text-cyan-700 uppercase tracking-widest">Cooling Fans</span>
-          <span className="text-xs font-bold text-cyan-600">{analysis.peripherals.fans}</span>
-        </div>
+        {['Computer', 'Monitor', 'UPS', 'Mobile', 'Printer', 'Network'].map((cat) => (
+          <button 
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border transition-all shadow-sm",
+              selectedCategory === cat 
+                ? "bg-slate-800 border-slate-800 text-white" 
+                : "bg-white border-slate-200 text-slate-400 hover:border-indigo-300"
+            )}
+          >
+            {cat}
+            <span className={cn(
+              "ml-2 text-[10px] font-bold",
+              selectedCategory === cat ? "text-indigo-300" : "text-indigo-600"
+            )}>
+              {assets.filter(a => a.category === cat).length}
+            </span>
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-col gap-6 enterprise-card p-6">
@@ -3387,22 +3826,28 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
             <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 uppercase font-black tracking-[0.2em]">Enterprise Resource Management • SOP-001</p>
           </div>
           
-          <div className="flex gap-3 w-full lg:w-auto">
-            <button 
-              onClick={handleExportAssets}
-              className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-indigo-400 transition-all border border-slate-200 dark:border-slate-800 shadow-sm"
-            >
-              <Download size={14} /> Export
-            </button>
-            {isAdmin && (
-              <button 
-                onClick={() => setIsAdding(true)}
-                className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20 active:scale-95"
-              >
-                <Plus size={14} /> Register Node
-              </button>
-            )}
-          </div>
+          <div className="flex items-center gap-4 my-4">
+  {/* Export ခလုတ် */}
+  <button
+    onClick={handleExportAssets}
+    className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-all shadow-sm shadow-emerald-100 text-sm"
+  >
+    <Download size={16} />
+    Excel Export ထုတ်ယူရန်
+  </button>
+
+  {/* Import / Upload ခလုတ် */}
+  <label className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl transition-all shadow-sm shadow-indigo-100 text-sm cursor-pointer">
+    <Upload size={16} />
+    Excel ဖိုင်တင်၍ Update/Insert လုပ်ရန်
+    <input
+      type="file"
+      accept=".xlsx, .xls"
+      onChange={handleImportAssetsFromExcel}
+      className="hidden"
+    />
+  </label>
+</div>
         </div>
 
         {/* Dynamic Multi-level Filter System */}
@@ -3566,15 +4011,31 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                               {asset.model}
                             </p>
                             {asset.specs && <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1 italic">{asset.specs}</p>}
-                            {asset.peripherals && (asset.peripherals.keyboard || asset.peripherals.mouse || asset.peripherals.usb || asset.peripherals.fan) && (
+                            {asset.category === "Computer" ? (
                               <div className="flex flex-wrap gap-2 mt-1">
-                                {asset.peripherals.keyboard && <span className="text-[8px] bg-amber-50 text-amber-600 px-1 rounded border border-amber-100 flex items-center gap-1"><Keyboard size={8} /> {asset.peripherals.keyboard}</span>}
-                                {asset.peripherals.mouse && <span className="text-[8px] bg-slate-50 text-slate-500 px-1 rounded border border-slate-200 flex items-center gap-1"><MousePointer2 size={8} /> {asset.peripherals.mouse}</span>}
-                                {asset.peripherals.usb && <span className="text-[8px] bg-indigo-50 text-indigo-600 px-1 rounded border border-indigo-100 flex items-center gap-1"><Usb size={8} /> {asset.peripherals.usb}</span>}
-                                {asset.peripherals.fan && <span className="text-[8px] bg-cyan-50 text-cyan-600 px-1 rounded border border-cyan-100 flex items-center gap-1"><Wind size={8} /> {asset.peripherals.fan}</span>}
+                                <span className="text-[8px] bg-indigo-50 text-indigo-600 px-1 rounded border border-indigo-100 flex items-center gap-1 font-bold italic uppercase tracking-tighter">
+                                  <Layers size={8} /> Worth: {calculateTotalWorkstationValue(asset).toLocaleString()} MMK
+                                </span>
+                                {assets.filter(a => a.parentId === asset.id).length > 0 && (
+                                  <span className="text-[8px] bg-slate-50 text-slate-500 px-1 rounded border border-slate-200 flex items-center gap-1 font-bold italic uppercase tracking-tighter">
+                                    <Usb size={8} /> {assets.filter(a => a.parentId === asset.id).length} Connected
+                                  </span>
+                                )}
+                              </div>
+                            ) : asset.parentId ? (
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                <span className="text-[8px] bg-emerald-50 text-emerald-600 px-1 rounded border border-emerald-100 flex items-center gap-1 font-bold italic uppercase tracking-tighter">
+                                  <Link2 size={8} /> Linked to: {assets.find(parent => parent.id === asset.parentId)?.model || asset.parentId}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                <span className="text-[8px] bg-amber-50 text-amber-600 px-1 rounded border border-amber-100 flex items-center gap-1 font-bold italic uppercase tracking-tighter">
+                                  <MinusSquare size={8} /> Unassigned / Spare
+                                </span>
                               </div>
                             )}
-                            <p className="text-[9px] text-slate-400 font-mono italic">{asset.id}</p>
+                            <p className="text-[9px] text-indigo-600 font-mono font-bold tracking-wider">{asset.asset_code || asset.id}</p>
                           </div>
                         </div>
                       </td>
@@ -3608,7 +4069,7 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                             </button>
                             <button 
                               disabled={isDeleting}
-                              onClick={(e) => handleDelete(asset.id, e)}
+                              onClick={(e) => handleDeleteAsset(asset.id, e)}
                               className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
                               title="Delete Asset"
                             >
@@ -3648,7 +4109,7 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
               >
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono font-bold text-slate-400">{asset.id}</span>
+                  <span className="text-[10px] font-mono font-bold text-indigo-600 tracking-wider">[{asset.asset_code || asset.id}]</span>
                   <span className="text-[8px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded font-bold uppercase tracking-widest">
                     {asset.category}
                   </span>
@@ -3672,15 +4133,15 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                   >
                     <Printer size={12} />
                   </button>
-                  {isAdmin && (
-                    <button 
-                      disabled={isDeleting}
-                      onClick={(e) => handleDelete(asset.id, e)}
-                      className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
+                   {isAdmin && (
+                     <button 
+                       disabled={isDeleting}
+                       onClick={(e) => handleDeleteAsset(asset.id, e)}
+                       className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                     >
+                       <Trash2 size={12} />
+                     </button>
+                   )}
                 </div>
               </div>
               
@@ -3788,14 +4249,11 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
 
             <button 
               onClick={() => {
-                if (confirm(`Delete ${selectedAssetIds.length} assets permanently?`)) {
-                  setAssets(assets.filter(a => !selectedAssetIds.includes(a.id)));
-                  setSelectedAssetIds([]);
-                }
+                setDeleteTarget({ id: selectedAssetIds, type: 'bulk-asset' });
               }}
               className="flex items-center gap-2 px-3 py-1.5 bg-rose-600/20 text-rose-400 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all border border-rose-500/30"
             >
-              <ShieldCheck size={14} /> Delete
+              <ShieldCheck size={14} /> Bulk Delete
             </button>
           </motion.div>
         )}
@@ -3814,7 +4272,7 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                 <div>
                   <h3 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
                     <Monitor className="text-indigo-600" size={20} />
-                    Asset Details: {selectedAsset.id}
+                    Asset Details: {selectedAsset.asset_code || selectedAsset.id}
                   </h3>
                   <p className="text-xs text-slate-400 uppercase font-bold tracking-widest mt-1">Full hardware audit specification</p>
                 </div>
@@ -3828,6 +4286,14 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                   <div>
                     <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Core Configuration</h4>
                     <div className="space-y-3">
+                      <div className="flex justify-between border-b border-slate-100 pb-2">
+                        <span className="text-xs text-slate-500">Asset Code</span>
+                        <span className="text-xs font-black text-indigo-600">{selectedAsset.asset_code || "PENDING"}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-100 pb-2">
+                        <span className="text-xs text-slate-500">Internal ID</span>
+                        <span className="text-[10px] font-mono text-slate-400">{selectedAsset.id}</span>
+                      </div>
                       <div className="flex justify-between border-b border-slate-100 pb-2">
                         <span className="text-xs text-slate-500">Model</span>
                         <span className="text-xs font-bold text-slate-800">{selectedAsset.model}</span>
@@ -3844,10 +4310,16 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                         <span className="text-xs text-slate-500">Purchase Date</span>
                         <span className="text-xs font-bold text-slate-800">{selectedAsset.purchaseDate}</span>
                       </div>
-                      <div className="flex justify-between border-b border-slate-100 pb-2">
-                        <span className="text-xs text-slate-500">Unit Price</span>
-                        <span className="text-xs text-emerald-600 font-bold font-mono">{selectedAsset.purchasePrice ? Number(selectedAsset.purchasePrice).toLocaleString() : "0"} MMK</span>
-                      </div>
+                        <div className="flex justify-between border-b border-slate-100 pb-2">
+                          <span className="text-xs text-slate-500">Unit Price</span>
+                          <span className="text-xs text-emerald-600 font-bold font-mono">{(selectedAsset.itemPrice || Number(selectedAsset.purchasePrice) || 0).toLocaleString()} MMK</span>
+                        </div>
+                        {selectedAsset.category === "Computer" && (
+                          <div className="flex justify-between border-b-2 border-indigo-100 pb-2 bg-indigo-50/30 px-2 -mx-2 rounded-lg">
+                            <span className="text-xs text-indigo-600 font-bold flex items-center gap-1"><Layers size={10} /> Workstation Value</span>
+                            <span className="text-xs text-indigo-700 font-black font-mono">{calculateTotalWorkstationValue(selectedAsset).toLocaleString()} MMK</span>
+                          </div>
+                        )}
                       <div className="flex justify-between border-b border-slate-100 pb-2 items-center">
                         <span className="text-xs text-slate-500">Maintenance Due</span>
                         <div className="flex flex-col items-end">
@@ -3903,6 +4375,11 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                           <Smartphone size={14} className="text-indigo-600" />
                           Cellular Network & IMEI
                         </>
+                      ) : ["Keyboard", "Mouse", "Monitor", "UPS", "USB Hub", "Fan", "Peripherals"].includes(selectedAsset.category) ? (
+                        <>
+                          <Usb size={14} className="text-indigo-600" />
+                          Linkage & Hierarchy
+                        </>
                       ) : (
                         <>
                           <Package size={14} className="text-indigo-600" />
@@ -3920,45 +4397,109 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                               <p className="text-xs text-slate-800 font-medium">{selectedAsset.remarks || "No SIM Data"}</p>
                             </div>
                           </div>
-                          <div className="flex items-start gap-3">
-                            <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-500 uppercase">Hardware Specs</p>
-                              <p className="text-xs text-slate-800 font-medium">{selectedAsset.specs || "Standard"}</p>
-                            </div>
-                          </div>
                         </>
-                      ) : (
+                      ) : ["Keyboard", "Mouse", "Monitor", "UPS", "USB Hub", "Fan", "Peripherals"].includes(selectedAsset.category) ? (
                         <>
                           <div className="flex items-start gap-3">
                             <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
                             <div>
-                              <p className="text-[10px] font-bold text-slate-500 uppercase">Keyboard</p>
-                              <p className="text-xs text-slate-800 font-medium">{selectedAsset.peripherals?.keyboard || "Standard Issue"}</p>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Linkage Status</p>
+                              <p className={cn(
+                                "text-xs font-bold",
+                                selectedAsset.parentId ? "text-indigo-600" : "text-amber-600"
+                              )}>
+                                {selectedAsset.parentId 
+                                  ? `Assigned to ${assets.find(a => a.id === selectedAsset.parentId)?.model || selectedAsset.parentId}`
+                                  : "Standalone / Spare"}
+                              </p>
                             </div>
                           </div>
                           <div className="flex items-start gap-3">
                             <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
                             <div>
-                              <p className="text-[10px] font-bold text-slate-500 uppercase">Mouse</p>
-                              <p className="text-xs text-slate-800 font-medium">{selectedAsset.peripherals?.mouse || "Standard Issue"}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-3">
-                            <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-500 uppercase">USB Config</p>
-                              <p className="text-xs text-slate-800 font-medium">{selectedAsset.peripherals?.usb || "N/A"}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-3">
-                            <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
-                            <div>
-                              <p className="text-[10px] font-bold text-slate-500 uppercase">Cooling/Fan</p>
-                              <p className="text-xs text-slate-800 font-medium">{selectedAsset.peripherals?.fan || "Standard Tray"}</p>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase">Hardware Parent ID</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs text-slate-800 font-medium">{selectedAsset.parentId || "NO PARENT"}</p>
+                                {selectedAsset.parentId && isAdmin && (
+                                  <button 
+                                    onClick={() => handleUnlink(selectedAsset)}
+                                    className="px-2 py-0.5 bg-rose-50 text-rose-600 rounded text-[9px] font-bold uppercase hover:bg-rose-100 transition-colors"
+                                  >
+                                    Unlink
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </>
+                      ) : selectedAsset.category === "Computer" ? (
+                        <>
+                          <div className="flex items-start gap-3">
+                            <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
+                            <div className="flex-1">
+                              <div className="flex justify-between items-center mb-2">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase">Connected Peripherals</p>
+                                {isAdmin && (
+                                  <div className="w-48 scale-90 origin-right">
+                                    <SearchableSelect 
+                                      label=""
+                                      placeholder="Link accessory..."
+                                      value=""
+                                      onChange={(childId) => handleLink(childId, selectedAsset.id)}
+                                      options={assets.filter(a => !a.parentId && ["Keyboard", "Mouse", "Monitor", "UPS", "USB Hub", "Fan", "Peripherals"].includes(a.category)).map(a => ({
+                                        id: a.id,
+                                        label: `${a.category}: ${a.model}`
+                                      }))}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-2">
+                                {assets.filter(a => a.parentId === selectedAsset.id).length === 0 ? (
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase italic p-2 bg-slate-50 rounded-lg">No active linkages</p>
+                                ) : assets.filter(a => a.parentId === selectedAsset.id).map(p => (
+                                  <div key={p.id} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-200 shadow-sm group">
+                                    <div className="flex flex-col">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase leading-none mb-1">{p.category}</span>
+                                      <span className="text-xs font-bold text-slate-700">{p.model}</span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-[9px] font-black font-mono text-emerald-600">{(p.itemPrice || Number(p.purchasePrice) || 0).toLocaleString()} MMK</span>
+                                      {isAdmin && (
+                                        <button 
+                                          onClick={() => handleUnlink(p)}
+                                          className="text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
+                                        >
+                                          <X size={12} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3 mt-4 pt-4 border-t border-slate-200">
+                             <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
+                             <div>
+                               <p className="text-[10px] font-bold text-slate-500 uppercase">Inventory Quick-Details</p>
+                               <div className="grid grid-cols-2 gap-2 mt-2">
+                                  <div className="p-2 bg-white rounded border border-slate-200">
+                                    <p className="text-[8px] font-bold text-slate-400 uppercase">KB</p>
+                                    <p className="text-[10px] font-medium truncate">{selectedAsset.peripherals?.keyboard || "-"}</p>
+                                  </div>
+                                  <div className="p-2 bg-white rounded border border-slate-200">
+                                    <p className="text-[8px] font-bold text-slate-400 uppercase">Mouse</p>
+                                    <p className="text-[10px] font-medium truncate">{selectedAsset.peripherals?.mouse || "-"}</p>
+                                  </div>
+                               </div>
+                             </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center py-8">
+                          <p className="text-[10px] text-slate-400 font-bold uppercase italic tracking-widest text-center">No specialized data for this category</p>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -4018,10 +4559,17 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                       className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                     >
                       <option value="Computer">Computer</option>
+                      <option value="Monitor">Monitor</option>
+                      <option value="UPS">UPS</option>
+                      <option value="Keyboard">Keyboard</option>
+                      <option value="Mouse">Mouse</option>
                       <option value="Printer">Printer</option>
+                      <option value="Scanner">Scanner</option>
                       <option value="Network">Network</option>
                       <option value="Mobile">Mobile</option>
-                      <option value="Scanner">Scanner</option>
+                      <option value="USB Hub">USB Hub</option>
+                      <option value="Fan">Cooling Fan</option>
+                      <option value="Peripherals">General Peripherals</option>
                       <option value="Other">Other</option>
                     </select>
                   </div>
@@ -4085,12 +4633,12 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-6">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Purchase Price (MMK)</label>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Item Price (MMK)</label>
                     <input 
-                      type="text" 
-                      value={newAsset.purchasePrice || ""}
-                      onChange={e => setNewAsset({...newAsset, purchasePrice: e.target.value})}
-                      placeholder="400,000" 
+                      type="number" 
+                      value={newAsset.itemPrice || newAsset.purchasePrice || ""}
+                      onChange={e => setNewAsset({...newAsset, itemPrice: Number(e.target.value), purchasePrice: e.target.value})}
+                      placeholder="e.g., 400000" 
                       className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                     />
                   </div>
@@ -4114,6 +4662,49 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                   </div>
                 </div>
 
+                {newAsset.category !== "Computer" && (
+                  <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between mb-2">
+                       <h4 className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                         <Usb size={12} /> Hardware Linkage System
+                       </h4>
+                       <button 
+                        onClick={() => setNewAsset({...newAsset, parentId: newAsset.parentId ? null : ""})}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest border transition-all",
+                          newAsset.parentId === null 
+                            ? "bg-amber-100/50 text-amber-700 border-amber-200" 
+                            : "bg-indigo-100/50 text-indigo-700 border-indigo-200"
+                        )}
+                       >
+                         {newAsset.parentId === null ? "Standalone Mode" : "Assign Mode"}
+                       </button>
+                    </div>
+
+                    {newAsset.parentId !== null && (
+                      <SearchableSelect 
+                        label="Parent Workstation"
+                        placeholder="Search Active PCs..."
+                        value={newAsset.parentId || ""}
+                        onChange={(val) => setNewAsset({...newAsset, parentId: val})}
+                        options={assets.filter(a => a.category === "Computer" && a.id !== newAsset.id).map(a => ({
+                          id: a.id,
+                          label: `${a.brand || ""} ${a.model}`.trim()
+                        }))}
+                      />
+                    )}
+
+                    <div className="flex items-start gap-3 p-3 bg-white/60 rounded-xl border border-indigo-100/50">
+                      <Info size={14} className="text-indigo-400 shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-indigo-700/70 font-semibold leading-relaxed">
+                        {newAsset.parentId 
+                          ? `This ${newAsset.model || "item"} will be linked to the selected Workstation's total value & audit logs.`
+                          : "This item will be marked as 'Standalone / Spare' and stored in central inventory."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Status</label>
@@ -4123,9 +4714,14 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
                       className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                     >
                       <option value="Active">Active</option>
+                      <option value="In Stock">In Stock</option>
+                      <option value="New">New</option>
                       <option value="Maintenance">Maintenance</option>
-                      <option value="Replacement Required">Replacement Required</option>
-                      <option value="Decommissioned">Decommissioned</option>
+                      <option value="Under Repair">Under Repair</option>
+                      <option value="Pending / New Arrival">Pending / New Arrival</option>
+                      <option value="Standalone / Spare">Standalone / Spare</option>
+                      <option value="Retired">Retired</option>
+                      <option value="Disposed">Disposed</option>
                     </select>
                   </div>
                   <div>
@@ -4252,6 +4848,20 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal 
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={executeDelete}
+        isLoading={isDeleting}
+        title="Hardware Purge Confirmation"
+        message={
+          deleteTarget?.type === 'bulk-asset' && Array.isArray(deleteTarget.id)
+            ? `SOP-001 Risk Alert: Bulk delete ${deleteTarget.id.length} assets permanently? This cannot be undone.`
+            : `SOP-001 Security Alert: Are you sure you want to purge asset ${deleteTarget?.id} from the active inventory? This operation is irreversible and will unlink any connected peripherals.`
+        }
+        confirmText="Confirm Purge"
+      />
     </div>
   );
 }
@@ -5042,32 +5652,33 @@ function PurchasesModule({
   isAdmin
 }: { 
   purchases: PurchaseRecord[], 
-  setPurchases: (p: PurchaseRecord[]) => void,
+  setPurchases: React.Dispatch<React.SetStateAction<PurchaseRecord[]>>,
   assets: ITAsset[],
-  setAssets: (a: ITAsset[]) => void,
+  setAssets: React.Dispatch<React.SetStateAction<ITAsset[]>>,
   isAdmin: boolean
 }) {
   const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; type: 'purchase' } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newPurchase, setNewPurchase] = useState<Partial<PurchaseRecord>>({
     status: "Received",
     currency: "MMK",
-    quantity: 1
+    quantity: 1,
+    syncToInventory: true
   });
 
   const combinedPurchases = React.useMemo(() => {
     const list = [...purchases];
     
     // Find assets that aren't linked to a purchase record ID
-    // We filter for historical assets that have a valid purchase date
     const unlinkedAssets = assets.filter(a => {
       const isHistorical = a.purchaseDate && a.purchaseDate !== "Unknown" && a.purchaseDate !== "";
       const isNotLinked = !a.purchaseRecordId;
       return isHistorical && isNotLinked;
     });
     
-    // Group unlinked assets by date and model to create "Legacy Purchase Records"
     const groups: Record<string, ITAsset[]> = {};
     unlinkedAssets.forEach(a => {
       const key = `${a.purchaseDate}_${a.model}`;
@@ -5077,7 +5688,6 @@ function PurchasesModule({
 
     Object.values(groups).forEach(group => {
       const first = group[0];
-      // Check if this virtual purchase overlaps with an existing real purchase record
       const exists = purchases.find(p => p.date === first.purchaseDate && p.item === first.model);
       if (!exists) {
         list.push({
@@ -5111,7 +5721,9 @@ function PurchasesModule({
       supplier: newPurchase.supplier || "Unknown",
       supplierContact: newPurchase.supplierContact,
       status: newPurchase.status as any,
-      remarks: newPurchase.remarks
+      remarks: newPurchase.remarks,
+      serialNumber: newPurchase.serialNumber,
+      syncToInventory: newPurchase.syncToInventory ?? true
     };
 
     try {
@@ -5145,8 +5757,6 @@ function PurchasesModule({
   };
 
   const totalSpent = combinedPurchases.reduce((sum, p) => sum + (p.price * p.quantity), 0);
-  const [isDeleting, setIsDeleting] = useState(false);
-
   const handleExportPurchases = () => {
     const data = combinedPurchases.map(p => ({
       "Record ID": p.id,
@@ -5167,20 +5777,28 @@ function PurchasesModule({
     writeFile(wb, `IT_Purchases_Export_${format(new Date(), 'yyyyMMdd')}.xlsx`);
   };
 
-  const handleDelete = async (recordId: string, e: React.MouseEvent) => {
+  const handleDeletePurchase = (recordId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this purchase record?")) return;
-    
+    setDeleteTarget({ id: recordId, type: 'purchase' });
+  };
+
+  const executeDelete = async () => {
+    if (!deleteTarget || deleteTarget.type !== 'purchase') return;
+    const recordId = deleteTarget.id;
+
+    const tid = toast.loading("Voiding procurement record...");
     setIsDeleting(true);
     try {
        await deletePurchaseRecord(recordId);
-       setPurchases(purchases.filter(p => p.id !== recordId));
+       setPurchases(prev => prev.filter(p => p.id !== recordId));
+       toast.success("Procurement record voided.", { id: tid });
     } catch (error) {
        console.error("Delete failed", error);
-       alert("Insufficient permissions to delete records.");
-    } finally {
-       setIsDeleting(false);
+       toast.error("Protocol Violation: Deletion request rejected.", { id: tid });
     }
+    
+    setIsDeleting(false);
+    setDeleteTarget(null);
   };
 
   return (
@@ -5315,7 +5933,7 @@ function PurchasesModule({
                              </button>
                              <button 
                                disabled={isDeleting || p.id.startsWith('HIST-')}
-                               onClick={(e) => handleDelete(p.id, e)}
+                               onClick={(e) => handleDeletePurchase(p.id, e)}
                                className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors disabled:opacity-30"
                                title={p.id.startsWith('HIST-') ? "Cannot delete legacy data generated from assets" : "Delete Record"}
                              >
@@ -5356,7 +5974,7 @@ function PurchasesModule({
                                </button>
                                <button 
                                  disabled={isDeleting || p.id.startsWith('HIST-')}
-                                 onClick={(e) => handleDelete(p.id, e)}
+                                 onClick={(e) => handleDeletePurchase(p.id, e)}
                                  className="w-fit p-1 text-rose-500 hover:bg-rose-500/10 rounded transition-colors disabled:opacity-30 flex items-center gap-2"
                                >
                                  <Trash2 size={12} />
@@ -5404,27 +6022,37 @@ function PurchasesModule({
               </div>
 
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Item Name</label>
-                    <input 
-                      type="text" 
-                      value={newPurchase.item || ""}
-                      onChange={e => setNewPurchase({...newPurchase, item: e.target.value})}
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      placeholder="e.g. Logitech Mouse..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Category</label>
-                    <input 
-                      type="text" 
-                      value={newPurchase.category || ""}
-                      onChange={e => setNewPurchase({...newPurchase, category: e.target.value})}
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      placeholder="e.g. Network"
-                    />
-                  </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Item Name (Model)</label>
+            <input 
+              type="text" 
+              value={newPurchase.item || ""}
+              onChange={e => setNewPurchase({...newPurchase, item: e.target.value})}
+              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              placeholder="e.g. Logitech Mouse..."
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Serial Number (Primary/Start)</label>
+            <input 
+              type="text" 
+              value={newPurchase.serialNumber || ""}
+              onChange={e => setNewPurchase({...newPurchase, serialNumber: e.target.value})}
+              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              placeholder="e.g. SN12345..."
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Category</label>
+            <input 
+              type="text" 
+              value={newPurchase.category || ""}
+              onChange={e => setNewPurchase({...newPurchase, category: e.target.value})}
+              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              placeholder="e.g. Network"
+            />
+          </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Supplier</label>
                     <input 
@@ -5469,34 +6097,37 @@ function PurchasesModule({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Purchase Date</label>
-                    <input 
-                      type="date" 
-                      value={newPurchase.date || ""}
-                      onChange={e => setNewPurchase({...newPurchase, date: e.target.value})}
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Status</label>
-                    <select 
-                      value={newPurchase.status}
-                      onChange={e => setNewPurchase({...newPurchase, status: e.target.value as any})}
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                    >
-                      <option value="Ordered">Ordered</option>
-                      <option value="Transit">Transit</option>
-                      <option value="Received">Received</option>
-                    </select>
-                  </div>
-                </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Purchase Date</label>
+            <input 
+              type="date" 
+              value={newPurchase.date || ""}
+              onChange={e => setNewPurchase({...newPurchase, date: e.target.value})}
+              className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Inventory Sync</label>
+            <button 
+              onClick={() => setNewPurchase({...newPurchase, syncToInventory: !newPurchase.syncToInventory})}
+              className={cn(
+                "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all",
+                newPurchase.syncToInventory 
+                  ? "bg-indigo-50 text-indigo-600 border-indigo-200" 
+                  : "bg-slate-50 text-slate-400 border-slate-200"
+              )}
+            >
+              {newPurchase.syncToInventory ? <CheckCircle2 size={14} /> : <Ban size={14} />}
+              {newPurchase.syncToInventory ? "Sync Active" : "Sync Disabled"}
+            </button>
+          </div>
+        </div>
               </div>
 
               <div className="flex gap-4 pt-4">
                 <button 
-                  onClick={() => { setIsAdding(false); setIsEditing(false); setEditingId(null); setNewPurchase({ status: "Received", currency: "MMK", quantity: 1 }); }}
+                  onClick={() => { setIsAdding(false); setIsEditing(false); setEditingId(null); setNewPurchase({ status: "Received", currency: "MMK", quantity: 1, syncToInventory: true }); }}
                   className="flex-1 py-4 border border-white/10 text-slate-400 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/5 transition-all"
                 >
                   Cancel
@@ -5512,6 +6143,16 @@ function PurchasesModule({
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal 
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={executeDelete}
+        isLoading={isDeleting}
+        title="Ledger Entry Void"
+        message={`SOP-001 Procurement Alert: Are you sure you want to void purchase record ${deleteTarget?.id}? Linked inventory assets will remain but the record will be purged from the ledger.`}
+        confirmText="Confirm Void"
+      />
     </div>
   );
 }
@@ -5793,15 +6434,23 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
     setEditingId(null);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this file?")) return;
-    try {
-      const pathSuffix = currentFolderId ? `/${currentFolderId}` : '';
-      await deleteStorageFile(`uploads${pathSuffix}/${id}`);
-      fetchFiles();
-    } catch (err) {
-      console.error("Delete failed", err);
-    }
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>(null);
+
+  const handleDelete = (id: string) => {
+    setConfirmTarget({
+      id,
+      message: "Are you sure you want to delete this file?",
+      onConfirm: async () => {
+        setConfirmTarget(null);
+        try {
+          const pathSuffix = currentFolderId ? `/${currentFolderId}` : '';
+          await deleteStorageFile(`uploads${pathSuffix}/${id}`);
+          fetchFiles();
+        } catch (err) {
+          console.error("Delete failed", err);
+        }
+      }
+    });
   };
 
   const filteredFiles = files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -6205,6 +6854,17 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
             </button>
          </div>
       </div>
+
+      <ConfirmationModal 
+        isOpen={confirmTarget !== null}
+        onClose={() => setConfirmTarget(null)}
+        onConfirm={() => {
+          if (confirmTarget) confirmTarget.onConfirm();
+        }}
+        title={confirmTarget?.title || "Confirm Action"}
+        message={confirmTarget?.message}
+        confirmText={confirmTarget?.confirmText || "Delete Permanently"}
+      />
     </div>
   );
 }

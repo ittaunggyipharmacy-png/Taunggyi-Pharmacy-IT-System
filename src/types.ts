@@ -63,9 +63,11 @@ export interface SkillEntry {
 
 export enum UserRole {
   IT_SUPERVISOR = "IT Supervisor",
+  IT_SUPERVISOR_CAPS = "IT SUPERVISOR",
   MERCHANDISING_SUPERVISOR = "Merchandising Supervisor",
   IT_DIGITAL_MARKETING = "IT Digital Marketing",
   ADMIN = "System Admin",
+  ADMIN_CAPS = "SYSTEM ADMIN",
   STAFF = "Staff"
 }
 
@@ -88,13 +90,14 @@ export interface EmployeeProfile {
 
 export interface ITAsset {
   id: string;
-  category: "Computer" | "Printer" | "Network" | "Software" | "Mobile" | "Scanner" | "Other";
+  asset_code?: string;
+  category: "Computer" | "Printer" | "Network" | "Software" | "Mobile" | "Scanner" | "Keyboard" | "Mouse" | "Monitor" | "UPS" | "USB Hub" | "Fan" | "Peripherals" | "Other";
   model: string;
   serialNumber: string;
   purchaseDate: string;
   location: string;
   assignedTo: string;
-  status: "Active" | "Maintenance" | "Under Repair" | "Retired" | "New" | "In Stock" | "Disposed";
+  status: "Active" | "Maintenance" | "Under Repair" | "Retired" | "New" | "In Stock" | "Disposed" | "Pending / New Arrival" | "Standalone / Spare";
   brand?: string;
   specs?: string;
   remarks?: string;
@@ -102,9 +105,14 @@ export interface ITAsset {
   department?: string;
   uom?: string;
   purchasePrice?: string;
+  itemPrice?: number;
+  parentId?: string | null;
+  assignedToAssetId?: string | null; // Keep for legacy migration if needed
   currency?: string;
   purchaseRecordId?: string;
   maintenanceDueDate?: string;
+  addedBy?: string;
+  supplier?: string;
   peripherals?: {
     keyboard?: string;
     mouse?: string;
@@ -185,6 +193,8 @@ export interface PurchaseRecord {
   supplierContact?: string;
   status: "Ordered" | "Transit" | "Received";
   remarks?: string;
+  serialNumber?: string;
+  syncToInventory?: boolean;
 }
 
 export interface DriveFile {

@@ -10,13 +10,34 @@ import {
   Timestamp,
   serverTimestamp,
   limit,
+  orderBy,
   getDoc,
-  deleteDoc
+  deleteDoc,
+  writeBatch,
+  increment
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, listAll, deleteObject } from 'firebase/storage';
 import { db, auth, storage } from './firebase';
 import { handleFirestoreError, OperationType } from './firestoreErrors';
-import { PurchaseRecord, ITAsset, ITTicket, BackupLog, CCTVRequest, ContentPlan, RenewalRecord, DailyLog, MonthlyLog, WeeklyLog, ActivityEntry, TaskEvidence } from '../types';
+import { 
+  PurchaseRecord, 
+  ITAsset, 
+  ITTicket, 
+  BackupLog, 
+  CCTVRequest, 
+  ContentPlan, 
+  RenewalRecord, 
+  DailyLog, 
+  MonthlyLog, 
+  WeeklyLog, 
+  ActivityEntry, 
+  TaskEvidence,
+  EmployeeProfile,
+  SystemUser,
+  UserRole,
+  RolePermission,
+  SystemSettings
+} from '../types';
 
 const PURCHASE_COLLECTION = 'purchase_records';
 const ASSET_COLLECTION = 'it_assets';
@@ -75,8 +96,6 @@ export const getSettings = async (): Promise<SystemSettings | null> => {
   }
 };
 
-import { EmployeeProfile, SystemUser, UserRole, RolePermission } from '../types';
-
 export const getSystemUser = async (uid: string): Promise<SystemUser | null> => {
   try {
     const docRef = doc(db, USER_COLLECTION, uid);
@@ -96,27 +115,61 @@ export const syncSystemUser = async (firebaseUser: any) => {
     const userRef = doc(db, USER_COLLECTION, firebaseUser.uid);
     const snap = await getDoc(userRef);
     
+    const elevatedRoles = [
+      UserRole.ADMIN, 
+      UserRole.ADMIN_CAPS,
+      UserRole.IT_SUPERVISOR,
+      UserRole.IT_SUPERVISOR_CAPS
+    ];
+
     if (!snap.exists()) {
       // Check if they are in the admins collection to bootstrap
-      const isAdmin = await checkAdminStatus(firebaseUser.uid);
+      const isAdminDoc = await checkAdminStatus(firebaseUser.uid);
       const newUser: SystemUser = {
         uid: firebaseUser.uid,
         email: firebaseUser.email || "",
         displayName: firebaseUser.displayName || "",
-        role: isAdmin ? UserRole.ADMIN : UserRole.STAFF,
+        role: isAdminDoc ? UserRole.ADMIN : UserRole.STAFF,
         photoURL: firebaseUser.photoURL || "",
         createdAt: serverTimestamp(),
         lastLogin: serverTimestamp()
       };
       await setDoc(userRef, newUser);
+      
+      // Sync to admins if needed
+      if (elevatedRoles.includes(newUser.role)) {
+        await setDoc(doc(db, 'admins', firebaseUser.uid), { 
+          active: true, 
+          email: firebaseUser.email,
+          role: newUser.role,
+          updatedAt: serverTimestamp() 
+        });
+      }
+      
       return newUser;
     } else {
+      const userData = snap.data() as SystemUser;
       await setDoc(userRef, { 
         lastLogin: serverTimestamp(),
-        displayName: firebaseUser.displayName || snap.data().displayName,
-        photoURL: firebaseUser.photoURL || snap.data().photoURL
+        displayName: firebaseUser.displayName || userData.displayName,
+        photoURL: firebaseUser.photoURL || userData.photoURL
       }, { merge: true });
-      return snap.data() as SystemUser;
+      
+      // ENSURE sync to admins for existing users if they have the role
+      if (elevatedRoles.includes(userData.role)) {
+        await setDoc(doc(db, 'admins', firebaseUser.uid), { 
+          active: true, 
+          email: firebaseUser.email,
+          role: userData.role,
+          updatedAt: serverTimestamp() 
+        }, { merge: true });
+      }
+
+      return { ...userData, ...{
+        lastLogin: new Date().toISOString(),
+        displayName: firebaseUser.displayName || userData.displayName,
+        photoURL: firebaseUser.photoURL || userData.photoURL
+      }};
     }
   } catch (error) {
     console.error("Error syncing system user", error);
@@ -132,7 +185,9 @@ export const updateSystemUserRole = async (uid: string, role: UserRole) => {
     // Also sync to 'admins' collection if they have an elevated role
     const elevatedRoles = [
       UserRole.ADMIN, 
-      UserRole.IT_SUPERVISOR
+      UserRole.ADMIN_CAPS,
+      UserRole.IT_SUPERVISOR,
+      UserRole.IT_SUPERVISOR_CAPS
     ];
     
     if (elevatedRoles.includes(role)) {
@@ -177,6 +232,30 @@ export const saveActivity = async (activity: Partial<ActivityEntry>) => {
     });
   } catch (error) {
     console.error("Failed to log activity", error);
+  }
+};
+
+const saveGenericRecord = async (collectionName: string, data: any) => {
+  try {
+    const docRef = data.id 
+      ? doc(db, collectionName, data.id)
+      : doc(collection(db, collectionName));
+    
+    const finalData = {
+      ...data,
+      id: docRef.id,
+      updatedAt: serverTimestamp()
+    };
+    
+    if (!data.id) {
+       finalData.createdAt = serverTimestamp();
+    }
+
+    await setDoc(docRef, cleanData(finalData), { merge: true });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, collectionName);
+    throw error;
   }
 };
 
@@ -232,36 +311,166 @@ export const savePurchaseRecord = async (record: Partial<PurchaseRecord>) => {
       updatedAt: serverTimestamp()
     }));
 
-    // Automatically create a shadow entry in it_assets
-    const shadowAssetId = `ASSET-SHADOW-${recordId}`;
-    const assetRef = doc(db, ASSET_COLLECTION, shadowAssetId);
-    const shadowAsset: Partial<ITAsset> = {
-      id: shadowAssetId,
-      model: record.item,
-      category: (record.category as any) || "Other",
-      purchaseDate: record.date,
-      purchasePrice: String(record.price),
-      currency: record.currency || "MMK",
-      status: "In Stock" as any,
-      assignedTo: "Unassigned",
-      purchaseRecordId: recordId,
-      specs: `Automatic entry from Purchase Record ${recordId}. Supplier: ${record.supplier}`,
-    };
-    
-    await setDoc(assetRef, cleanData({
-      ...shadowAsset,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    }));
+    const assetIds: string[] = [];
 
-    return { recordId, assetId: shadowAssetId };
+    // Automatically create entries in it_assets if sync is requested
+    if (record.syncToInventory !== false) {
+      const itemsToCreate: { model: string, category: string, isParent: boolean }[] = [];
+      const itemDesc = (record.item || "").toLowerCase();
+      
+      // Heuristic parsing for bundles like "1 PC, 1 Keyboard, 1 Mouse" or "PC + Keyboard"
+      if (itemDesc.includes(",") || itemDesc.includes("+")) {
+        const parts = itemDesc.split(/[,\+]/).map(p => p.trim());
+        parts.forEach((part, idx) => {
+          let category = "Other";
+          if (part.includes("pc") || part.includes("computer") || part.includes("laptop")) category = "Computer";
+          else if (part.includes("kb") || part.includes("keyboard")) category = "Keyboard";
+          else if (part.includes("mouse")) category = "Mouse";
+          else if (part.includes("monitor")) category = "Monitor";
+          else if (part.includes("ups")) category = "UPS";
+          else if (part.includes("hub") || part.includes("usb")) category = "USB Hub";
+          else if (part.includes("fan")) category = "Fan";
+          else if (part.includes("printer")) category = "Printer";
+          
+          itemsToCreate.push({
+            model: part.charAt(0).toUpperCase() + part.slice(1),
+            category,
+            isParent: idx === 0 || category === "Computer"
+          });
+        });
+      } else {
+        const quantity = Number(record.quantity) || 1;
+        for (let i = 0; i < quantity; i++) {
+          itemsToCreate.push({
+            model: record.item,
+            category: record.category || "Other",
+            isParent: i === 0 && (record.category === "Computer" || record.item.toLowerCase().includes("pc"))
+          });
+        }
+      }
+
+      let parentAssetId: string | null = null;
+      
+      const categoryOffsets: Record<string, number> = {};
+
+      for (let i = 0; i < itemsToCreate.length; i++) {
+        const itemInfo = itemsToCreate[i];
+        const shadowAssetId = `ASSET-${recordId}-${String(i + 1).padStart(3, '0')}`;
+        const assetRef = doc(db, ASSET_COLLECTION, shadowAssetId);
+        
+        const cat = itemInfo.category;
+        if (categoryOffsets[cat] === undefined) {
+          categoryOffsets[cat] = 0;
+        }
+        
+        const asset_code = await generateNextAssetCode(cat, categoryOffsets[cat]);
+        categoryOffsets[cat]++;
+
+        const shadowAsset: Partial<ITAsset> = {
+          id: shadowAssetId,
+          asset_code,
+          model: itemInfo.model,
+          serialNumber: record.serialNumber || `SN-PENDING-${recordId}-${i+1}`,
+          supplier: record.supplier,
+          purchaseDate: record.date,
+          status: "Pending / New Arrival",
+          addedBy: "System Auto-Sync",
+          purchaseRecordId: recordId,
+          category: itemInfo.category as any,
+          purchasePrice: String(record.price),
+          itemPrice: itemsToCreate.length > 1 ? (record.price / itemsToCreate.length) : record.price,
+          currency: record.currency || "MMK",
+          assignedTo: "Unassigned",
+          specs: `Automatic entry from Purchase Record ${recordId}. Part of bundle/group entry ${i+1}/${itemsToCreate.length}.`,
+          parentId: (!itemInfo.isParent && parentAssetId) ? parentAssetId : null
+        };
+
+
+        if (itemInfo.isParent && !parentAssetId) {
+          parentAssetId = shadowAssetId;
+        }
+        
+        await setDoc(assetRef, cleanData({
+          ...shadowAsset,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        }));
+        
+        assetIds.push(shadowAssetId);
+      }
+    }
+
+    return { recordId, assetIds };
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, PURCHASE_COLLECTION);
   }
 };
 
 export const saveTicket = async (ticket: Partial<ITTicket>) => saveGenericRecord(TICKET_COLLECTION, ticket);
-export const saveAsset = async (asset: Partial<ITAsset>) => saveGenericRecord(ASSET_COLLECTION, asset);
+
+export const generateNextAssetCode = async (category: string, currentOffset: number = 0) => {
+  const getPrefix = (cat: string) => {
+    const c = (cat || "").toLowerCase();
+    if (c === "computer") return "TG-PC-";
+    if (c === "keyboard") return "TG-KB-";
+    if (c === "mouse") return "TG-MS-";
+    if (c === "fan") return "TG-FN-";
+    if (c === "usb hub" || c === "usb") return "TG-UB-";
+    if (c === "printer") return "TG-PR-";
+    if (c === "phone" || c === "mobile") return "TG-PH-";
+    if (c === "scanner") return "TG-SC-";
+    return "TG-ACC-";
+  };
+
+  const prefix = getPrefix(category);
+  
+  try {
+    const q = query(
+      collection(db, ASSET_COLLECTION),
+      where("category", "==", category),
+      orderBy("asset_code", "desc"),
+      limit(1)
+    );
+    const snap = await getDocs(q);
+    
+    let maxNumber = 0;
+    if (!snap.empty) {
+      const highestCode = snap.docs[0].data().asset_code;
+      if (highestCode && highestCode.startsWith(prefix)) {
+        const parts = highestCode.split("-");
+        const numPart = parts[parts.length - 1];
+        maxNumber = parseInt(numPart || "0", 10) || 0;
+      }
+    }
+    
+    return `${prefix}${String(maxNumber + 1 + currentOffset).padStart(3, '0')}`;
+  } catch (error) {
+    // Fallback if composite index is missing
+    const qFallback = query(collection(db, ASSET_COLLECTION), where("category", "==", category));
+    const snapFallback = await getDocs(qFallback);
+    let maxNumber = 0;
+    snapFallback.docs.forEach(doc => {
+      const code = doc.data().asset_code;
+      if (code && code.startsWith(prefix)) {
+        const parts = code.split("-");
+        const numPart = parts[parts.length - 1];
+        const num = parseInt(numPart || "0", 10);
+        if (!isNaN(num) && num > maxNumber) {
+          maxNumber = num;
+        }
+      }
+    });
+    return `${prefix}${String(maxNumber + 1 + currentOffset).padStart(3, '0')}`;
+  }
+};
+
+
+export const saveAsset = async (asset: Partial<ITAsset>) => {
+  if (!asset.id && !asset.asset_code && asset.category) {
+    asset.asset_code = await generateNextAssetCode(asset.category);
+  }
+  return saveGenericRecord(ASSET_COLLECTION, asset);
+};
 export const saveBackup = async (backup: Partial<BackupLog>) => saveGenericRecord(BACKUP_COLLECTION, backup);
 export const saveCCTVRequest = async (request: Partial<CCTVRequest>) => saveGenericRecord(CCTV_COLLECTION, request);
 export const saveContentPlan = async (plan: Partial<ContentPlan>) => saveGenericRecord(CONTENT_PLAN_COLLECTION, plan);
@@ -367,23 +576,371 @@ const cleanData = (data: any): any => {
   return clean;
 };
 
-const saveGenericRecord = async (collectionName: string, data: any) => {
-  try {
-    const docRef = data.id 
-      ? doc(db, collectionName, data.id)
-      : doc(collection(db, collectionName));
-    
-    const id = docRef.id;
 
-    await setDoc(docRef, cleanData({
-      ...data,
-      id: id,
+const createOrUpdatePeripheral = async (
+  batch: any, 
+  category: string, 
+  model: string, 
+  serialNumber: string, 
+  price: number, 
+  parentAssetId: string, 
+  categoryHighestCodes: Record<string, number>
+) => {
+  const cleanModel = (model || '').toString().trim();
+  const cleanSerial = (serialNumber || 'N/A').toString().trim();
+  const cleanPrice = Number(price) || 0;
+
+  if (!cleanModel && (!cleanSerial || cleanSerial === 'N/A')) return;
+
+  // Search by serial/model within this specific category to avoid collisions
+  const q = query(
+      collection(db, ASSET_COLLECTION), 
+      where("category", "==", category),
+      where("serialNumber", "==", cleanSerial)
+  );
+  
+  const snap = await getDocs(q);
+  
+  if (!snap.empty) {
+    // Update existing
+    const docRef = snap.docs[0].ref;
+    batch.update(docRef, cleanData({
+      model: cleanModel,
+      purchasePrice: String(cleanPrice),
+      parentId: parentAssetId,
       updatedAt: serverTimestamp()
-    }), { merge: true });
+    }));
+  } else {
+    // Insert new
+    if (categoryHighestCodes[category] === undefined) {
+      const qMax = query(
+          collection(db, ASSET_COLLECTION), 
+          where("category", "==", category), 
+          orderBy("asset_code", "desc"), 
+          limit(1)
+      );
+      const snapMax = await getDocs(qMax);
+      let maxVal = 0;
+      if (!snapMax.empty) {
+        const code = snapMax.docs[0].data().asset_code || "";
+        const parts = code.split("-");
+        const lastPart = parts[parts.length - 1];
+        maxVal = parseInt(lastPart || "0", 10);
+      }
+      categoryHighestCodes[category] = maxVal;
+    }
+    categoryHighestCodes[category]++;
+    const newAssetCode = await generateNextAssetCode(category, categoryHighestCodes[category] - 1);
+    
+    const assetRef = doc(collection(db, ASSET_COLLECTION));
+    batch.set(assetRef, cleanData({
+      id: assetRef.id,
+      asset_code: newAssetCode,
+      category,
+      model: cleanModel,
+      serialNumber: cleanSerial,
+      parentId: parentAssetId,
+      status: 'Active',
+      purchasePrice: String(cleanPrice),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }));
+  }
+};
 
-    return id;
+const getNextSequentialCode = async (category: string, prefix: string): Promise<string> => {
+  const q = query(
+    collection(db, ASSET_COLLECTION),
+    where('category', '==', category),
+    orderBy('asset_code', 'desc'),
+    limit(1)
+  );
+  const querySnapshot = await getDocs(q);
+  if (!querySnapshot.empty) {
+    const latestCode = querySnapshot.docs[0].data().asset_code || "";
+    // e.g., "TG-KB-034"
+    const parts = latestCode.split('-');
+    const currentNum = parseInt(parts[parts.length -1] || '0', 10);
+    return `${prefix}${(currentNum + 1).toString().padStart(3, '0')}`;
+  }
+  return `${prefix}001`;
+};
+
+export const importLegacyExcelData = async (excelRows: any[]) => {
+  try {
+    const batch = writeBatch(db);
+    const assetsRef = collection(db, ASSET_COLLECTION);
+    
+    // Helper to get next sequence for a category
+    const getNextCode = async (category: string, prefix: string): Promise<string> => {
+        const q = query(
+            collection(db, ASSET_COLLECTION),
+            where('category', '==', category),
+            orderBy('asset_code', 'desc'),
+            limit(1)
+        );
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+            const latestCode = querySnapshot.docs[0].data().asset_code || "";
+            const parts = latestCode.split('-');
+            const currentNum = parseInt(parts[parts.length - 1] || '0', 10);
+            return `${prefix}${(currentNum + 1).toString().padStart(3, '0')}`;
+        }
+        return `${prefix}001`;
+    };
+
+    // Cache counters to prevent duplicate codes in a single batch
+    const counters: Record<string, number> = {
+        'Keyboard': parseInt((await getNextCode('Keyboard', 'TG-KB-')).split('-')[2] || '0', 10),
+        'Mouse': parseInt((await getNextCode('Mouse', 'TG-MS-')).split('-')[2] || '0', 10),
+        'USB Hub': parseInt((await getNextCode('USB Hub', 'TG-UB-')).split('-')[2] || '0', 10),
+        'Fan': parseInt((await getNextCode('Fan', 'TG-FN-')).split('-')[2] || '0', 10),
+        'Computer': parseInt((await getNextCode('Computer', 'TG-PC-')).split('-')[2] || '0', 10),
+    };
+
+    const processedAssets: any[] = [];
+
+    for (const row of excelRows) {
+        const assetCode = (row['Asset Code'] || '').toString().trim();
+        const category = (row['Category'] || '').toString().trim();
+        if (!category) continue;
+
+        // Determine Code
+        let finalCode = assetCode;
+        if (!finalCode) {
+          const prefix = category === 'Keyboard' ? 'TG-KB-' : 
+                         category === 'Mouse' ? 'TG-MS-' : 
+                         category === 'USB Hub' ? 'TG-UB-' : 
+                         category === 'Fan' ? 'TG-FN-' : 'TG-ACC-';
+          const currentCount = counters[category] || 0;
+          const countStr = currentCount > 0 ? String(currentCount).padStart(3, '0') : '001';
+          finalCode = prefix + countStr;
+          if (counters[category]) counters[category]++;
+        }
+
+        const docRef = doc(assetsRef, finalCode);
+        const assetData = cleanData({
+            asset_code: finalCode,
+            category: category,
+            model: (row['Brand/Model'] || '').toString().trim() || "N/A",
+            serialNumber: (row['Serial Number'] || '').toString().trim(),
+            specs: (row['Specs'] || '').toString().trim(),
+            purchaseDate: (row['Purchase Date'] || '').toString().trim(),
+            purchasePrice: String(Number(row['Price'] || 0)),
+            status: (row['Status'] || 'Active').toString().trim(),
+            parentId: (row['Parent Asset Code'] || '').toString().trim(),
+            assignedTo: (row['Assigned User'] || '').toString().trim(),
+            department: (row['Department'] || '').toString().trim(),
+            location: (row['Location'] || '').toString().trim(),
+            section: (row['Section'] || '').toString().trim(),
+            uom: (row['UOM'] || 'Set').toString().trim(),
+            maintenanceDueDate: (row['Maintenance Due'] || 'Not set').toString().trim(),
+            updatedAt: serverTimestamp()
+        });
+
+        batch.set(docRef, assetData, { merge: true });
+        processedAssets.push({ id: finalCode, ...assetData });
+    }
+
+    await batch.commit();
+    return { success: true, message: "Import completed successfully.", assets: processedAssets };
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, collectionName);
+    console.error("Bulk upsert failed:", error);
+    handleFirestoreError(error, OperationType.WRITE, ASSET_COLLECTION);
+    throw error;
+  }
+};
+
+
+export const migrateAssetsToSequentialCodes = async (dryRun: boolean = false) => {
+  try {
+    const snap = await getDocs(collection(db, ASSET_COLLECTION));
+    const allAssets = snap.docs.map(doc => doc.data() as ITAsset);
+    
+    // Group assets by category
+    const groupedAssets: Record<string, ITAsset[]> = {};
+    for (const asset of allAssets) {
+      const cat = asset.category || "Other";
+      if (!groupedAssets[cat]) {
+        groupedAssets[cat] = [];
+      }
+      groupedAssets[cat].push(asset);
+    }
+    
+    const getPrefix = (cat: string) => {
+      const c = (cat || "").toLowerCase();
+      if (c === "computer") return "TG-PC-";
+      if (c === "keyboard") return "TG-KB-";
+      if (c === "mouse") return "TG-MS-";
+      if (c === "fan") return "TG-FN-";
+      if (c === "usb hub" || c === "usb") return "TG-UB-";
+      if (c === "printer") return "TG-PR-";
+      if (c === "phone" || c === "mobile") return "TG-PH-";
+      if (c === "scanner") return "TG-SC-";
+      return "TG-ACC-";
+    };
+
+    const batchSize = 400; // Firestore batch limit is 500
+    let processedCount = 0;
+    const logs: string[] = [];
+    
+    for (const category in groupedAssets) {
+      const categoryAssets = groupedAssets[category];
+      
+      // Sort assets. Try to extract numbers from existing asset_code to preserve sequence order.
+      // E.g., 'TG-PC-003', 'TG001', 'PH-TG002', 'SCN-TG020'
+      categoryAssets.sort((a, b) => {
+        const getNum = (code: string | undefined): number => {
+          if (!code) return 0;
+          const match = code.match(/(\d+)$/);
+          return match ? parseInt(match[1], 10) : 0;
+        };
+        const numA = getNum(a.asset_code);
+        const numB = getNum(b.asset_code);
+        if (numA !== numB) return numA - numB;
+        // Fallback to ID alphabetical
+        return a.id.localeCompare(b.id);
+      });
+      
+      const prefix = getPrefix(category);
+      let count = 1;
+      
+      for (let i = 0; i < categoryAssets.length; i += batchSize) {
+        const batch = writeBatch(db);
+        const chunk = categoryAssets.slice(i, i + batchSize);
+        
+        for (const asset of chunk) {
+          const formattedCode = `${prefix}${String(count).padStart(3, '0')}`;
+          
+          if (asset.asset_code !== formattedCode) {
+             const logStr = `[${category}] ${asset.id} | Old: ${asset.asset_code || 'none'} -> New: ${formattedCode}`;
+             logs.push(logStr);
+             console.log(logStr);
+             if (!dryRun) {
+               const docRef = doc(db, ASSET_COLLECTION, asset.id);
+               batch.update(docRef, { asset_code: formattedCode });
+             }
+             processedCount++;
+          }
+          count++;
+        }
+        
+        if (!dryRun && processedCount > 0) {
+          await batch.commit();
+        }
+      }
+    }
+    
+    if (dryRun) {
+      console.log(`[DRY RUN] Would have updated ${processedCount} records.`);
+    } else {
+      console.log(`[LIVE RUN] Successfully updated ${processedCount} records.`);
+    }
+    
+    return { success: true, processedCount, logs };
+  } catch (error) {
+    console.error("Migration failed", error);
+    throw error;
+  }
+};
+
+export const importKeyboardsMigration = async () => {
+  try {
+    const keyboardData = [
+      { brand: "Delux", serialNumber: "SN KOM-0221F000027", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "M33250U SN K600523J001400", quantity: 1, price: 27000, date: "28/07/2025" },
+      { brand: "Delux", serialNumber: "SN K6810 SN K681023J001508", quantity: 1, price: 29000, date: "14/08/2025" },
+      { brand: "Delux", serialNumber: "SN K601121F007421", quantity: 1, price: 29000, date: "28/07/2025" },
+      { brand: "Crome", serialNumber: "SN CK150U20G000194", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "SN KA15022A002918", quantity: 1, price: 13000, date: "28/07/2022" },
+      { brand: "Logitech", serialNumber: "SN K1202038SC31S7C8", quantity: 1, price: 0, date: "01/06/2021" },
+      { brand: "Logicom", serialNumber: "SN KA15021L001442", quantity: 1, price: 20000, date: "19/02/2024" },
+      { brand: "Delux", serialNumber: "SN KA15022A002504", quantity: 1, price: 20000, date: "21/07/2023" },
+      { brand: "Delux", serialNumber: "SN K601122A002041", quantity: 1, price: 15000, date: "07/05/2023" },
+      { brand: "Logicom", serialNumber: "SN KA15021L000054", quantity: 1, price: 0, date: "" },
+      { brand: "Logicom", serialNumber: "SN KA150211000057", quantity: 1, price: 0, date: "" },
+      { brand: "Crome", serialNumber: "SN CK1901123C001339", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "SN KA15020K002605", quantity: 1, price: 20000, date: "19/02/2024" },
+      { brand: "Logicom", serialNumber: "SN KA15021L001443", quantity: 1, price: 20000, date: "19/02/2024" },
+      { brand: "Delux", serialNumber: "SN KA15022A003188", quantity: 1, price: 15500, date: "28/06/2023" },
+      { brand: "Delux", serialNumber: "SN KA15021F003269", quantity: 1, price: 12000, date: "21/07/2022" },
+      { brand: "Logicom", serialNumber: "SN KA15021L000055", quantity: 1, price: 19000, date: "18/12/2023" },
+      { brand: "Logicom", serialNumber: "SN KA15021L000042", quantity: 1, price: 19000, date: "02/12/2023" },
+      { brand: "Delux", serialNumber: "SN KA15022A003187", quantity: 1, price: 15500, date: "28/06/2023" },
+      { brand: "Delux", serialNumber: "SN KA15021F007897", quantity: 1, price: 0, date: "" },
+      { brand: "Crome", serialNumber: "SN CK 150020B001040", quantity: 1, price: 0, date: "" },
+      { brand: "Logicom", serialNumber: "SN KA15021L000605", quantity: 1, price: 0, date: "" },
+      { brand: "Artwork", serialNumber: "SN KM988", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "SN KA15020K002214", quantity: 1, price: 0, date: "" },
+      { brand: "Logicom", serialNumber: "SN KA15021L000050", quantity: 1, price: 0, date: "" },
+      { brand: "Logicom", serialNumber: "SN K15021L000046", quantity: 1, price: 19000, date: "11/12/2023" },
+      { brand: "Delux", serialNumber: "SN KA15021F002689", quantity: 1, price: 0, date: "" },
+      { brand: "A4 Tech", serialNumber: "SN 22LIU00", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "KA 15021F002689", quantity: 1, price: 0, date: "" },
+      { brand: "A4 Tech", serialNumber: "SN MS1702KRS850", quantity: 1, price: 0, date: "" },
+      { brand: "Prolink", serialNumber: "SN 627801193101777", quantity: 1, price: 0, date: "00/01/1900" },
+      { brand: "Crome", serialNumber: "SN CK150U22L000587", quantity: 1, price: 44000, date: "28/08/2024" },
+      { brand: "Delux", serialNumber: "SN KA15022A001296", quantity: 1, price: 15500, date: "05/06/2023" },
+      { brand: "Delux", serialNumber: "SN KA15022A001293", quantity: 1, price: 15500, date: "05/06/2023" },
+      { brand: "Delux", serialNumber: "SN KA15022A001292", quantity: 1, price: 15500, date: "05/06/2023" },
+      { brand: "Delux", serialNumber: "SN KA15022A007417", quantity: 1, price: 0, date: "" },
+      { brand: "Other", serialNumber: "FOC", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "SN K630020K001453", quantity: 1, price: 0, date: "" },
+      { brand: "Crome", serialNumber: "SN CK150U20B001048", quantity: 1, price: 0, date: "" },
+      { brand: "Crome", serialNumber: "SN CK150U20B000158", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "KA15022A010003", quantity: 1, price: 11500, date: "05/05/2022" },
+      { brand: "Logicom", serialNumber: "SN AK15021L000053", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "SN KA150022B000075", quantity: 1, price: 0, date: "" },
+      { brand: "Delux", serialNumber: "SN KA15022A003181", quantity: 1, price: 15500, date: "18/06/2023" },
+      { brand: "Delux", serialNumber: "SN KA15020K004450", quantity: 1, price: 11500, date: "10/07/2022" },
+      { brand: "Prolink", serialNumber: "SN 6121401235103292", quantity: 1, price: 37000, date: "23/08/2024" },
+      { brand: "Delux", serialNumber: "SN K701023100030", quantity: 1, price: 30000, date: "28/08/2024" },
+      { brand: "Logicom", serialNumber: "SN KA15021L0002375", quantity: 1, price: 32000, date: "15/09/2024" },
+      { brand: "DM", serialNumber: "SN K 6810 SN K681023J001512", quantity: 1, price: 29000, date: "14/08/2025" },
+      { brand: "Delux", serialNumber: "SN K681023J001746", quantity: 1, price: 29000, date: "16/12/2024" },
+      { brand: "Delux", serialNumber: "SN K600523J001824", quantity: 1, price: 25000, date: "15/01/2025" },
+      { brand: "Delux", serialNumber: "SN K681023J001855", quantity: 1, price: 29000, date: "09/08/2025" },
+      { brand: "Delux", serialNumber: "SN K681023J000591", quantity: 1, price: 29000, date: "09/08/2025" },
+      { brand: "Delux", serialNumber: "SN K601121F007422", quantity: 1, price: 0, date: "28/07/2025" },
+      { brand: "Delux", serialNumber: "SN CK150U2L000586", quantity: 1, price: 44000, date: "28/08/2024" }
+    ];
+
+    let importedCount = 0;
+    
+    // We fetch one by one to ensure sequence generation runs properly.
+    for (let i = 0; i < keyboardData.length; i++) {
+      const kb = keyboardData[i];
+      let formattedDate = "";
+      if (kb.date && kb.date.includes("/")) {
+        const parts = kb.date.split("/");
+        if (parts.length === 3) {
+          formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+      }
+      
+      const newAsset: Partial<ITAsset> = {
+        category: "Keyboard",
+        brand: kb.brand,
+        model: "Keyboard",
+        serialNumber: kb.serialNumber,
+        purchasePrice: String(kb.price),
+        itemPrice: kb.price,
+        purchaseDate: formattedDate || "",
+        currency: "MMK",
+        status: "Standalone / Spare",
+        location: "Taunggyi Pharmacy",
+        department: "IT",
+        addedBy: "Keyboard Bulk Import Script",
+      };
+      
+      await saveAsset(newAsset);
+      importedCount++;
+    }
+    
+    return { success: true, importedCount };
+  } catch (error) {
+    console.error("Keyboard import failed", error);
+    throw error;
   }
 };
 
@@ -417,13 +974,49 @@ export const checkAdminStatus = async (uid: string) => {
 
 export const deleteAsset = async (assetId: string) => {
   try {
+    // Unlink any children first
     const assetRef = doc(db, ASSET_COLLECTION, assetId);
-    // In a real app we'd use deleteDoc, but let's follow the pattern of setDoc if that's more consistent with rules
-    // Actually deleteDoc is better if rules allow it.
-    // Let's use deleteDoc.
+    const childrenQuery = query(collection(db, ASSET_COLLECTION), where("parentId", "==", assetId));
+    const childrenSnap = await getDocs(childrenQuery);
+    
+    for (const childDoc of childrenSnap.docs) {
+      await setDoc(doc(db, ASSET_COLLECTION, childDoc.id), { 
+        parentId: null, 
+        status: "Standalone / Spare",
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
+    }
+
     await deleteDoc(assetRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, ASSET_COLLECTION);
+  }
+};
+
+export const clearAllAssets = async () => {
+  try {
+    const querySnapshot = await getDocs(collection(db, ASSET_COLLECTION));
+    if (querySnapshot.empty) return;
+
+    let batch = writeBatch(db);
+    let count = 0;
+
+    for (const docSnapshot of querySnapshot.docs) {
+      batch.delete(docSnapshot.ref);
+      count++;
+      if (count === 500) {
+        await batch.commit();
+        batch = writeBatch(db);
+        count = 0;
+      }
+    }
+    
+    if (count > 0) {
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, ASSET_COLLECTION);
+    throw error;
   }
 };
 
@@ -533,7 +1126,10 @@ export const subscribeToSync = ({
 
 export const fetchStorageFiles = async (folderId?: string) => {
   try {
-    const url = folderId ? `/api/drive/files?folderId=${encodeURIComponent(folderId)}` : '/api/drive/files';
+    let url = '/api/drive/files';
+    if (folderId) {
+      url = `/api/drive/files?folderId=${encodeURIComponent(folderId)}`;
+    }
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`API returned ${response.status}`);

@@ -17,7 +17,12 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        request.auth.token.email == "it.taunggyipharmacy@gmail.com" ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/app_users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data.role in ["IT Supervisor", "IT SUPERVISOR", "System Admin", "SYSTEM ADMIN", "Admin", "ADMIN"])
+      );
     }
 
     function isSuperAdmin() {
@@ -57,10 +62,11 @@ service cloud.firestore {
       
       return data.keys().hasAll(['model', 'status'])
         && data.model is string && data.model.size() > 0 && data.model.size() <= 200
-        && data.status is string && data.status in ['Active', 'In Stock', 'Maintenance', 'Retired', 'New', 'Disposed']
+        && data.status is string && data.status in ['Active', 'In Stock', 'Maintenance', 'Under Repair', 'Retired', 'New', 'Disposed', 'Pending / New Arrival', 'Standalone / Spare']
         && (isAssigned ? hasValidStatusForAssignment : true)
         && (data.get('assignedTo', 'Unassigned') is string)
         && (data.get('location', 'Warehouse') is string)
+        && (data.get('parentId', null) == null || data.get('parentId', '') is string)
         && (data.get('purchaseRecordId', '') is string)
         && (data.get('purchasePrice', '0') is string)
         && (data.get('purchaseDate', '') is string)
@@ -145,7 +151,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'date', 'userId', 'tasks'])
         && data.id is string && data.id.size() <= 200
         && data.date is string && data.date.size() <= 20
-        && data.userId is string && data.userId == request.auth.uid
+        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
         && data.tasks is map;
     }
 
@@ -153,7 +159,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'month', 'userId', 'tasks'])
         && data.id is string && data.id.size() <= 200
         && data.month is string && data.month.size() <= 20
-        && data.userId is string && data.userId == request.auth.uid
+        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
         && data.tasks is map;
     }
 
@@ -161,7 +167,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'week', 'userId', 'tasks'])
         && data.id is string && data.id.size() <= 200
         && data.week is string && data.week.size() <= 20
-        && data.userId is string && data.userId == request.auth.uid
+        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
         && data.tasks is map;
     }
 
@@ -182,7 +188,8 @@ service cloud.firestore {
     // Role Permissions
     match /role_permissions/{roleId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidRolePermission(incoming());
+      allow create, update: if isAdmin() && isValidRolePermission(incoming());
+      allow delete: if isAdmin();
     }
 
     // System Config
@@ -194,13 +201,15 @@ service cloud.firestore {
     // Purchase Records
     match /purchase_records/{recordId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(recordId) && isValidPurchaseRecord(incoming());
+      allow create, update: if isAdmin() && isValidId(recordId) && isValidPurchaseRecord(incoming());
+      allow delete: if isAdmin();
     }
 
     // IT Assets
     match /it_assets/{assetId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(assetId) && isValidITAsset(incoming());
+      allow create, update: if isAdmin() && isValidId(assetId) && isValidITAsset(incoming());
+      allow delete: if isAdmin();
     }
 
     // IT Tickets
@@ -214,39 +223,43 @@ service cloud.firestore {
     // Backup Logs
     match /backup_logs/{logId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(logId) && isValidBackupLog(incoming());
+      allow create, update: if isAdmin() && isValidId(logId) && isValidBackupLog(incoming());
+      allow delete: if isAdmin();
     }
 
     // CCTV Requests
     match /cctv_requests/{requestId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(requestId) && isValidCCTVRequest(incoming());
+      allow create, update: if isAdmin() && isValidId(requestId) && isValidCCTVRequest(incoming());
+      allow delete: if isAdmin();
     }
 
     // Content Plans
     match /content_plans/{planId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(planId) && isValidContentPlan(incoming());
+      allow create, update: if isAdmin() && isValidId(planId) && isValidContentPlan(incoming());
+      allow delete: if isAdmin();
     }
 
     // Renewals
     match /renewals/{renewalId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(renewalId) && isValidRenewalRecord(incoming());
+      allow create, update: if isAdmin() && isValidId(renewalId) && isValidRenewalRecord(incoming());
+      allow delete: if isAdmin();
     }
 
     // Employees
     match /employees/{employeeId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(employeeId) && isValidEmployee(incoming());
+      allow create, update: if isAdmin() && isValidId(employeeId) && isValidEmployee(incoming());
+      allow delete: if isAdmin();
     }
 
     // Daily KPI Logs
     match /daily_logs/{logId} {
       allow get: if isSignedIn() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create: if isAdmin() && isValidId(logId) && isValidDailyLog(incoming());
-      allow update: if isAdmin() && isValidId(logId) && isValidDailyLog(incoming());
+      allow create, update: if isSignedIn() && isValidId(logId) && isValidDailyLog(incoming());
       allow delete: if isAdmin();
     }
 
@@ -254,14 +267,16 @@ service cloud.firestore {
     match /monthly_logs/{logId} {
       allow get: if isSignedIn() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow write: if isAdmin() && isValidId(logId);
+      allow create, update: if isSignedIn() && isValidId(logId) && isValidMonthlyLog(incoming());
+      allow delete: if isAdmin();
     }
 
     // Weekly KPI Logs
     match /weekly_logs/{logId} {
       allow get: if isSignedIn() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
       allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow write: if isAdmin() && isValidId(logId);
+      allow create, update: if isSignedIn() && isValidId(logId) && isValidWeeklyLog(incoming());
+      allow delete: if isAdmin();
     }
 
     // Admins Collection
@@ -289,7 +304,8 @@ service cloud.firestore {
     // Asset Logs
     match /asset_logs/{logId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() && isValidId(logId) && isValidAssetLog(incoming());
+      allow create, update: if isAdmin() && isValidId(logId) && isValidAssetLog(incoming());
+      allow delete: if isAdmin();
     }
 
     // App Users Profiles
