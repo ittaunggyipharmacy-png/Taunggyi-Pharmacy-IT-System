@@ -208,14 +208,15 @@ service cloud.firestore {
     // IT Assets
     match /it_assets/{assetId} {
       allow read: if isSignedIn();
-      allow create, update: if isAdmin() && isValidId(assetId) && isValidITAsset(incoming());
+      // All signed-in IT staff can create & update assets; only Admin can delete
+      allow create, update: if isSignedIn() && isValidId(assetId) && isValidITAsset(incoming());
       allow delete: if isAdmin();
     }
 
     // IT Tickets
     match /it_tickets/{ticketId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(ticketId) && isValidITTicket(incoming());
+      allow create: if isAdmin() && isValidId(ticketId) && isValidITTicket(incoming());
       allow update: if isAdmin() && isValidId(ticketId) && isValidITTicket(incoming());
       allow delete: if isAdmin();
     }

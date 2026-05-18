@@ -2367,7 +2367,6 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings, use
       localStorage.removeItem("it_ticket_draft");
     }).catch(err => {
       console.error("Failed to save ticket", err);
-      toast.error("Failed to create log. Please try again.");
     });
   };
 
@@ -3481,19 +3480,32 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
   };
 
   const handleAddAsset = async () => {
-    if (!newAsset.model || !newAsset.serialNumber) return;
+    // --- Validation with clear user feedback ---
+    if (!newAsset.model || !newAsset.model.trim()) {
+      toast.error("Model / Name ဖြည့်ပေးပါ။");
+      return;
+    }
+    if (!newAsset.serialNumber || !newAsset.serialNumber.trim()) {
+      toast.error("Serial Number ဖြည့်ပေးပါ။ (မရှိရင် N/A လို့ထည့်ပေးပါ)");
+      return;
+    }
+    if (newAsset.specs && newAsset.specs.length > 6000) {
+      toast.error("Specs field သည် 6000 characters ကျော်မရပါ။");
+      return;
+    }
 
     // Validation: Only assign if status is 'In Stock', 'Active', or 'New'
-    const isAssigned = newAsset.assignedTo && newAsset.assignedTo !== "Unassigned";
-    const targetStatus = newAsset.status || (isEditing ? selectedAsset?.status : "New");
+    const isAssigned = newAsset.assignedTo && newAsset.assignedTo.trim() !== "" && newAsset.assignedTo !== "Unassigned";
+    const targetStatus = newAsset.status || (isEditing ? selectedAsset?.status : "Active");
     const allowedStatuses = ["Active", "In Stock", "New"];
 
     if (isAssigned && !allowedStatuses.includes(targetStatus as string)) {
-      alert(`⚠️ SOP-001 Validation Error: Assets in '${targetStatus}' status cannot be assigned to a user. Please set status to 'Active', 'In Stock' or 'New' first.`);
+      toast.error(`SOP-001: '${targetStatus}' status ရှိ asset ကို လူတစ်ယောက်ကို assign မလုပ်နိုင်ပါ။ Status ကို Active / In Stock / New ပြောင်းပေးပါ။`);
       return;
     }
-    
+
     if (isEditing && selectedAsset) {
+      const tid = toast.loading("Asset ကို update လုပ်နေသည်...");
       try {
         await updateAssetAssignment(
           selectedAsset.id,
@@ -3517,45 +3529,62 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
             category: newAsset.category
           }
         );
+        toast.success("Asset ကို သိမ်းဆည်းပြီးပါပြီ။", { id: tid });
         setIsEditing(false);
         setSelectedAsset(null);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to update asset", error);
-        alert("Failed to update asset. Check SOP-001 protocols.");
+        const msg = error?.code === 'permission-denied'
+          ? "Permission မရှိပါ။ Admin ကို ဆက်သွယ်ပါ။"
+          : `Update မအောင်မြင်ပါ — ${error?.message || 'Unknown error'}`;
+        toast.error(msg, { id: tid });
       }
     } else {
+      const tid = toast.loading("Asset သစ် မှတ်ပုံတင်နေသည်...");
       try {
         const asset: Partial<ITAsset> = {
           category: newAsset.category as any,
-          model: newAsset.model!,
-          serialNumber: newAsset.serialNumber!,
+          model: newAsset.model!.trim(),
+          serialNumber: newAsset.serialNumber!.trim(),
           purchaseDate: newAsset.purchaseDate || new Date().toISOString().split('T')[0],
           maintenanceDueDate: newAsset.maintenanceDueDate,
           location: newAsset.location || "Central Storage",
-          department: newAsset.department,
-          uom: newAsset.uom,
+          department: newAsset.department || "",
+          uom: newAsset.uom || "",
           assignedTo: newAsset.assignedTo || "Unassigned",
           status: newAsset.status || "Active",
-          brand: newAsset.brand,
-          specs: newAsset.specs,
+          brand: newAsset.brand || "",
+          specs: newAsset.specs || "",
           remarks: newAsset.remarks,
           remark2: newAsset.remark2,
-          purchasePrice: newAsset.purchasePrice,
+          purchasePrice: newAsset.purchasePrice || "0",
           itemPrice: newAsset.itemPrice,
-          parentId: newAsset.parentId,
+          parentId: newAsset.parentId || null,
           peripherals: newAsset.peripherals
         };
 
-        if (asset.category !== "Computer" && !asset.parentId) {
+        // Only auto-set Standalone/Spare if user has NOT explicitly chosen a status
+        // and the asset is non-Computer with no parent linked
+        if (asset.category !== "Computer" && !asset.parentId && !newAsset.status) {
           asset.status = "Standalone / Spare";
         }
 
-        await saveAsset(asset);
+        const savedId = await saveAsset(asset);
+        // Optimistic update — don't wait for onSnapshot, show it immediately
+        setAssets(prev => {
+          const exists = prev.find(a => a.id === savedId);
+          if (exists) return prev;
+          return [...prev, { ...asset, id: savedId } as ITAsset];
+        });
+        toast.success(`Asset "${asset.model}" မှတ်ပုံတင်ပြီးပါပြီ။`, { id: tid });
         setIsAdding(false);
         setNewAsset({ category: "Computer", status: "Active" });
-      } catch (error) {
+      } catch (error: any) {
         console.error("Add failed", error);
-        alert("Failed to register node.");
+        const msg = error?.code === 'permission-denied'
+          ? "Permission မရှိပါ။ Admin account ဖြင့် ဝင်ပါ။"
+          : `Asset မသိမ်းနိုင်ပါ — ${error?.message || 'Unknown error'}`;
+        toast.error(msg, { id: tid });
       }
     }
   };
@@ -4068,6 +4097,19 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
       className="hidden"
     />
   </label>
+
+  {/* Manual Add ခလုတ် */}
+  <button
+    onClick={() => {
+      setNewAsset({ category: "Computer", status: "Active" });
+      setIsEditing(false);
+      setIsAdding(true);
+    }}
+    className="flex items-center gap-2 px-5 py-2.5 bg-indigo-900 border border-slate-700 text-white font-medium rounded-xl transition-all shadow-lg hover:bg-black text-sm"
+  >
+    <Plus size={16} />
+    Asset အသစ်ထည့်ရန် (Manual)
+  </button>
 </div>
         </div>
 
@@ -7089,4 +7131,3 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
     </div>
   );
 }
-
