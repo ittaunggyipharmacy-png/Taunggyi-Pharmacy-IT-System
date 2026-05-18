@@ -2367,6 +2367,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings, use
       localStorage.removeItem("it_ticket_draft");
     }).catch(err => {
       console.error("Failed to save ticket", err);
+      toast.error("Failed to create log. Please try again.");
     });
   };
 

@@ -53,7 +53,10 @@ async function startServer() {
     
     try {
       const file = req.file;
-      const folderId = req.body.folderId || process.env.GOOGLE_DRIVE_FOLDER_ID;
+      const rawFolderId = req.body.folderId || process.env.GOOGLE_DRIVE_FOLDER_ID;
+      const folderId = typeof rawFolderId === 'string' && /^[a-zA-Z0-9_\-]+$/.test(rawFolderId)
+        ? rawFolderId
+        : process.env.GOOGLE_DRIVE_FOLDER_ID || null;
 
       if (!file) {
         return res.status(400).json({ error: "No file uploaded." });
