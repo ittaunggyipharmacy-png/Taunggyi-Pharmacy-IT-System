@@ -93,7 +93,7 @@ export const UserManagement = ({ isSuperAdmin }: { isSuperAdmin: boolean }) => {
                     <img src={user.photoURL} alt={user.displayName} className="w-12 h-12 rounded-xl object-cover border border-slate-100 shadow-sm" />
                   ) : (
                     <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-black">
-                      {user.displayName.charAt(0)}
+                      {user.displayName?.charAt(0) || "U"}
                     </div>
                   )}
                   <div className={`absolute -bottom-1 -right-1 p-1 rounded-lg ${config.bg} ${config.color} border border-white shadow-sm`}>
@@ -111,7 +111,15 @@ export const UserManagement = ({ isSuperAdmin }: { isSuperAdmin: boolean }) => {
                     </span>
                     <span className="hidden md:inline w-1 h-1 bg-slate-200 rounded-full" />
                     <span className="flex items-center gap-1 text-[11px] text-slate-400 font-medium lowercase">
-                      <Clock size={10} /> Joined {new Date(user.createdAt?.seconds * 1000).toLocaleDateString()}
+                      <Clock size={10} /> Joined {(() => {
+                        const createdAt = user.createdAt as any;
+                        if (!createdAt) return "Unknown";
+                        if (typeof createdAt.seconds === 'number') {
+                          return new Date(createdAt.seconds * 1000).toLocaleDateString();
+                        }
+                        const d = new Date(createdAt);
+                        return isNaN(d.getTime()) ? "Unknown" : d.toLocaleDateString();
+                      })()}
                     </span>
                   </div>
                 </div>

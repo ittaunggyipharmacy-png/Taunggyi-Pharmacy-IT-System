@@ -165,11 +165,9 @@ export const syncSystemUser = async (firebaseUser: any) => {
         }, { merge: true });
       }
 
-      return { ...userData, ...{
-        lastLogin: new Date().toISOString(),
-        displayName: firebaseUser.displayName || userData.displayName,
-        photoURL: firebaseUser.photoURL || userData.photoURL
-      }};
+      // Consistently return the data. We'll fetch it to be sure we have the latest.
+      const refreshedSnap = await getDoc(userRef);
+      return refreshedSnap.data() as SystemUser;
     }
   } catch (error) {
     console.error("Error syncing system user", error);
@@ -191,7 +189,14 @@ export const updateSystemUserRole = async (uid: string, role: UserRole) => {
     ];
     
     if (elevatedRoles.includes(role)) {
-      await setDoc(doc(db, 'admins', uid), { active: true });
+      const userSnap = await getDoc(userRef);
+      const userData = userSnap.data() as SystemUser;
+      await setDoc(doc(db, 'admins', uid), { 
+        active: true,
+        email: userData?.email || "",
+        role,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
     } else {
       await deleteDoc(doc(db, 'admins', uid));
     }
@@ -212,11 +217,9 @@ export const getAllSystemUsers = async (): Promise<SystemUser[]> => {
 
 export const saveEmployeeProfile = async (profile: Partial<EmployeeProfile>) => {
   try {
-    const docRef = doc(db, EMPLOYEE_COLLECTION, profile.id || "new");
-    if (!profile.id) {
-       profile.id = docRef.id;
-    }
-    await setDoc(docRef, profile, { merge: true });
+    const resolvedId = profile.id || doc(collection(db, EMPLOYEE_COLLECTION)).id;
+    const docRef = doc(db, EMPLOYEE_COLLECTION, resolvedId);
+    await setDoc(docRef, { ...profile, id: resolvedId }, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, EMPLOYEE_COLLECTION);
   }
@@ -304,12 +307,17 @@ export const savePurchaseRecord = async (record: Partial<PurchaseRecord>) => {
     
     const recordId = recordRef.id;
 
-    await setDoc(recordRef, cleanData({
+    const finalData: any = {
       ...record,
       id: recordId,
-      createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
-    }));
+    };
+
+    if (!record.id) {
+      finalData.createdAt = serverTimestamp();
+    }
+
+    await setDoc(recordRef, cleanData(finalData), { merge: true });
 
     const assetIds: string[] = [];
 
@@ -648,55 +656,61 @@ const createOrUpdatePeripheral = async (
   }
 };
 
-const getNextSequentialCode = async (category: string, prefix: string): Promise<string> => {
-  const q = query(
-    collection(db, ASSET_COLLECTION),
-    where('category', '==', category),
-    orderBy('asset_code', 'desc'),
-    limit(1)
-  );
-  const querySnapshot = await getDocs(q);
-  if (!querySnapshot.empty) {
-    const latestCode = querySnapshot.docs[0].data().asset_code || "";
-    // e.g., "TG-KB-034"
-    const parts = latestCode.split('-');
-    const currentNum = parseInt(parts[parts.length -1] || '0', 10);
-    return `${prefix}${(currentNum + 1).toString().padStart(3, '0')}`;
-  }
-  return `${prefix}001`;
-};
-
 export const importLegacyExcelData = async (excelRows: any[]) => {
   try {
     const batch = writeBatch(db);
     const assetsRef = collection(db, ASSET_COLLECTION);
     
-    // Helper to get next sequence for a category
-    const getNextCode = async (category: string, prefix: string): Promise<string> => {
-        const q = query(
+    // Helper to get prefix
+    const getPrefix = (cat: string) => {
+      const c = (cat || "").toLowerCase();
+      if (c === "computer") return "TG-PC-";
+      if (c === "keyboard") return "TG-KB-";
+      if (c === "mouse") return "TG-MS-";
+      if (c === "fan") return "TG-FN-";
+      if (c === "usb hub" || c === "usb") return "TG-UB-";
+      if (c === "printer") return "TG-PR-";
+      if (c === "phone" || c === "mobile") return "TG-PH-";
+      if (c === "scanner") return "TG-SC-";
+      return "TG-ACC-";
+    };
+
+    // Helper to get pure max number for a category
+    const getMaxNumber = async (category: string, prefix: string): Promise<number> => {
+        try {
+          const q = query(
             collection(db, ASSET_COLLECTION),
             where('category', '==', category),
             orderBy('asset_code', 'desc'),
             limit(1)
-        );
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-            const latestCode = querySnapshot.docs[0].data().asset_code || "";
-            const parts = latestCode.split('-');
-            const currentNum = parseInt(parts[parts.length - 1] || '0', 10);
-            return `${prefix}${(currentNum + 1).toString().padStart(3, '0')}`;
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const code = snap.docs[0].data().asset_code || "";
+            const parts = code.split("-");
+            const numPart = parts[parts.length - 1];
+            return parseInt(numPart || "0", 10) || 0;
+          }
+        } catch (e) {
+          // Fallback if index missing
+          const q = query(collection(db, ASSET_COLLECTION), where('category', '==', category));
+          const snap = await getDocs(q);
+          let max = 0;
+          snap.docs.forEach(d => {
+            const code = d.data().asset_code || "";
+            if (code.startsWith(prefix)) {
+               const num = parseInt(code.split("-").pop() || "0", 10);
+               if (num > max) max = num;
+            }
+          });
+          return max;
         }
-        return `${prefix}001`;
+        return 0;
     };
 
-    // Cache counters to prevent duplicate codes in a single batch
-    const counters: Record<string, number> = {
-        'Keyboard': parseInt((await getNextCode('Keyboard', 'TG-KB-')).split('-')[2] || '0', 10),
-        'Mouse': parseInt((await getNextCode('Mouse', 'TG-MS-')).split('-')[2] || '0', 10),
-        'USB Hub': parseInt((await getNextCode('USB Hub', 'TG-UB-')).split('-')[2] || '0', 10),
-        'Fan': parseInt((await getNextCode('Fan', 'TG-FN-')).split('-')[2] || '0', 10),
-        'Computer': parseInt((await getNextCode('Computer', 'TG-PC-')).split('-')[2] || '0', 10),
-    };
+    // Dynamically fetch and cache counters for categories seen in the data
+    const categoryCounters: Record<string, number> = {};
+    const categoryPrefixes: Record<string, string> = {};
 
     const processedAssets: any[] = [];
 
@@ -708,14 +722,15 @@ export const importLegacyExcelData = async (excelRows: any[]) => {
         // Determine Code
         let finalCode = assetCode;
         if (!finalCode) {
-          const prefix = category === 'Keyboard' ? 'TG-KB-' : 
-                         category === 'Mouse' ? 'TG-MS-' : 
-                         category === 'USB Hub' ? 'TG-UB-' : 
-                         category === 'Fan' ? 'TG-FN-' : 'TG-ACC-';
-          const currentCount = counters[category] || 0;
-          const countStr = currentCount > 0 ? String(currentCount).padStart(3, '0') : '001';
-          finalCode = prefix + countStr;
-          if (counters[category]) counters[category]++;
+          if (categoryCounters[category] === undefined) {
+             const prefix = getPrefix(category);
+             categoryPrefixes[category] = prefix;
+             categoryCounters[category] = await getMaxNumber(category, prefix);
+          }
+          
+          categoryCounters[category]++;
+          const countStr = String(categoryCounters[category]).padStart(3, '0');
+          finalCode = categoryPrefixes[category] + countStr;
         }
 
         const docRef = doc(assetsRef, finalCode);
@@ -808,6 +823,7 @@ export const migrateAssetsToSequentialCodes = async (dryRun: boolean = false) =>
       for (let i = 0; i < categoryAssets.length; i += batchSize) {
         const batch = writeBatch(db);
         const chunk = categoryAssets.slice(i, i + batchSize);
+        let chunkHasChanges = false;
         
         for (const asset of chunk) {
           const formattedCode = `${prefix}${String(count).padStart(3, '0')}`;
@@ -821,11 +837,12 @@ export const migrateAssetsToSequentialCodes = async (dryRun: boolean = false) =>
                batch.update(docRef, { asset_code: formattedCode });
              }
              processedCount++;
+             chunkHasChanges = true;
           }
           count++;
         }
         
-        if (!dryRun && processedCount > 0) {
+        if (!dryRun && chunkHasChanges) {
           await batch.commit();
         }
       }
@@ -961,11 +978,11 @@ export const updateAssetAssignment = async (assetId: string, assignedUser: strin
   }
 };
 
-export const checkAdminStatus = async (uid: string) => {
+export const checkAdminStatus = async (uid: string): Promise<boolean> => {
   try {
     const adminRef = doc(db, 'admins', uid);
-    const snap = await getDocs(query(collection(db, 'admins'), where('__name__', '==', uid)));
-    return !snap.empty;
+    const snap = await getDoc(adminRef);
+    return snap.exists();
   } catch (error) {
     console.error("Error checking admin status", error);
     return false;

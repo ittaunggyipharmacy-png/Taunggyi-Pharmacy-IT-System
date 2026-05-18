@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { google } from "googleapis";
 import multer from "multer";
 import dotenv from "dotenv";
+import { Readable } from "stream";
 
 dotenv.config();
 
@@ -60,7 +61,7 @@ async function startServer() {
 
       const media = {
         mimeType: file.mimetype,
-        body: require("stream").Readable.from(file.buffer),
+        body: Readable.from(file.buffer),
       };
 
       const fileMetadata = {
@@ -99,7 +100,11 @@ async function startServer() {
     }
 
     try {
-      const folderId = req.query.folderId || process.env.GOOGLE_DRIVE_FOLDER_ID;
+      const rawFolderId = req.query.folderId || process.env.GOOGLE_DRIVE_FOLDER_ID;
+      const folderId = typeof rawFolderId === 'string' && /^[a-zA-Z0-9_\-]+$/.test(rawFolderId)
+        ? rawFolderId
+        : null;
+
       let q = "trashed = false";
       if (folderId) {
         q += ` and '${folderId}' in parents`;
