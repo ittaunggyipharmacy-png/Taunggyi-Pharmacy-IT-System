@@ -469,7 +469,9 @@ export default function App() {
           UserRole.ADMIN, 
           UserRole.ADMIN_CAPS, 
           UserRole.IT_SUPERVISOR, 
-          UserRole.IT_SUPERVISOR_CAPS
+          UserRole.IT_SUPERVISOR_CAPS,
+          UserRole.MERCHANDISING_SUPERVISOR,
+          UserRole.IT_DIGITAL_MARKETING
         ].includes(profile?.role as UserRole);
         setIsAdmin(isSuperAdmin);
       } else {
@@ -2851,7 +2853,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings, use
               className="enterprise-modal p-0 w-full h-full sm:h-auto sm:max-w-2xl rounded-none sm:rounded-3xl overflow-hidden flex flex-col sm:max-h-[85vh] shadow-2xl"
             >
               <div className="p-6 sm:p-8 border-b border-slate-100 bg-white flex items-center justify-between shrink-0">
-                <div>
+                <div className="flex-1 mr-4">
                   <div className="flex items-center gap-3 mb-2">
                     <span className="text-xs font-mono font-bold text-slate-400">{formatId(selectedTicket.id)}</span>
                     <span className={cn(
@@ -2873,7 +2875,7 @@ function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings, use
                       </button>
                     )}
                   </div>
-                  <h3 className="text-lg sm:text-xl font-bold text-slate-800 tracking-tight line-clamp-1">{selectedTicket.problemType}</h3>
+                  <h3 className="text-lg sm:text-xl font-bold text-slate-800 tracking-tight break-words whitespace-pre-wrap">{selectedTicket.problemType}</h3>
                 </div>
                 <button 
                   onClick={() => setSelectedTicket(null)}
@@ -3504,11 +3506,11 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
       return;
     }
 
-    if (isEditing && selectedAsset) {
+    if (isEditing && (selectedAsset || newAsset.id)) {
       const tid = toast.loading("Asset ကို update လုပ်နေသည်...");
       try {
         await updateAssetAssignment(
-          selectedAsset.id,
+          (selectedAsset?.id || newAsset.id)!,
           newAsset.assignedTo || "Unassigned",
           newAsset.location || "Central Storage",
           newAsset.department || "",
@@ -3526,12 +3528,17 @@ function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { as
             remark2: newAsset.remark2,
             purchaseRecordId: newAsset.purchaseRecordId,
             supplier: newAsset.supplier,
-            category: newAsset.category
+            category: newAsset.category,
+            model: newAsset.model,
+            serialNumber: newAsset.serialNumber,
+            peripherals: newAsset.peripherals
           }
         );
         toast.success("Asset ကို သိမ်းဆည်းပြီးပါပြီ။", { id: tid });
         setIsEditing(false);
         setSelectedAsset(null);
+        setIsAdding(false);
+        setNewAsset({ category: "Computer", status: "Active" });
       } catch (error: any) {
         console.error("Failed to update asset", error);
         const msg = error?.code === 'permission-denied'

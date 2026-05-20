@@ -119,7 +119,9 @@ export const syncSystemUser = async (firebaseUser: any) => {
       UserRole.ADMIN, 
       UserRole.ADMIN_CAPS,
       UserRole.IT_SUPERVISOR,
-      UserRole.IT_SUPERVISOR_CAPS
+      UserRole.IT_SUPERVISOR_CAPS,
+      UserRole.MERCHANDISING_SUPERVISOR,
+      UserRole.IT_DIGITAL_MARKETING
     ];
 
     if (!snap.exists()) {
@@ -185,7 +187,9 @@ export const updateSystemUserRole = async (uid: string, role: UserRole) => {
       UserRole.ADMIN, 
       UserRole.ADMIN_CAPS,
       UserRole.IT_SUPERVISOR,
-      UserRole.IT_SUPERVISOR_CAPS
+      UserRole.IT_SUPERVISOR_CAPS,
+      UserRole.MERCHANDISING_SUPERVISOR,
+      UserRole.IT_DIGITAL_MARKETING
     ];
     
     if (elevatedRoles.includes(role)) {
@@ -227,8 +231,11 @@ export const saveEmployeeProfile = async (profile: Partial<EmployeeProfile>) => 
 
 export const saveActivity = async (activity: Partial<ActivityEntry>) => {
   try {
+    const user = auth.currentUser;
     const docRef = doc(collection(db, ACTIVITY_COLLECTION));
     await setDoc(docRef, {
+      userId: user?.uid || "system",
+      userName: user?.displayName || user?.email || "System",
       ...activity,
       id: docRef.id,
       timestamp: new Date().toISOString()

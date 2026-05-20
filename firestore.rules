@@ -21,7 +21,7 @@ service cloud.firestore {
         request.auth.token.email == "it.taunggyipharmacy@gmail.com" ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         (exists(/databases/$(database)/documents/app_users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data.role in ["IT Supervisor", "IT SUPERVISOR", "System Admin", "SYSTEM ADMIN", "Admin", "ADMIN"])
+         get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data.role in ["IT Supervisor", "IT SUPERVISOR", "System Admin", "SYSTEM ADMIN", "Admin", "ADMIN", "Merchandising Supervisor", "IT Digital Marketing"])
       );
     }
 
@@ -92,7 +92,7 @@ service cloud.firestore {
     function isValidActivityEntry(data) {
       return data.keys().hasAll(['timestamp', 'userId', 'action'])
         && data.timestamp is string
-        && data.userId is string
+        && data.userId is string && (data.userId == request.auth.uid || data.userId == "system")
         && data.action is string;
     }
 
@@ -289,7 +289,7 @@ service cloud.firestore {
     // Activity Feed
     match /activities/{activityId} {
       allow read: if isSignedIn();
-      allow create: if isAdmin() && isValidId(activityId) && isValidActivityEntry(incoming());
+      allow create: if isSignedIn() && isValidId(activityId) && isValidActivityEntry(incoming());
       allow update: if false;
       allow delete: if isAdmin();
     }
