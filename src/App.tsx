@@ -104,6 +104,7 @@ import {
 } from "firebase/auth";
 
 import { auth, storage, db } from "./services/firebase";
+import { onSnapshot, doc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { 
   subscribeToSync, 
@@ -458,13 +459,39 @@ export default function App() {
     };
     init();
 
+    let unsubUserDoc: (() => void) | null = null;
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      if (unsubUserDoc) {
+        unsubUserDoc();
+        unsubUserDoc = null;
+      }
+
       setCurrentUser(user);
       if (user) {
         const profile = await syncSystemUser(user);
         setUserProfile(profile);
-        const adminStatus = await checkAdminStatus(user.uid);
-        
+
+        // Listen to the user's role/profile changes in real-time
+        unsubUserDoc = onSnapshot(doc(db, "app_users", user.uid), (docSnap) => {
+          if (docSnap.exists()) {
+            const updatedProfile = docSnap.data() as SystemUser;
+            setUserProfile(updatedProfile);
+            
+            const isSuperAdmin = [
+              UserRole.ADMIN, 
+              UserRole.ADMIN_CAPS, 
+              UserRole.IT_SUPERVISOR, 
+              UserRole.IT_SUPERVISOR_CAPS,
+              UserRole.MERCHANDISING_SUPERVISOR,
+              UserRole.IT_DIGITAL_MARKETING
+            ].includes(updatedProfile.role as UserRole);
+            setIsAdmin(isSuperAdmin);
+          }
+        }, (error) => {
+          console.error("Profile onSnapshot error:", error);
+        });
+
         // Define which roles are treated as super-admins with full access
         const isSuperAdmin = [
           UserRole.ADMIN, 
@@ -482,7 +509,12 @@ export default function App() {
       setAuthReady(true);
     });
 
-    return () => unsubAuth();
+    return () => {
+      unsubAuth();
+      if (unsubUserDoc) {
+        unsubUserDoc();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -545,7 +577,7 @@ export default function App() {
        // allNavItems is defined in the render, so we'll use a local copy or the same logic
        const allowedIds = [
         "tickets", "dashboard", "reports", "kpi", "daily-kpi", "skills", "assets", 
-        "purchases", "renewals", "security", "marketing", "files", "settings", "help"
+        "purchases", "renewals", "security", "marketing", "files", "settings", "help", "meetings"
        ].filter(id => canAccess(userProfile.role, id));
 
        if (!canAccess(userProfile.role, activeTab) && allowedIds.length > 0) {
