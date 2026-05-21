@@ -42,7 +42,9 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
       UserRole.ADMIN, 
       UserRole.ADMIN_CAPS,
       UserRole.IT_SUPERVISOR,
-      UserRole.IT_SUPERVISOR_CAPS
+      UserRole.IT_SUPERVISOR_CAPS,
+      UserRole.MERCHANDISING_SUPERVISOR,
+      UserRole.IT_DIGITAL_MARKETING
     ];
     if (ADMIN_ROLES.includes(role as UserRole)) return true;
     

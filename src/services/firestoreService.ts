@@ -36,7 +36,9 @@ import {
   SystemUser,
   UserRole,
   RolePermission,
-  SystemSettings
+  SystemSettings,
+  MeetingMinute,
+  MeetingActionItem
 } from '../types';
 
 const PURCHASE_COLLECTION = 'purchase_records';
@@ -55,6 +57,7 @@ const EMPLOYEE_COLLECTION = 'employees';
 const USER_COLLECTION = 'app_users';
 const SETTINGS_COLLECTION = 'system_config';
 const ROLE_PERMISSIONS_COLLECTION = 'role_permissions';
+const MEETING_MINUTES_COLLECTION = 'meeting_minutes';
 const SETTINGS_DOC_ID = 'main';
 
 export const saveSettings = async (settings: SystemSettings) => {
@@ -490,6 +493,7 @@ export const saveBackup = async (backup: Partial<BackupLog>) => saveGenericRecor
 export const saveCCTVRequest = async (request: Partial<CCTVRequest>) => saveGenericRecord(CCTV_COLLECTION, request);
 export const saveContentPlan = async (plan: Partial<ContentPlan>) => saveGenericRecord(CONTENT_PLAN_COLLECTION, plan);
 export const saveRenewal = async (renewal: Partial<RenewalRecord>) => saveGenericRecord(RENEWAL_COLLECTION, renewal);
+export const saveMeetingMinute = async (meeting: Partial<MeetingMinute>) => saveGenericRecord(MEETING_MINUTES_COLLECTION, meeting);
 export const saveDailyLog = async (log: Partial<DailyLog>) => {
   try {
     const docRef = doc(db, DAILY_LOG_COLLECTION, log.id!);
@@ -1059,6 +1063,15 @@ export const deleteTicket = async (ticketId: string) => {
     await deleteDoc(recordRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, TICKET_COLLECTION);
+  }
+};
+
+export const deleteMeetingMinute = async (meetingId: string) => {
+  try {
+    const recordRef = doc(db, MEETING_MINUTES_COLLECTION, meetingId);
+    await deleteDoc(recordRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, MEETING_MINUTES_COLLECTION);
   }
 };
 

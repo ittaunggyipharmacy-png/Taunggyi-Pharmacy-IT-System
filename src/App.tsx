@@ -165,6 +165,7 @@ import KPIDashboard from "./components/KPIDashboard";
 import { useAccessControl } from './contexts/AccessControlContext';
 import SkillMatrix from "./components/SkillMatrix";
 import { UserManagement } from "./components/UserManagement";
+import MeetingMinutesModule from "./components/MeetingMinutesModule";
 
 
 const safeFormat = (date: any, formatStr: string, fallback: string = "--") => {
@@ -382,7 +383,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
 
   const [confirmTarget, setConfirmTarget] = useState<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "assets" | "security" | "marketing" | "renewals" | "purchases" | "files" | "settings" | "help" | "kpi" | "daily-kpi" | "reports" | "skills" | "users">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "assets" | "security" | "marketing" | "renewals" | "purchases" | "files" | "settings" | "help" | "kpi" | "daily-kpi" | "reports" | "skills" | "users" | "meetings">("dashboard");
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [evidence, setEvidence] = useState<TaskEvidence[]>([]);
   const [allDailyLogs, setAllDailyLogs] = useState<DailyLog[]>([]);
@@ -704,6 +705,7 @@ export default function App() {
     { id: "reports", label: "Reporting & Dash", icon: BarChart2 },
     { id: "kpi", label: "KPI Dashboard", icon: ClipboardList },
     { id: "daily-kpi", label: "Daily KPI Tracker", icon: Calendar, badge: pendingDailyKpiCount > 0 ? pendingDailyKpiCount : undefined },
+    { id: "meetings", label: "Meetings & Followup", icon: FileText },
     { id: "skills", label: "Team Skill Matrix", icon: Users },
     { id: "assets", label: "Assets Inventory", icon: Package },
     { id: "purchases", label: "Purchase Records", icon: ShoppingCart },
@@ -722,8 +724,8 @@ export default function App() {
     // Wait for permissions to load
     if (accessLoading) return false;
 
-    // IT Support Log is open for everyone
-    if (item.id === "tickets" || item.id === "help") return true;
+    // IT Support Log, Help, and Meetings are open for everyone
+    if (item.id === "tickets" || item.id === "help" || item.id === "meetings") return true;
 
     // Use our new AccessControlContext for other items
     if (userProfile?.role) {
@@ -1067,6 +1069,7 @@ export default function App() {
               {activeTab === "files" && canAccess(userProfile?.role as UserRole, "files") && <FileManagerModule isAdmin={isAdmin} quota={quota} setQuota={setQuota} />}
               {activeTab === "kpi" && canAccess(userProfile?.role as UserRole, "kpi") && <KPIDashboard />}
               {activeTab === "daily-kpi" && canAccess(userProfile?.role as UserRole, "daily-kpi") && <KPITracker userRole={userProfile?.role} />}
+              {activeTab === "meetings" && <MeetingMinutesModule userRole={userProfile?.role} isAdmin={isAdmin} />}
               {activeTab === "skills" && isAdmin && <SkillMatrix />}
               {activeTab === "reports" && isAdmin && (
                 <ReportsModule 

@@ -147,6 +147,13 @@ service cloud.firestore {
         && (data.get('websiteLink', '') is string);
     }
 
+    function isValidMeetingMinute(data) {
+      return data.keys().hasAll(['title', 'date', 'content'])
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 600
+        && data.date is string
+        && data.content is string;
+    }
+
     function isValidDailyLog(data) {
       return data.keys().hasAll(['id', 'date', 'userId', 'tasks'])
         && data.id is string && data.id.size() <= 200
@@ -254,6 +261,13 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update: if isAdmin() && isValidId(employeeId) && isValidEmployee(incoming());
       allow delete: if isAdmin();
+    }
+
+    // Meeting Minutes
+    match /meeting_minutes/{meetingId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(meetingId) && isValidMeetingMinute(incoming());
+      allow delete: if isAdmin() || (isSignedIn() && (resource == null || resource.data.createdByEmail == request.auth.token.email));
     }
 
     // Daily KPI Logs
