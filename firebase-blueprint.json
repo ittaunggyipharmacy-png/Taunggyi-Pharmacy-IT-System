@@ -245,6 +245,18 @@
         "allowed_menus": { "type": "object" }
       },
       "required": ["role", "allowed_menus"]
+    },
+    "PasswordVaultEntry": {
+      "title": "Password Vault Entry",
+      "description": "Securely stored credential entry containing account details and password.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "account": { "type": "string" },
+        "password": { "type": "string" }
+      },
+      "required": ["id", "label", "account", "password"]
     }
   },
   "firestore": {
@@ -311,6 +323,10 @@
     "role_permissions": {
       "schema": "RolePermission",
       "description": "Collection of permissions for different roles."
+    },
+    "password_vault": {
+      "schema": "PasswordVaultEntry",
+      "description": "Secure admin-only credential vault collection."
     }
   }
 }

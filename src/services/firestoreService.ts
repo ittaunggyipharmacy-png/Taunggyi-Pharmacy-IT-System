@@ -14,7 +14,8 @@ import {
   getDoc,
   deleteDoc,
   writeBatch,
-  increment
+  increment,
+  runTransaction
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, listAll, deleteObject } from 'firebase/storage';
 import { db, auth, storage } from './firebase';
@@ -38,9 +39,11 @@ import {
   RolePermission,
   SystemSettings,
   MeetingMinute,
-  MeetingActionItem
+  MeetingActionItem,
+  PasswordVaultEntry
 } from '../types';
 
+const PASSWORD_VAULT_COLLECTION = 'password_vault';
 const PURCHASE_COLLECTION = 'purchase_records';
 const ASSET_COLLECTION = 'it_assets';
 const TICKET_COLLECTION = 'it_tickets';
@@ -99,6 +102,32 @@ export const getSettings = async (): Promise<SystemSettings | null> => {
   }
 };
 
+export const savePasswordEntry = async (entry: PasswordVaultEntry) => {
+  try {
+    await setDoc(doc(db, PASSWORD_VAULT_COLLECTION, entry.id), cleanData(entry), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, PASSWORD_VAULT_COLLECTION);
+  }
+};
+
+export const getPasswordEntries = async (): Promise<PasswordVaultEntry[]> => {
+  try {
+    const snap = await getDocs(collection(db, PASSWORD_VAULT_COLLECTION));
+    return snap.docs.map(doc => doc.data() as PasswordVaultEntry);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, PASSWORD_VAULT_COLLECTION);
+    return [];
+  }
+};
+
+export const deletePasswordEntry = async (id: string) => {
+  try {
+    await deleteDoc(doc(db, PASSWORD_VAULT_COLLECTION, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, PASSWORD_VAULT_COLLECTION);
+  }
+};
+
 export const getSystemUser = async (uid: string): Promise<SystemUser | null> => {
   try {
     const docRef = doc(db, USER_COLLECTION, uid);
@@ -130,14 +159,18 @@ export const syncSystemUser = async (firebaseUser: any) => {
     if (!snap.exists()) {
       // Check if they are in the admins collection to bootstrap
       const isAdminDoc = await checkAdminStatus(firebaseUser.uid);
+      const initialRole = isAdminDoc ? UserRole.ADMIN : UserRole.STAFF;
+      const isUserAdmin = elevatedRoles.includes(initialRole);
+      
       const newUser: SystemUser = {
         uid: firebaseUser.uid,
         email: firebaseUser.email || "",
         displayName: firebaseUser.displayName || "",
-        role: isAdminDoc ? UserRole.ADMIN : UserRole.STAFF,
+        role: initialRole,
         photoURL: firebaseUser.photoURL || "",
         createdAt: serverTimestamp(),
-        lastLogin: serverTimestamp()
+        lastLogin: serverTimestamp(),
+        isAdmin: isUserAdmin
       };
       await setDoc(userRef, newUser);
       
@@ -154,10 +187,13 @@ export const syncSystemUser = async (firebaseUser: any) => {
       return newUser;
     } else {
       const userData = snap.data() as SystemUser;
+      const isUserAdmin = elevatedRoles.includes(userData.role);
+      
       await setDoc(userRef, { 
         lastLogin: serverTimestamp(),
         displayName: firebaseUser.displayName || userData.displayName,
-        photoURL: firebaseUser.photoURL || userData.photoURL
+        photoURL: firebaseUser.photoURL || userData.photoURL,
+        isAdmin: isUserAdmin
       }, { merge: true });
       
       // ENSURE sync to admins for existing users if they have the role
@@ -183,7 +219,6 @@ export const syncSystemUser = async (firebaseUser: any) => {
 export const updateSystemUserRole = async (uid: string, role: UserRole) => {
   try {
     const userRef = doc(db, USER_COLLECTION, uid);
-    await setDoc(userRef, { role, updatedAt: serverTimestamp() }, { merge: true });
     
     // Also sync to 'admins' collection if they have an elevated role
     const elevatedRoles = [
@@ -194,6 +229,9 @@ export const updateSystemUserRole = async (uid: string, role: UserRole) => {
       UserRole.MERCHANDISING_SUPERVISOR,
       UserRole.IT_DIGITAL_MARKETING
     ];
+    
+    const isUserAdmin = elevatedRoles.includes(role);
+    await setDoc(userRef, { role, isAdmin: isUserAdmin, updatedAt: serverTimestamp() }, { merge: true });
     
     if (elevatedRoles.includes(role)) {
       const userSnap = await getDoc(userRef);
@@ -369,20 +407,13 @@ export const savePurchaseRecord = async (record: Partial<PurchaseRecord>) => {
 
       let parentAssetId: string | null = null;
       
-      const categoryOffsets: Record<string, number> = {};
-
       for (let i = 0; i < itemsToCreate.length; i++) {
         const itemInfo = itemsToCreate[i];
         const shadowAssetId = `ASSET-${recordId}-${String(i + 1).padStart(3, '0')}`;
         const assetRef = doc(db, ASSET_COLLECTION, shadowAssetId);
         
         const cat = itemInfo.category;
-        if (categoryOffsets[cat] === undefined) {
-          categoryOffsets[cat] = 0;
-        }
-        
-        const asset_code = await generateNextAssetCode(cat, categoryOffsets[cat]);
-        categoryOffsets[cat]++;
+        const asset_code = await generateNextAssetCode(cat);
 
         const shadowAsset: Partial<ITAsset> = {
           id: shadowAssetId,
@@ -427,67 +458,168 @@ export const savePurchaseRecord = async (record: Partial<PurchaseRecord>) => {
 export const saveTicket = async (ticket: Partial<ITTicket>) => saveGenericRecord(TICKET_COLLECTION, ticket);
 
 export const generateNextAssetCode = async (category: string, currentOffset: number = 0) => {
-  const getPrefix = (cat: string) => {
-    const c = (cat || "").toLowerCase();
-    if (c === "computer") return "TG-PC-";
-    if (c === "keyboard") return "TG-KB-";
-    if (c === "mouse") return "TG-MS-";
-    if (c === "fan") return "TG-FN-";
-    if (c === "usb hub" || c === "usb") return "TG-UB-";
-    if (c === "printer") return "TG-PR-";
-    if (c === "phone" || c === "mobile") return "TG-PH-";
-    if (c === "scanner") return "TG-SC-";
-    return "TG-ACC-";
-  };
-
-  const prefix = getPrefix(category);
-  
-  try {
-    const q = query(
-      collection(db, ASSET_COLLECTION),
-      where("category", "==", category),
-      orderBy("asset_code", "desc"),
-      limit(1)
-    );
-    const snap = await getDocs(q);
+  return await runTransaction(db, async (transaction) => {
+    const categoryKey = (category || "other").toLowerCase().replace(/\s+/g, '_');
+    const counterRef = doc(db, "counters", `assetCode_${categoryKey}`);
+    const counterSnap = await transaction.get(counterRef);
     
-    let maxNumber = 0;
-    if (!snap.empty) {
-      const highestCode = snap.docs[0].data().asset_code;
-      if (highestCode && highestCode.startsWith(prefix)) {
-        const parts = highestCode.split("-");
-        const numPart = parts[parts.length - 1];
-        maxNumber = parseInt(numPart || "0", 10) || 0;
-      }
+    let lastNumber = 0;
+    if (counterSnap.exists()) {
+      lastNumber = counterSnap.data().lastNumber || 0;
     }
     
-    return `${prefix}${String(maxNumber + 1 + currentOffset).padStart(3, '0')}`;
-  } catch (error) {
-    // Fallback if composite index is missing
-    const qFallback = query(collection(db, ASSET_COLLECTION), where("category", "==", category));
-    const snapFallback = await getDocs(qFallback);
-    let maxNumber = 0;
-    snapFallback.docs.forEach(doc => {
-      const code = doc.data().asset_code;
-      if (code && code.startsWith(prefix)) {
-        const parts = code.split("-");
-        const numPart = parts[parts.length - 1];
-        const num = parseInt(numPart || "0", 10);
-        if (!isNaN(num) && num > maxNumber) {
-          maxNumber = num;
-        }
-      }
-    });
-    return `${prefix}${String(maxNumber + 1 + currentOffset).padStart(3, '0')}`;
-  }
+    // We ignore currentOffset because transaction-based counters naturally advance sequentially,
+    // but we support it just in case any caller requires it explicitly.
+    const nextNumber = lastNumber + 1 + (currentOffset > 0 ? currentOffset : 0);
+    
+    const getPrefix = (cat: string) => {
+      const c = (cat || "").toLowerCase();
+      if (c === "computer") return "TG-PC-";
+      if (c === "keyboard") return "TG-KB-";
+      if (c === "mouse") return "TG-MS-";
+      if (c === "fan") return "TG-FN-";
+      if (c === "usb hub" || c === "usb") return "TG-UB-";
+      if (c === "printer") return "TG-PR-";
+      if (c === "phone" || c === "mobile") return "TG-PH-";
+      if (c === "scanner") return "TG-SC-";
+      return "TG-ACC-";
+    };
+
+    const prefix = getPrefix(category);
+    const code = `${prefix}${String(nextNumber).padStart(3, '0')}`;
+    
+    transaction.set(counterRef, { lastNumber: nextNumber }, { merge: true });
+    
+    return code;
+  });
 };
 
 
 export const saveAsset = async (asset: Partial<ITAsset>) => {
   if (!asset.id && !asset.asset_code && asset.category) {
-    asset.asset_code = await generateNextAssetCode(asset.category);
+    return await runTransaction(db, async (transaction) => {
+      const categoryKey = asset.category.toLowerCase().replace(/\s+/g, '_');
+      const counterRef = doc(db, "counters", `assetCode_${categoryKey}`);
+      const counterSnap = await transaction.get(counterRef);
+      
+      let lastNumber = 0;
+      if (counterSnap.exists()) {
+        lastNumber = counterSnap.data().lastNumber || 0;
+      }
+      
+      const nextNumber = lastNumber + 1;
+      
+      const getPrefix = (cat: string) => {
+        const c = (cat || "").toLowerCase();
+        if (c === "computer") return "TG-PC-";
+        if (c === "keyboard") return "TG-KB-";
+        if (c === "mouse") return "TG-MS-";
+        if (c === "fan") return "TG-FN-";
+        if (c === "usb hub" || c === "usb") return "TG-UB-";
+        if (c === "printer") return "TG-PR-";
+        if (c === "phone" || c === "mobile") return "TG-PH-";
+        if (c === "scanner") return "TG-SC-";
+        return "TG-ACC-";
+      };
+      
+      const prefix = getPrefix(asset.category);
+      const code = `${prefix}${String(nextNumber).padStart(3, '0')}`;
+      
+      const assetRef = doc(collection(db, ASSET_COLLECTION));
+      const finalAsset = {
+        ...asset,
+        id: assetRef.id,
+        asset_code: code,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      
+      transaction.set(counterRef, { lastNumber: nextNumber }, { merge: true });
+      transaction.set(assetRef, cleanData(finalAsset));
+      
+      // Mutate original object
+      asset.id = assetRef.id;
+      asset.asset_code = code;
+      
+      // Log custom activity inside transaction
+      try {
+        const activityRef = doc(collection(db, ACTIVITY_COLLECTION));
+        transaction.set(activityRef, cleanData({
+          id: activityRef.id,
+          userEmail: auth.currentUser?.email || "System Transaction",
+          action: "Asset Registered (Atomic Transaction)",
+          details: `Formatted code assigned and locked: ${code} for ${asset.brand || ""} ${asset.model || ""}`,
+          timestamp: new Date().toISOString()
+        }));
+      } catch (e) {
+        console.error("Failed to log activity inside transaction:", e);
+      }
+      
+      return assetRef.id;
+    });
+  } else {
+    return saveGenericRecord(ASSET_COLLECTION, asset);
   }
-  return saveGenericRecord(ASSET_COLLECTION, asset);
+};
+
+
+export const initializeAssetCodeCounters = async () => {
+  try {
+    const assetsSnap = await getDocs(collection(db, ASSET_COLLECTION));
+    const maxNumbers: Record<string, number> = {};
+
+    const getPrefix = (cat: string) => {
+      const c = (cat || "").toLowerCase();
+      if (c === "computer") return "TG-PC-";
+      if (c === "keyboard") return "TG-KB-";
+      if (c === "mouse") return "TG-MS-";
+      if (c === "fan") return "TG-FN-";
+      if (c === "usb hub" || c === "usb") return "TG-UB-";
+      if (c === "printer") return "TG-PR-";
+      if (c === "phone" || c === "mobile") return "TG-PH-";
+      if (c === "scanner") return "TG-SC-";
+      return "TG-ACC-";
+    };
+
+    assetsSnap.docs.forEach(docSnap => {
+      const data = docSnap.data();
+      const code = data.asset_code;
+      const category = (data.category || "").toLowerCase().replace(/\s+/g, '_');
+      if (code && typeof code === 'string') {
+        const prefix = getPrefix(data.category);
+        if (code.startsWith(prefix)) {
+          const parts = code.split("-");
+          const numPart = parts[parts.length - 1];
+          const num = parseInt(numPart || "0", 10);
+          if (!isNaN(num)) {
+            if (!maxNumbers[category] || num > maxNumbers[category]) {
+              maxNumbers[category] = num;
+            }
+          }
+        }
+      }
+    });
+
+    const batch = writeBatch(db);
+    // Seed default categories
+    const defaultCategories = ["computer", "keyboard", "mouse", "fan", "usb_hub", "printer", "phone", "scanner", "other"];
+    defaultCategories.forEach(cat => {
+      if (maxNumbers[cat] === undefined) {
+        maxNumbers[cat] = 0;
+      }
+    });
+
+    for (const [category, maxNum] of Object.entries(maxNumbers)) {
+      const counterRef = doc(db, "counters", `assetCode_${category}`);
+      batch.set(counterRef, { lastNumber: maxNum }, { merge: true });
+    }
+    await batch.commit();
+
+    return { success: true, counts: maxNumbers };
+  } catch (error) {
+    console.error("Failed to initialize asset counters:", error);
+    throw error;
+  }
 };
 export const saveBackup = async (backup: Partial<BackupLog>) => saveGenericRecord(BACKUP_COLLECTION, backup);
 export const saveCCTVRequest = async (request: Partial<CCTVRequest>) => saveGenericRecord(CCTV_COLLECTION, request);
@@ -631,25 +763,7 @@ const createOrUpdatePeripheral = async (
     }));
   } else {
     // Insert new
-    if (categoryHighestCodes[category] === undefined) {
-      const qMax = query(
-          collection(db, ASSET_COLLECTION), 
-          where("category", "==", category), 
-          orderBy("asset_code", "desc"), 
-          limit(1)
-      );
-      const snapMax = await getDocs(qMax);
-      let maxVal = 0;
-      if (!snapMax.empty) {
-        const code = snapMax.docs[0].data().asset_code || "";
-        const parts = code.split("-");
-        const lastPart = parts[parts.length - 1];
-        maxVal = parseInt(lastPart || "0", 10);
-      }
-      categoryHighestCodes[category] = maxVal;
-    }
-    categoryHighestCodes[category]++;
-    const newAssetCode = await generateNextAssetCode(category, categoryHighestCodes[category] - 1);
+    const newAssetCode = await generateNextAssetCode(category);
     
     const assetRef = doc(collection(db, ASSET_COLLECTION));
     batch.set(assetRef, cleanData({
@@ -769,6 +883,11 @@ export const importLegacyExcelData = async (excelRows: any[]) => {
     }
 
     await batch.commit();
+    try {
+      await initializeAssetCodeCounters();
+    } catch (err) {
+      console.error("Failed to auto-reinitialize asset counters after bulk import:", err);
+    }
     return { success: true, message: "Import completed successfully.", assets: processedAssets };
   } catch (error) {
     console.error("Bulk upsert failed:", error);
@@ -863,6 +982,11 @@ export const migrateAssetsToSequentialCodes = async (dryRun: boolean = false) =>
       console.log(`[DRY RUN] Would have updated ${processedCount} records.`);
     } else {
       console.log(`[LIVE RUN] Successfully updated ${processedCount} records.`);
+      try {
+        await initializeAssetCodeCounters();
+      } catch (e) {
+        console.error("Failed to automatically re-initialize counters after sequential code standardizer:", e);
+      }
     }
     
     return { success: true, processedCount, logs };
@@ -1167,7 +1291,13 @@ export const fetchStorageFiles = async (folderId?: string) => {
     if (folderId) {
       url = `/api/drive/files?folderId=${encodeURIComponent(folderId)}`;
     }
-    const response = await fetch(url);
+    const user = auth.currentUser;
+    const token = user ? await user.getIdToken() : "";
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     if (!response.ok) {
       throw new Error(`API returned ${response.status}`);
     }
@@ -1181,7 +1311,13 @@ export const fetchStorageFiles = async (folderId?: string) => {
 
 export const fetchStorageQuota = async () => {
   try {
-    const response = await fetch('/api/drive/quota');
+    const user = auth.currentUser;
+    const token = user ? await user.getIdToken() : "";
+    const response = await fetch('/api/drive/quota', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
     if (!response.ok) {
       throw new Error(`API returned ${response.status}`);
     }
@@ -1194,8 +1330,13 @@ export const fetchStorageQuota = async () => {
 
 export const deleteStorageFile = async (fileId: string) => {
   try {
+    const user = auth.currentUser;
+    const token = user ? await user.getIdToken() : "";
     const response = await fetch(`/api/drive/files/${encodeURIComponent(fileId)}`, {
       method: "DELETE",
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     });
     if (!response.ok) {
       throw new Error(`API returned ${response.status}`);
@@ -1203,6 +1344,47 @@ export const deleteStorageFile = async (fileId: string) => {
   } catch (error) {
     console.error("Storage delete failed", error);
     throw error;
+  }
+};
+
+export const migrateExistingUsersToAdmins = async (): Promise<{ success: boolean; count: number; error?: string }> => {
+  try {
+    const snap = await getDocs(collection(db, USER_COLLECTION));
+    const elevatedRoles = [
+      "IT Supervisor",
+      "IT SUPERVISOR",
+      "System Admin",
+      "SYSTEM ADMIN",
+      "Admin",
+      "ADMIN",
+      "Merchandising Supervisor",
+      "IT Digital Marketing"
+    ];
+    let count = 0;
+    
+    // Use writeBatch for safety and performance
+    const batch = writeBatch(db);
+    
+    snap.docs.forEach((userDoc) => {
+      const data = userDoc.data();
+      const role = data.role;
+      const computedIsAdmin = elevatedRoles.includes(role);
+      
+      // Update only if isAdmin is unset or has incorrect value
+      if (data.isAdmin !== computedIsAdmin) {
+        batch.set(userDoc.ref, { isAdmin: computedIsAdmin }, { merge: true });
+        count++;
+      }
+    });
+    
+    if (count > 0) {
+      await batch.commit();
+    }
+    
+    return { success: true, count };
+  } catch (error: any) {
+    console.error("Migration error:", error);
+    return { success: false, count: 0, error: error.message || String(error) };
   }
 };
 

@@ -124,6 +124,7 @@ import {
   clearAllAssets,
   subscribeToSupervisorFeatures,
   migrateAssetsToSequentialCodes,
+  initializeAssetCodeCounters,
   importLegacyExcelData,
   importKeyboardsMigration,
   saveDailyLog,
@@ -134,7 +135,10 @@ import {
   syncSystemUser,
   updateSystemUserRole,
   saveSettings,
-  getSettings
+  getSettings,
+  savePasswordEntry,
+  getPasswordEntries,
+  deletePasswordEntry
 } from "./services/firestoreService";
 
 import { Toaster, toast } from "react-hot-toast";
@@ -158,9 +162,13 @@ import {
   DailyLog,
   EmployeeProfile,
   SystemUser,
-  UserRole
+  UserRole,
+  PasswordVaultEntry
 } from "./types";
 import { KPITracker } from "./components/KPITracker";
+import { HelpSupportModule } from "./components/HelpSupportModule";
+import { ResetAssetsButton } from "./components/ResetAssetsButton";
+import { SearchableDropdown } from "./components/SearchableDropdown";
 import { MultiSelectDropdown } from "./components/MultiSelectDropdown";
 import KPIDashboard from "./components/KPIDashboard";
 import { useAccessControl } from './contexts/AccessControlContext';
@@ -451,14 +459,6 @@ export default function App() {
   }, [allDailyLogs, currentUser]);
 
   useEffect(() => {
-    const init = async () => {
-      const dbSettings = await getSettings();
-      if (dbSettings) {
-        setSettings(dbSettings);
-      }
-    };
-    init();
-
     let unsubUserDoc: (() => void) | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
@@ -469,6 +469,15 @@ export default function App() {
 
       setCurrentUser(user);
       if (user) {
+        try {
+          const dbSettings = await getSettings();
+          if (dbSettings) {
+            setSettings(dbSettings);
+          }
+        } catch (settingsError) {
+          console.error("Error loading settings on auth change:", settingsError);
+        }
+
         const profile = await syncSystemUser(user);
         setUserProfile(profile);
 
@@ -1165,9 +1174,42 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems, setAssets
   const [newPassLabel, setNewPassLabel] = useState("");
   const [newPassAccount, setNewPassAccount] = useState("");
   const [newPassVal, setNewPassVal] = useState("");
+  const [passwordEntries, setPasswordEntries] = useState<PasswordVaultEntry[]>([]);
   const [editingPasswordNote, setEditingPasswordNote] = useState<any | null>(null);
   const [editingBranchNote, setEditingBranchNote] = useState<any | null>(null);
   const { permissions, updatePermission } = useAccessControl();
+
+  useEffect(() => {
+    if (isAdmin) {
+      const loadAndMigratePasswords = async () => {
+        try {
+          const legacyNotes = (settings as any).passwordNotes;
+          if (legacyNotes && legacyNotes.length > 0) {
+            console.log("Found legacy passwordNotes in settings config. Initiating one-time database migration to password_vault...");
+            for (const note of legacyNotes) {
+              const entry: PasswordVaultEntry = {
+                id: note.id || Date.now().toString() + "_" + Math.random().toString(36).substr(2, 5),
+                label: note.label || "",
+                account: note.account || "",
+                password: note.password || ""
+              };
+              await savePasswordEntry(entry);
+            }
+            const { passwordNotes, ...strippedSettings } = settings as any;
+            setSettings(strippedSettings);
+            await saveSettings(strippedSettings);
+            console.log("Legacy passwordNotes successfully migrated to password_vault and removed from system_config.");
+          }
+
+          const entries = await getPasswordEntries();
+          setPasswordEntries(entries);
+        } catch (error) {
+          console.error("Failed to load or migrate database password entries:", error);
+        }
+      };
+      loadAndMigratePasswords();
+    }
+  }, [isAdmin, settings, setSettings]);
 
   const addDept = () => {
     if (!isAdmin || !newDept.trim()) return;
@@ -1204,20 +1246,16 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems, setAssets
     setNewBranchPhone("");
   };
   
-  const addPasswordNote = () => {
+  const addPasswordNote = async () => {
     if (!isAdmin || !newPassLabel.trim() || !newPassAccount.trim() || !newPassVal.trim()) return;
-    const newNote = {
+    const newNote: PasswordVaultEntry = {
         id: Date.now().toString(),
         label: newPassLabel.trim(),
         account: newPassAccount.trim(),
         password: newPassVal.trim()
     };
-    const newSettings = { 
-        ...settings, 
-        passwordNotes: [...(settings.passwordNotes || []), newNote] 
-    };
-    setSettings(newSettings);
-    saveSettings(newSettings);
+    await savePasswordEntry(newNote);
+    setPasswordEntries(prev => [...prev, newNote]);
     setNewPassLabel("");
     setNewPassAccount("");
     setNewPassVal("");
@@ -1280,41 +1318,49 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems, setAssets
         {/* Password Notes Section */}
         <div className="enterprise-card p-6">
           <h3 className="font-bold text-slate-800 uppercase tracking-tight mb-6">Account Credentials</h3>
-          {isAdmin && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-6">
-              <input type="text" value={newPassLabel} onChange={e => setNewPassLabel(e.target.value)} placeholder="Label (e.g. Gmail)..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
-              <input type="text" value={newPassAccount} onChange={e => setNewPassAccount(e.target.value)} placeholder="Account..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
-              <input type="text" value={newPassVal} onChange={e => setNewPassVal(e.target.value)} placeholder="Password..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
-              <button onClick={addPasswordNote} className="px-6 py-3 bg-amber-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-amber-500 transition-colors shadow-lg">Save</button>
+          {isAdmin ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-6">
+                <input type="text" value={newPassLabel} onChange={e => setNewPassLabel(e.target.value)} placeholder="Label (e.g. Gmail)..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                <input type="text" value={newPassAccount} onChange={e => setNewPassAccount(e.target.value)} placeholder="Account..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                <input type="text" value={newPassVal} onChange={e => setNewPassVal(e.target.value)} placeholder="Password..." className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm" />
+                <button onClick={addPasswordNote} className="px-6 py-3 bg-amber-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest hover:bg-amber-500 transition-colors shadow-lg">Save</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {passwordEntries.map(note => (
+                  editingPasswordNote?.id === note.id ? (
+                    <div key={note.id} className="p-4 bg-amber-50 border border-amber-200 rounded-xl relative">
+                      <input type="text" value={editingPasswordNote.label} onChange={e => setEditingPasswordNote({...editingPasswordNote, label: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Label" />
+                      <input type="text" value={editingPasswordNote.account} onChange={e => setEditingPasswordNote({...editingPasswordNote, account: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Account" />
+                      <input type="text" value={editingPasswordNote.password} onChange={e => setEditingPasswordNote({...editingPasswordNote, password: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Password" />
+                      <button onClick={async () => {
+                         await savePasswordEntry(editingPasswordNote);
+                         setPasswordEntries(prev => prev.map(n => n.id === note.id ? editingPasswordNote : n));
+                         setEditingPasswordNote(null);
+                      }} className="mt-2 w-full bg-amber-600 text-white p-2 rounded text-xs font-bold uppercase">Save</button>
+                    </div>
+                  ) : (
+                    <div key={note.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl relative group">
+                        <p className="font-bold text-sm text-slate-800">{note.label}</p>
+                        <p className="text-xs text-slate-500 mt-1">Acc: {note.account}</p>
+                        <p className="text-xs text-amber-600 mt-1 font-mono">Pass: {note.password}</p>
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-2">
+                          <button onClick={() => setEditingPasswordNote(note)} className="text-slate-400 hover:text-indigo-500 text-xs">Edit</button>
+                          <button onClick={async () => {
+                            await deletePasswordEntry(note.id);
+                            setPasswordEntries(prev => prev.filter(n => n.id !== note.id));
+                          }} className="text-slate-400 hover:text-red-500 text-xs">Delete</button>
+                        </div>
+                    </div>
+                  )
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="p-4 bg-red-50 border border-red-100 text-red-700 rounded-xl text-sm flex items-center gap-2">
+              <span className="font-bold">Access Restricted:</span> Only IT Supervisors and Administrators can view account credentials.
             </div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(settings.passwordNotes || []).map(note => (
-              editingPasswordNote?.id === note.id ? (
-                <div key={note.id} className="p-4 bg-amber-50 border border-amber-200 rounded-xl relative">
-                  <input type="text" value={editingPasswordNote.label} onChange={e => setEditingPasswordNote({...editingPasswordNote, label: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Label" />
-                  <input type="text" value={editingPasswordNote.account} onChange={e => setEditingPasswordNote({...editingPasswordNote, account: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Account" />
-                  <input type="text" value={editingPasswordNote.password} onChange={e => setEditingPasswordNote({...editingPasswordNote, password: e.target.value})} className="w-full mb-1 p-2 border rounded text-sm" placeholder="Password" />
-                  <button onClick={() => {
-                     setSettings(p => ({...p, passwordNotes: p.passwordNotes?.map(n => n.id === note.id ? editingPasswordNote : n)}));
-                     setEditingPasswordNote(null);
-                  }} className="mt-2 w-full bg-amber-600 text-white p-2 rounded text-xs font-bold uppercase">Save</button>
-                </div>
-              ) : (
-                <div key={note.id} className="p-4 bg-slate-50 border border-slate-100 rounded-xl relative group">
-                    <p className="font-bold text-sm text-slate-800">{note.label}</p>
-                    <p className="text-xs text-slate-500 mt-1">Acc: {note.account}</p>
-                    <p className="text-xs text-amber-600 mt-1 font-mono">Pass: {note.password}</p>
-                    {isAdmin && (
-                      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-2">
-                        <button onClick={() => setEditingPasswordNote(note)} className="text-slate-400 hover:text-indigo-500 text-xs">Edit</button>
-                        <button onClick={() => setSettings(p => ({...p, passwordNotes: p.passwordNotes?.filter(n => n.id !== note.id)}))} className="text-slate-400 hover:text-red-500 text-xs">Delete</button>
-                      </div>
-                    )}
-                </div>
-              )
-            ))}
-          </div>
         </div>
 
         {/* Branch Notes Section */}
@@ -1495,6 +1541,40 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems, setAssets
                 Run Import Script
               </button>
             </div>
+
+            {/* INITIALIZE ASSET CODE COUNTERS */}
+            <div className="p-6 bg-indigo-50 rounded-3xl flex flex-col md:flex-row items-center gap-6">
+              <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm font-sans italic font-black text-xs">
+                CNT
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <h4 className="font-bold text-indigo-900 mb-1">Initialize Asset Code Counters</h4>
+                <p className="text-xs text-indigo-700 font-medium leading-relaxed">Scans all current assets to determine the highest starting sequence number for each category, initializing the database transaction counters so upcoming asset entries are race-condition safe.</p>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isAdmin) return;
+                  setConfirmTarget({
+                    id: "initCounters1",
+                    message: "Initialize race-safe asset code counters? This will scan all existing inventory to set starting numbers.",
+                    onConfirm: async () => {
+                      setConfirmTarget(null);
+                      const tid = toast.loading("Initializing transaction counters...");
+                      try {
+                        const res = await initializeAssetCodeCounters();
+                        toast.success("Counters initialized successfully!", { id: tid });
+                      } catch(err: any) {
+                        toast.error(`Initialization failed: ${err?.message || err}`, { id: tid });
+                      }
+                    }
+                  });
+                }}
+                disabled={!isAdmin}
+                className="px-6 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-indigo-100 active:scale-95 disabled:opacity-50 whitespace-nowrap"
+              >
+                Initialize Counters
+              </button>
+            </div>
             
             {/* RESET DATABASE TOOL */}
             {isAdmin && (
@@ -1528,57 +1608,7 @@ function SettingsModule({ settings, setSettings, isAdmin, allNavItems, setAssets
   );
 }
 
-function HelpSupportModule() {
-  return (
-    <div className="space-y-8 pb-20 lg:pb-0">
-      <div className="enterprise-card p-6 lg:p-10">
-        <h2 className="text-xl lg:text-2xl font-bold text-slate-800 dark:text-slate-100 tracking-tight uppercase">Knowledge Base & Support</h2>
-        <p className="text-[10px] lg:text-xs text-slate-400 dark:text-slate-500 mt-2 lg:mt-3 leading-relaxed font-bold tracking-widest uppercase">
-          Standard Operating Procedures & Support Channels
-        </p>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="enterprise-card p-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6 uppercase tracking-tight flex items-center gap-3">
-              <FileText className="text-indigo-600 dark:text-indigo-400" size={24} />
-              IT-SOP-001 Protocol
-            </h3>
-            <div className="prose prose-slate prose-sm max-w-none space-y-4 text-slate-600">
-              <p className="font-bold text-slate-800">1. Lifecycle Management</p>
-              <p>Every asset (Hardware/Software) must be registered in the Asset Inventory upon arrival. Purchase records must be synced with the inventory ID.</p>
-              
-              <p className="font-bold text-slate-800">2. Security Compliance</p>
-              <p>CCTV footage requests require management approval. Personnel access must be revoked within 2 hours of resignation.</p>
-
-              <p className="font-bold text-slate-800">3. Backup & Recovery</p>
-              <p>Critical data must be backed up daily to both Cloud and Physical nodes. Performance logs are reviewed weekly.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="enterprise-card p-6">
-            <h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4 uppercase tracking-tight">IT Hotlines</h3>
-            <div className="space-y-4">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
-                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Technical Support</p>
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mt-1">09-940-931-313</p>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800">
-                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Urgent Escalation</p>
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mt-1">09-XXX-XXX-XXX</p>
-              </div>
-            </div>
-          </div>
-
-
-        </div>
-      </div>
-    </div>
-  );
-}
 
 import { saveEmployeeProfile } from './services/firestoreService';
 
@@ -1960,59 +1990,7 @@ function ReportsModule({ activities, evidence, allDailyLogs, tickets, employees 
   );
 }
 
-function ResetAssetsButton({ setAssets, setConfirmTarget, isCompact }: { setAssets: React.Dispatch<React.SetStateAction<ITAsset[]>>, setConfirmTarget: React.Dispatch<React.SetStateAction<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>>, isCompact?: boolean }) {
-  const [isClearing, setIsClearing] = useState(false);
-  
-  const handleClear = async () => {
-    const password = window.prompt("EXTREME ACCESS: Enter Administrative Password to authorize database wipe:");
-    if (password !== "Tgp@admin123") {
-      if (password !== null) toast.error("Invalid password. Database reset aborted.");
-      return;
-    }
 
-    setConfirmTarget({
-      id: "clear_all_assets",
-      title: "EXTREME CAUTION: Reset Database",
-      message: "Are you absolutely sure you want to delete ALL IT assets? This action is PERMANENT and will wipe the entire inventory database clean. This cannot be undone.",
-      confirmText: "Wipe Database Now",
-      onConfirm: async () => {
-        setConfirmTarget(null);
-        setIsClearing(true);
-        try {
-          await clearAllAssets();
-          setAssets([]);
-          toast.success("Successfully cleared all assets.");
-        } catch (e) {
-          toast.error("Failed to clear assets. Check permissions.");
-        } finally {
-          setIsClearing(false);
-        }
-      }
-    });
-  };
-
-  if (isCompact) {
-    return (
-      <button
-        onClick={handleClear}
-        disabled={isClearing}
-        className="px-6 py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-rose-100 active:scale-95 disabled:opacity-50 whitespace-nowrap"
-      >
-        {isClearing ? "Wiping Database..." : "Reset Database"}
-      </button>
-    );
-  }
-
-  return (
-    <button
-      onClick={handleClear}
-      disabled={isClearing}
-      className="fixed top-4 right-4 z-[9999] bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg transition-all active:scale-95 disabled:opacity-50"
-    >
-      {isClearing ? "Wiping Database..." : "Reset Database / Delete All Assets"}
-    </button>
-  );
-}
 
 function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], assets: ITAsset[], backups: BackupLog[], quota: {limit: string, usage: string} | null }) {
   const activeAssets = assets.filter(a => a.status === "Active").length;
@@ -2213,110 +2191,7 @@ function Dashboard({ tickets, assets, backups, quota }: { tickets: ITTicket[], a
   );
 }
 
-/**
- * Standard Multi-level Searchable Dropdown for Enterprise UI
- */
-function SearchableDropdown({ 
-  options, 
-  value, 
-  onChange, 
-  placeholder, 
-  label, 
-  icon: Icon,
-  className 
-}: {
-  options: string[];
-  value: string;
-  onChange: (val: string) => void;
-  placeholder: string;
-  label?: string;
-  icon?: any;
-  className?: string;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const filteredOptions = options.filter(o => 
-    (o || "").toLowerCase().includes(search.toLowerCase())
-  );
-
-  return (
-    <div className={cn("relative group", className)} ref={dropdownRef}>
-      {label && <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-1">{label}</label>}
-      <button 
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          "w-full flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[11px] font-bold transition-all text-slate-700 dark:text-slate-300 hover:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 outline-none",
-          isOpen ? "ring-2 ring-indigo-500/10 border-indigo-400" : ""
-        )}
-      >
-        <div className="flex items-center gap-2 truncate">
-          {Icon && <Icon size={12} className="text-slate-400 shrink-0" />}
-          <span className="truncate">{value === "All" || !value ? placeholder : value}</span>
-        </div>
-        <ChevronDown size={14} className={cn("text-slate-400 transition-transform shrink-0", isOpen ? "rotate-180" : "rotate-0")} />
-      </button>
-      
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: 5, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 5, scale: 0.98 }}
-            className="absolute z-[100] mt-2 w-full min-w-[200px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden"
-          >
-            <div className="p-2 border-b border-slate-100 dark:border-slate-800">
-               <div className="relative">
-                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={12} />
-                 <input 
-                   autoFocus
-                   type="text" 
-                   value={search}
-                   onChange={e => setSearch(e.target.value)}
-                   className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800/50 border-none rounded-lg text-xs outline-none focus:ring-1 focus:ring-indigo-500/10 dark:text-white"
-                   placeholder="Search options..."
-                 />
-               </div>
-            </div>
-            <div className="max-h-60 overflow-y-auto py-1 custom-scrollbar">
-              {["All", ...options].length === 0 && <div className="px-4 py-3 text-[10px] text-slate-400 italic text-center">No options available</div>}
-              {["All", ...filteredOptions].map((opt, i) => (
-                <button
-                  key={`${opt}-${i}`}
-                  type="button"
-                  onClick={() => {
-                    onChange(opt);
-                    setIsOpen(false);
-                    setSearch("");
-                  }}
-                  className={cn(
-                    "w-full text-left px-4 py-2.5 text-xs transition-colors flex items-center justify-between",
-                    value === opt ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-bold" : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                  )}
-                >
-                  <span>{opt}</span>
-                  {value === opt && <CheckCircle2 size={12} />}
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 function TicketsModule({ tickets, setTickets, searchTerm, isAdmin, settings, userProfile }: { tickets: ITTicket[], setTickets: (t: ITTicket[]) => void, searchTerm: string, isAdmin: boolean, settings: SystemSettings, userProfile: any }) {
   const [isAdding, setIsAdding] = useState(false);
@@ -3114,6 +2989,27 @@ function SupervisorEditModal({
     setFormData({ ...formData, actions: updatedActions });
   };
 
+  const toDatetimeLocal = (isoString?: string) => {
+    if (!isoString) return "";
+    try {
+      const date = new Date(isoString);
+      if (isNaN(date.getTime())) return "";
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    } catch {
+      return "";
+    }
+  };
+
+  const fromDatetimeLocal = (localString: string) => {
+    if (!localString) return "";
+    try {
+      return new Date(localString).toISOString();
+    } catch {
+      return "";
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[60] p-4">
       <motion.div 
@@ -3180,6 +3076,36 @@ function SupervisorEditModal({
                 onChange={e => setFormData({ ...formData, department: e.target.value })}
                 placeholder="Assign department..."
                 className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Temporal Overrides */}
+          <div className="grid grid-cols-2 gap-6 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-3xl border border-slate-100 dark:border-slate-850">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest px-1">Request / Assign Date & Time</label>
+              <input 
+                type="datetime-local" 
+                value={toDatetimeLocal(formData.requestTime)}
+                onChange={e => {
+                  const iso = fromDatetimeLocal(e.target.value);
+                  if (iso) {
+                    setFormData({ ...formData, requestTime: iso });
+                  }
+                }}
+                className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest px-1">Completed Date & Time</label>
+              <input 
+                type="datetime-local" 
+                value={toDatetimeLocal(formData.completedAt)}
+                onChange={e => {
+                  const iso = fromDatetimeLocal(e.target.value);
+                  setFormData({ ...formData, completedAt: iso || undefined });
+                }}
+                className="w-full px-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
               />
             </div>
           </div>
@@ -5594,6 +5520,7 @@ function RenewalsModule({ renewals, setRenewals, isAdmin }: { renewals: RenewalR
                 <tr className="uppercase tracking-widest text-[#475569] dark:text-slate-300 font-bold text-[9px]">
                   <th className="px-6 py-4">SHOP / SERVICE</th>
                   <th className="px-6 py-4">PROVIDER INFO</th>
+                  <th className="px-6 py-4">ID</th>
                   <th className="px-6 py-4">EXPIRE DATE</th>
                   <th className="px-6 py-4">COST</th>
                   <th className="px-6 py-4 text-center">STATUS</th>
@@ -5603,7 +5530,7 @@ function RenewalsModule({ renewals, setRenewals, isAdmin }: { renewals: RenewalR
               <tbody className="divide-y divide-slate-100 bg-white">
                 {renewals.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center">
+                    <td colSpan={7} className="px-6 py-12 text-center">
                        <div className="flex flex-col items-center gap-3 text-slate-300">
                           <RefreshCw size={32} className="animate-spin-slow" />
                           <p className="text-sm font-bold uppercase tracking-widest">Initialising Service Tracker...</p>
@@ -5635,6 +5562,15 @@ function RenewalsModule({ renewals, setRenewals, isAdmin }: { renewals: RenewalR
                             <p className="text-[10px] font-bold text-slate-800 uppercase tracking-tight">{r.provider || r.ispName || "Unknown"}</p>
                             <p className="text-[9px] text-slate-400 font-bold uppercase">{r.billingCycle}</p>
                          </div>
+                      </td>
+                      <td className="px-6 py-4">
+                         {r.wifiId ? (
+                           <span className="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-xl">
+                             {r.wifiId}
+                           </span>
+                         ) : (
+                           <span className="text-[10px] text-slate-400 font-mono italic">-</span>
+                         )}
                       </td>
                       <td className="px-6 py-4">
                          <div className="flex items-center gap-1.5">
@@ -5827,6 +5763,16 @@ function RenewalsModule({ renewals, setRenewals, isAdmin }: { renewals: RenewalR
                                 onChange={e => setNewRenewal({...newRenewal, serviceName: e.target.value})}
                                 className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-sans"
                                 placeholder="e.g. FIBER Internet"
+                              />
+                           </div>
+                           <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">ID / Reference Number</label>
+                              <input 
+                                type="text" 
+                                value={newRenewal.wifiId || ""}
+                                onChange={e => setNewRenewal({...newRenewal, wifiId: e.target.value})}
+                                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-sans"
+                                placeholder="e.g. Wi-Fi ID, Account Number"
                               />
                            </div>
                            <div className="grid grid-cols-2 gap-4">
@@ -6686,8 +6632,12 @@ function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quo
         setUploadProgress(prev => (prev >= 90 ? 90 : prev + 10));
       }, 300);
 
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : "";
       const response = await fetch("/api/drive/upload", {
         method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        },
         body: formData,
       });
 

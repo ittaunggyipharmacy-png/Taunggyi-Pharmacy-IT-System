@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserRole, RolePermission } from '../types';
 import { fetchRolePermissions, saveRolePermission } from '../services/firestoreService';
 import { onSnapshot, collection, query } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { db, auth } from '../services/firebase';
 import { handleFirestoreError, OperationType } from '../services/firestoreErrors';
 
 interface AccessControlContextType {
@@ -24,16 +25,36 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, 'role_permissions'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => doc.data() as RolePermission);
-      setPermissions(data);
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'role_permissions');
+    let unsubscribeSnapshot: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+        unsubscribeSnapshot = null;
+      }
+
+      if (user) {
+        setLoading(true);
+        const q = query(collection(db, 'role_permissions'));
+        unsubscribeSnapshot = onSnapshot(q, (snapshot) => {
+          const data = snapshot.docs.map(doc => doc.data() as RolePermission);
+          setPermissions(data);
+          setLoading(false);
+        }, (error) => {
+          handleFirestoreError(error, OperationType.GET, 'role_permissions');
+        });
+      } else {
+        setPermissions([]);
+        setLoading(false);
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+      }
+    };
   }, []);
 
   const canAccess = (role: UserRole | string, menuId: string) => {

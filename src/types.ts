@@ -79,6 +79,7 @@ export interface SystemUser {
   photoURL?: string;
   createdAt: any;
   lastLogin: any;
+  isAdmin?: boolean;
 }
 
 export interface EmployeeProfile {
@@ -289,12 +290,18 @@ export interface PasswordNote {
   password: string;
 }
 
+export interface PasswordVaultEntry {
+  id: string;
+  label: string;
+  account: string;
+  password: string;
+}
+
 export interface SystemSettings {
   departments: string[];
   locations: string[];
   itContacts: { name: string; role: string; phone: string }[];
   branchNotes?: BranchNote[];
-  passwordNotes?: PasswordNote[];
   menuPermissions?: {
     [role: string]: string[];
   };
