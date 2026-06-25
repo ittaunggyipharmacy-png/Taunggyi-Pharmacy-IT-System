@@ -5,9 +5,9 @@ import { AccessControlProvider } from './contexts/AccessControlContext';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <AccessControlProvider>
-      <App />
-    </AccessControlProvider>
-  </StrictMode>,
+ <StrictMode>
+ <AccessControlProvider>
+ <App />
+ </AccessControlProvider>
+ </StrictMode>,
 );

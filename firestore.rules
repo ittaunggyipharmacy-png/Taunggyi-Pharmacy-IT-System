@@ -13,7 +13,11 @@ service cloud.firestore {
     }
 
     function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn() && (
+        request.auth.token.get('email_verified', false) == true ||
+        request.auth.token.email == "it.taunggyipharmacy@gmail.com" ||
+        exists(/databases/$(database)/documents/app_users/$(request.auth.uid))
+      );
     }
 
     function isVerifiedUser() {

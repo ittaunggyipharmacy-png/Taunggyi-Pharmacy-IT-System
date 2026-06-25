@@ -10,17 +10,17 @@ export const auth = getAuth();
 export const storage = getStorage(app);
 
 async function testConnection() {
-  try {
-    // Testing connection to a dummy path to verify Firestore is reachable
-    await getDocFromServer(doc(db, 'test', 'connection'));
-    console.log("Firebase connection established.");
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. You might be offline.");
-    } else {
-      console.log("Firestore initialized (initial check complete).");
-    }
-  }
+ try {
+ // Testing connection to a dummy path to verify Firestore is reachable
+ await getDocFromServer(doc(db, 'test', 'connection'));
+ console.log("Firebase connection established.");
+ } catch (error) {
+ if (error instanceof Error && error.message.includes('the client is offline')) {
+ console.error("Please check your Firebase configuration. You might be offline.");
+ } else {
+ console.log("Firestore initialized (initial check complete).");
+ }
+ }
 }
 
 testConnection();
