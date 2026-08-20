@@ -137,7 +137,8 @@ export function AssetRegistrationModal({
       onClose();
     } catch (err) {
       console.error("Failed to save asset:", err);
-      alert('Error saving asset.');
+      const message = err instanceof Error ? err.message : 'Unknown asset-save error.';
+      alert(`Unable to save asset. ${message}`);
     } finally {
       setIsSubmitting(false);
     }
