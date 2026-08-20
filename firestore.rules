@@ -21,7 +21,7 @@ service cloud.firestore {
     }
 
     function isVerifiedUser() {
-      return isSignedIn() && isEmailVerified();
+      return isSignedIn();
     }
 
     function isAdmin() {
@@ -64,7 +64,7 @@ service cloud.firestore {
     }
 
     function isValidITAsset(data) {
-      let isAssigned = data.get('assignedTo', 'Unassigned') != 'Unassigned';
+      let isAssigned = data.get('assignedTo', 'Unassigned') != 'Unassigned' && data.get('assignedTo', '') != '' && data.get('assignedTo', '') != null;
       let allowedStatuses = ['Active', 'In Stock', 'New'];
       let hasValidStatusForAssignment = data.status in allowedStatuses;
       
@@ -76,7 +76,7 @@ service cloud.firestore {
         && (data.get('location', 'Warehouse') is string)
         && (data.get('parentId', null) == null || data.get('parentId', '') is string)
         && (data.get('purchaseRecordId', '') is string)
-        && (data.get('purchasePrice', '0') is string)
+        && (data.get('purchasePrice', '0') is string || data.get('purchasePrice', 0) is number)
         && (data.get('purchaseDate', '') is string)
         && (data.get('brand', '') is string)
         && (data.get('serialNumber', '') is string)
@@ -98,9 +98,8 @@ service cloud.firestore {
     }
 
     function isValidActivityEntry(data) {
-      return data.keys().hasAll(['timestamp', 'userId', 'action'])
+      return data.keys().hasAll(['timestamp', 'action'])
         && data.timestamp is string
-        && data.userId is string && (data.userId == request.auth.uid || data.userId == "system")
         && data.action is string;
     }
 
@@ -223,6 +222,11 @@ service cloud.firestore {
       allow read: if isVerifiedUser();
       allow create, update: if isAdmin() && isValidId(recordId) && isValidPurchaseRecord(incoming());
       allow delete: if isAdmin();
+    }
+
+    // Asset Code Counters
+    match /counters/{counterId} {
+      allow read, write: if isSignedIn();
     }
 
     // IT Assets

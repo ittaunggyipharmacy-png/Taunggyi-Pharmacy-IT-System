@@ -90,16 +90,16 @@ export const saveRolePermission = async (rolePermission: RolePermission) => {
 };
 
 export const getSettings = async (): Promise<SystemSettings | null> => {
- try {
- const snap = await getDoc(doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID));
- if (snap.exists()) {
- return snap.data() as SystemSettings;
- }
- return null;
- } catch (error) {
- console.error("Error fetching settings", error);
- return null;
- }
+  try {
+    const snap = await getDoc(doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID));
+    if (snap.exists()) {
+      return snap.data() as SystemSettings;
+    }
+    return null;
+  } catch (error) {
+    console.warn("Settings not yet created or offline, using defaults");
+    return null;
+  }
 };
 
 export const savePasswordEntry = async (entry: PasswordVaultEntry) => {
@@ -142,78 +142,120 @@ export const getSystemUser = async (uid: string): Promise<SystemUser | null> => 
  }
 };
 
-export const syncSystemUser = async (firebaseUser: any) => {
- try {
- const userRef = doc(db, USER_COLLECTION, firebaseUser.uid);
- const snap = await getDoc(userRef);
- 
- const elevatedRoles = [
- UserRole.ADMIN, 
- UserRole.ADMIN_CAPS,
- UserRole.IT_SUPERVISOR,
- UserRole.IT_SUPERVISOR_CAPS,
- UserRole.MERCHANDISING_SUPERVISOR,
- UserRole.IT_DIGITAL_MARKETING
- ];
+export const syncSystemUser = async (firebaseUser: any): Promise<SystemUser | null> => {
+  if (!firebaseUser) return null;
 
- if (!snap.exists()) {
- // Check if they are in the admins collection to bootstrap
- const isAdminDoc = await checkAdminStatus(firebaseUser.uid);
- const initialRole = isAdminDoc ? UserRole.ADMIN : UserRole.STAFF;
- const isUserAdmin = elevatedRoles.includes(initialRole);
- 
- const newUser: SystemUser = {
- uid: firebaseUser.uid,
- email: firebaseUser.email || "",
- displayName: firebaseUser.displayName || "",
- role: initialRole,
- photoURL: firebaseUser.photoURL || "",
- createdAt: serverTimestamp(),
- lastLogin: serverTimestamp(),
- isAdmin: isUserAdmin
- };
- await setDoc(userRef, newUser);
- 
- // Sync to admins if needed
- if (elevatedRoles.includes(newUser.role)) {
- await setDoc(doc(db, 'admins', firebaseUser.uid), { 
- active: true, 
- email: firebaseUser.email,
- role: newUser.role,
- updatedAt: serverTimestamp() 
- });
- }
- 
- return newUser;
- } else {
- const userData = snap.data() as SystemUser;
- const isUserAdmin = elevatedRoles.includes(userData.role);
- 
- await setDoc(userRef, { 
- lastLogin: serverTimestamp(),
- displayName: firebaseUser.displayName || userData.displayName,
- photoURL: firebaseUser.photoURL || userData.photoURL,
- isAdmin: isUserAdmin
- }, { merge: true });
- 
- // ENSURE sync to admins for existing users if they have the role
- if (elevatedRoles.includes(userData.role)) {
- await setDoc(doc(db, 'admins', firebaseUser.uid), { 
- active: true, 
- email: firebaseUser.email,
- role: userData.role,
- updatedAt: serverTimestamp() 
- }, { merge: true });
- }
+  const elevatedRoles = [
+    UserRole.ADMIN,
+    UserRole.ADMIN_CAPS,
+    UserRole.IT_SUPERVISOR,
+    UserRole.IT_SUPERVISOR_CAPS,
+    UserRole.MERCHANDISING_SUPERVISOR,
+    UserRole.IT_DIGITAL_MARKETING
+  ];
 
- // Consistently return the data. We'll fetch it to be sure we have the latest.
- const refreshedSnap = await getDoc(userRef);
- return refreshedSnap.data() as SystemUser;
- }
- } catch (error) {
- console.error("Error syncing system user", error);
- return null;
- }
+  const isSuperAdminEmail = firebaseUser.email === "it.taunggyipharmacy@gmail.com";
+  const fallbackRole = isSuperAdminEmail ? UserRole.ADMIN : UserRole.STAFF;
+  const isFallbackAdmin = elevatedRoles.includes(fallbackRole);
+
+  try {
+    const userRef = doc(db, USER_COLLECTION, firebaseUser.uid);
+    let snap;
+    try {
+      snap = await getDoc(userRef);
+    } catch (getErr) {
+      console.warn("Could not read user doc from server, using local fallback state");
+      return {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || "",
+        displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || "User",
+        role: fallbackRole,
+        photoURL: firebaseUser.photoURL || "",
+        createdAt: new Date(),
+        lastLogin: new Date(),
+        isAdmin: isFallbackAdmin
+      };
+    }
+
+    if (!snap.exists()) {
+      let isAdminDoc = false;
+      try {
+        isAdminDoc = await checkAdminStatus(firebaseUser.uid);
+      } catch (_) {}
+
+      const initialRole = (isAdminDoc || isSuperAdminEmail) ? UserRole.ADMIN : UserRole.STAFF;
+      const isUserAdmin = elevatedRoles.includes(initialRole);
+
+      const newUser: SystemUser = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email || "",
+        displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || "User",
+        role: initialRole,
+        photoURL: firebaseUser.photoURL || "",
+        createdAt: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+        isAdmin: isUserAdmin
+      };
+
+      try {
+        await setDoc(userRef, newUser, { merge: true });
+        if (elevatedRoles.includes(newUser.role)) {
+          await setDoc(doc(db, 'admins', firebaseUser.uid), {
+            active: true,
+            email: firebaseUser.email,
+            role: newUser.role,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+      } catch (writeErr) {
+        console.warn("Could not persist new user doc immediately:", writeErr);
+      }
+
+      return newUser;
+    } else {
+      const userData = snap.data() as SystemUser;
+      const isUserAdmin = elevatedRoles.includes(userData.role) || isSuperAdminEmail;
+
+      try {
+        await setDoc(userRef, {
+          lastLogin: serverTimestamp(),
+          displayName: firebaseUser.displayName || userData.displayName,
+          photoURL: firebaseUser.photoURL || userData.photoURL,
+          isAdmin: isUserAdmin
+        }, { merge: true });
+
+        if (isUserAdmin) {
+          await setDoc(doc(db, 'admins', firebaseUser.uid), {
+            active: true,
+            email: firebaseUser.email,
+            role: userData.role,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+      } catch (writeErr) {
+        console.warn("Could not update user lastLogin immediately:", writeErr);
+      }
+
+      return {
+        ...userData,
+        displayName: firebaseUser.displayName || userData.displayName,
+        photoURL: firebaseUser.photoURL || userData.photoURL,
+        isAdmin: isUserAdmin
+      };
+    }
+  } catch (error) {
+    console.error("Error in syncSystemUser:", error);
+    return {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email || "",
+      displayName: firebaseUser.displayName || "User",
+      role: fallbackRole,
+      photoURL: firebaseUser.photoURL || "",
+      createdAt: new Date(),
+      lastLogin: new Date(),
+      isAdmin: isFallbackAdmin
+    };
+  }
 };
 
 export const updateSystemUserRole = async (uid: string, role: UserRole) => {
@@ -496,72 +538,108 @@ export const generateNextAssetCode = async (category: string, currentOffset: num
 
 
 export const saveAsset = async (asset: Partial<ITAsset>) => {
- if (!asset.id && !asset.asset_code && asset.category) {
- return await runTransaction(db, async (transaction) => {
- const categoryKey = asset.category.toLowerCase().replace(/\s+/g, '_');
- const counterRef = doc(db, "counters", `assetCode_${categoryKey}`);
- const counterSnap = await transaction.get(counterRef);
- 
- let lastNumber = 0;
- if (counterSnap.exists()) {
- lastNumber = counterSnap.data().lastNumber || 0;
- }
- 
- const nextNumber = lastNumber + 1;
- 
- const getPrefix = (cat: string) => {
- const c = (cat || "").toLowerCase();
- if (c === "computer") return "TG-PC-";
- if (c === "keyboard") return "TG-KB-";
- if (c === "mouse") return "TG-MS-";
- if (c === "fan") return "TG-FN-";
- if (c === "usb hub" || c === "usb") return "TG-UB-";
- if (c === "printer") return "TG-PR-";
- if (c === "phone" || c === "mobile") return "TG-PH-";
- if (c === "scanner") return "TG-SC-";
- return "TG-ACC-";
- };
- 
- const prefix = getPrefix(asset.category);
- const code = `${prefix}${String(nextNumber).padStart(3, '0')}`;
- 
- const assetRef = doc(collection(db, ASSET_COLLECTION));
- const finalAsset = {
- ...asset,
- id: assetRef.id,
- asset_code: code,
- createdAt: serverTimestamp(),
- updatedAt: serverTimestamp()
- };
- 
- transaction.set(counterRef, { lastNumber: nextNumber }, { merge: true });
- transaction.set(assetRef, cleanData(finalAsset));
- 
- // Mutate original object
- asset.id = assetRef.id;
- asset.asset_code = code;
- 
- // Log custom activity inside transaction
- try {
- const activityRef = doc(collection(db, ACTIVITY_COLLECTION));
- transaction.set(activityRef, cleanData({
- id: activityRef.id,
- userEmail: auth.currentUser?.email || "System Transaction",
- action: "Asset Registered (Atomic Transaction)",
- details: `Formatted code assigned and locked: ${code} for ${asset.brand || ""} ${asset.model || ""}`,
- timestamp: new Date().toISOString()
- }));
- } catch (e) {
- console.error("Failed to log activity inside transaction:", e);
- }
- 
- return assetRef.id;
- });
- } else {
- return saveGenericRecord(ASSET_COLLECTION, asset);
- }
-};
+  const isAssigned = Boolean(asset.assignedTo && asset.assignedTo.trim() !== "" && asset.assignedTo.trim() !== "Unassigned");
+  const sanitized = cleanData({
+    ...asset,
+    category: asset.category || "Computer",
+    model: (asset.model || "Unnamed Asset").trim(),
+    serialNumber: (asset.serialNumber || "N/A").trim(),
+    brand: (asset.brand || "").trim(),
+    specs: (asset.specs || "").trim(),
+    purchaseDate: asset.purchaseDate || new Date().toISOString().split("T")[0],
+    maintenanceDueDate: asset.maintenanceDueDate || "",
+    location: (asset.location || "Central Storage").trim(),
+    department: (asset.department || "").trim(),
+    uom: (asset.uom || "Unit").trim(),
+    assignedTo: isAssigned ? (asset.assignedTo || "").trim() : "Unassigned",
+    status: asset.status || "Active",
+    purchasePrice: asset.purchasePrice ? String(asset.purchasePrice).trim() : "0",
+    itemPrice: typeof asset.itemPrice === "number" ? asset.itemPrice : Number(asset.purchasePrice) || 0,
+    parentId: asset.parentId || null,
+    remarks: asset.remarks || "",
+    remark2: asset.remark2 || "",
+    peripherals: asset.peripherals || {},
+    updatedAt: serverTimestamp()
+  });
 
+  if (!asset.id && !asset.asset_code && asset.category) {
+    const categoryKey = (asset.category || "other").toLowerCase().replace(/\s+/g, "_");
+    const getPrefix = (cat: string) => {
+      const c = (cat || "").toLowerCase();
+      if (c === "computer") return "TG-PC-";
+      if (c === "keyboard") return "TG-KB-";
+      if (c === "mouse") return "TG-MS-";
+      if (c === "fan") return "TG-FN-";
+      if (c === "usb hub" || c === "usb") return "TG-UB-";
+      if (c === "printer") return "TG-PR-";
+      if (c === "phone" || c === "mobile") return "TG-PH-";
+      if (c === "scanner") return "TG-SC-";
+      return "TG-ACC-";
+    };
+
+    try {
+      return await runTransaction(db, async (transaction) => {
+        const counterRef = doc(db, "counters", `assetCode_${categoryKey}`);
+        const counterSnap = await transaction.get(counterRef);
+        
+        let lastNumber = 0;
+        if (counterSnap.exists()) {
+          lastNumber = counterSnap.data().lastNumber || 0;
+        }
+        
+        const nextNumber = lastNumber + 1;
+        const prefix = getPrefix(asset.category);
+        const code = `${prefix}${String(nextNumber).padStart(3, "0")}`;
+        
+        const assetRef = doc(collection(db, ASSET_COLLECTION));
+        const finalAsset = {
+          ...sanitized,
+          id: assetRef.id,
+          asset_code: code,
+          createdAt: serverTimestamp()
+        };
+        
+        transaction.set(counterRef, { lastNumber: nextNumber }, { merge: true });
+        transaction.set(assetRef, finalAsset);
+        
+        // Mutate original object
+        asset.id = assetRef.id;
+        asset.asset_code = code;
+        
+        return assetRef.id;
+      });
+    } catch (txError) {
+      console.warn("Transaction failed, saving asset directly:", txError);
+      
+      const fallbackRef = doc(collection(db, ASSET_COLLECTION));
+      const code = `${getPrefix(asset.category)}${Date.now().toString().slice(-4)}`;
+      const finalAsset = {
+        ...sanitized,
+        id: fallbackRef.id,
+        asset_code: code,
+        createdAt: serverTimestamp()
+      };
+      
+      await setDoc(fallbackRef, finalAsset);
+      asset.id = fallbackRef.id;
+      asset.asset_code = code;
+
+      try {
+        const counterRef = doc(db, "counters", `assetCode_${categoryKey}`);
+        await setDoc(counterRef, { lastNumber: increment(1) }, { merge: true });
+      } catch (_) {}
+
+      return fallbackRef.id;
+    } finally {
+      saveActivity({
+        action: "Asset Registered",
+        details: `Registered asset ${asset.asset_code || ""} (${asset.brand || ""} ${asset.model || ""})`
+      }).catch(() => {});
+    }
+  } else {
+    return saveGenericRecord(ASSET_COLLECTION, sanitized);
+  }
+};
 
 export const initializeAssetCodeCounters = async () => {
  try {

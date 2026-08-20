@@ -257,9 +257,22 @@
         "password": { "type": "string" }
       },
       "required": ["id", "label", "account", "password"]
+    },
+    "Counter": {
+      "title": "Asset Counter",
+      "description": "Sequential counter tracking the latest numeric ID per asset category.",
+      "type": "object",
+      "properties": {
+        "lastNumber": { "type": "number" }
+      },
+      "required": ["lastNumber"]
     }
   },
   "firestore": {
+    "counters": {
+      "schema": "Counter",
+      "description": "Collection of sequential asset code counters."
+    },
     "purchase_records": {
       "schema": "PurchaseRecord",
       "description": "Collection of purchase records."

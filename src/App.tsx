@@ -179,6 +179,7 @@ import SkillMatrix from "./components/SkillMatrix";
 import { UserManagement } from "./components/UserManagement";
 import MeetingMinutesModule from "./components/MeetingMinutesModule";
 import { RenewalsModule } from "./components/RenewalsModule";
+import { IdLayoutGenerator } from "./components/IdLayoutGenerator";
 
 
 const safeFormat = (date: any, formatStr: string, fallback: string = "--") => {
@@ -396,7 +397,7 @@ export default function App() {
  const [authReady, setAuthReady] = useState(false);
 
  const [confirmTarget, setConfirmTarget] = useState<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>(null);
- const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "assets" | "security" | "marketing" | "renewals" | "purchases" | "files" | "settings" | "help" | "kpi" | "daily-kpi" | "reports" | "skills" | "users" | "meetings">("dashboard");
+ const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "assets" | "security" | "marketing" | "renewals" | "purchases" | "files" | "settings" | "help" | "kpi" | "daily-kpi" | "reports" | "skills" | "users" | "meetings" | "id-layout">("dashboard");
  const [activities, setActivities] = useState<ActivityEntry[]>([]);
  const [evidence, setEvidence] = useState<TaskEvidence[]>([]);
  const [allDailyLogs, setAllDailyLogs] = useState<DailyLog[]>([]);
@@ -770,7 +771,8 @@ export default function App() {
  { id: "marketing", label: "Digital Marketing", icon: Megaphone },
  { id: "files", label: "Cloud Files", icon: HardDrive },
  { id: "settings", label: "System Settings", icon: Settings },
- { id: "help", label: "Help & Support", icon: HelpCircle },
+ { id: "id-layout", label: "ID Auto Layout", icon: Printer },
+  { id: "help", label: "Help & Support", icon: HelpCircle },
  ];
 
  const navItems = allNavItems.filter(item => {
@@ -781,7 +783,7 @@ export default function App() {
  if (accessLoading) return false;
 
  // IT Support Log, Help, and Meetings are open for everyone
- if (item.id === "tickets" || item.id === "help" || item.id === "meetings") return true;
+ if (item.id === "tickets" || item.id === "help" || item.id === "meetings" || item.id === "id-layout") return true;
 
  // Use our new AccessControlContext for other items
  if (userProfile?.role) {
@@ -1170,6 +1172,7 @@ export default function App() {
  {activeTab === "kpi" && canAccess(userProfile?.role as UserRole, "kpi") && <KPIDashboard />}
  {activeTab === "daily-kpi" && canAccess(userProfile?.role as UserRole, "daily-kpi") && <KPITracker userRole={userProfile?.role} />}
  {activeTab === "meetings" && <MeetingMinutesModule userRole={userProfile?.role} isAdmin={isAdmin} />}
+          {activeTab === "id-layout" && <IdLayoutGenerator />}
  {activeTab === "skills" && isAdmin && <SkillMatrix />}
  {activeTab === "reports" && isAdmin && (
  <ReportsModule 
