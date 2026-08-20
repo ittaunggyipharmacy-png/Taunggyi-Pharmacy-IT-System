@@ -123,10 +123,7 @@ const verifyFirebaseToken = async (req: any, res: any, next: any) => {
     if (!decodedToken.email_verified) {
        return res.status(403).json({ error: "Forbidden: Email not verified." });
     }
-    let role = decodedToken.role || "none";
-    if (decodedToken.email === "it.taunggyipharmacy@gmail.com") {
-      role = "super_admin";
-    }
+    const role = typeof decodedToken.role === "string" ? decodedToken.role : "none";
     if (role === "none" || role === "disabled") {
        return res.status(403).json({ error: "Forbidden: Account pending approval or disabled." });
     }
@@ -144,18 +141,34 @@ const verifyFirebaseToken = async (req: any, res: any, next: any) => {
   }
 };
 
-// Check if User is Admin/Supervisor Role using Custom Claims
-const isUserAdmin = async (uid: string, email?: string): Promise<boolean> => {
-  if (email === "it.taunggyipharmacy@gmail.com") return true;
-  try {
-    const user = await admin.auth().getUser(uid);
-    const role = user.customClaims?.role;
-    return role === "super_admin" || role === "it_supervisor";
-  } catch (error) {
-    redactedLogger.error("Error checking user admin status", { uid, error: String(error) });
-  }
-  return false;
-};
+// Standard role management may assign only non-Super-Admin roles.
+// Super Admin bootstrap/recovery must use a separate audited break-glass process.
+const ASSIGNABLE_NON_ADMIN_ROLES = new Set([
+  "it_supervisor",
+  "asset_editor",
+  "document_manager",
+  "content_manager",
+  "staff_viewer",
+  "disabled",
+]);
+
+type AssignableNonAdminRole =
+  | "it_supervisor"
+  | "asset_editor"
+  | "document_manager"
+  | "content_manager"
+  | "staff_viewer"
+  | "disabled";
+
+function isAssignableNonAdminRole(value: unknown): value is AssignableNonAdminRole {
+  return typeof value === "string" && ASSIGNABLE_NON_ADMIN_ROLES.has(value);
+}
+
+async function getFreshCustomClaimRole(uid: string): Promise<string> {
+  const user = await admin.auth().getUser(uid);
+  const role = user.customClaims?.role;
+  return typeof role === "string" ? role : "none";
+}
 
 async function startServer() {
   const app = express();
@@ -1623,27 +1636,102 @@ async function startServer() {
   // Update User Role via Custom Claims
   // ----------------------------------------------------
 
-  app.post("/api/admin/roles", verifyFirebaseToken, async (req: any, res) => {
+    app.post("/api/admin/roles", verifyFirebaseToken, async (req: any, res) => {
     try {
-      const isAdminRole = await isUserAdmin(req.user.uid, req.user.email);
-      if (!isAdminRole) {
-        return res.status(403).json({ error: "Forbidden: Only admins can assign roles." });
+      const { targetUid, newRole } = req.body ?? {};
+
+      if (typeof targetUid !== "string" || targetUid.trim().length === 0) {
+        return res.status(400).json({ error: "targetUid is required." });
       }
-      
-      const { targetUid, newRole } = req.body;
-      if (!targetUid || !newRole) {
-         return res.status(400).json({ error: "Missing targetUid or newRole." });
+
+      if (!isAssignableNonAdminRole(newRole)) {
+        return res.status(400).json({
+          error: "Invalid role. This endpoint may assign only approved non-Super-Admin roles.",
+        });
       }
-      
-      await admin.auth().setCustomUserClaims(targetUid, { role: newRole });
-      await getDb().collection("app_users").doc(targetUid).set({ role: newRole }, { merge: true });
-      
-      res.json({ success: true });
+
+      // Re-read the actor from Firebase Admin. Do not trust a stale token or UI state
+      // when authorizing a privileged operation.
+      const actorRole = await getFreshCustomClaimRole(req.user.uid);
+      if (actorRole !== "super_admin") {
+        return res.status(403).json({
+          error: "Forbidden: only a Super Admin can assign roles.",
+        });
+      }
+
+      // A standard administrator must never alter their own permissions.
+      if (targetUid === req.user.uid) {
+        return res.status(403).json({
+          error: "Forbidden: self-role changes are not allowed.",
+        });
+      }
+
+      const targetUser = await admin.auth().getUser(targetUid);
+      const previousClaims = targetUser.customClaims ?? {};
+      const previousRoleValue = (previousClaims as Record<string, unknown>).role;
+      const previousRole = typeof previousRoleValue === "string" ? previousRoleValue : "none";
+
+      // Existing Super Admin accounts must be changed only through a separate,
+      // audited break-glass/bootstrap workflow.
+      if (previousRole === "super_admin") {
+        return res.status(403).json({
+          error: "Forbidden: Super Admin accounts cannot be modified by this endpoint.",
+        });
+      }
+
+      const db = getDb();
+      const userRef = db.collection("app_users").doc(targetUid);
+      const auditRef = db.collection("audit_logs").doc();
+
+      // Preserve unrelated custom claims while replacing role with an allow-listed value.
+      await admin.auth().setCustomUserClaims(targetUid, {
+        ...previousClaims,
+        role: newRole,
+      });
+
+      try {
+        const batch = db.batch();
+        batch.set(
+          userRef,
+          {
+            role: newRole,
+            roleUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            roleUpdatedByUid: req.user.uid,
+            roleUpdatedByEmail: req.user.email,
+          },
+          { merge: true },
+        );
+        batch.set(auditRef, {
+          id: auditRef.id,
+          action: "ROLE_CHANGED",
+          actorUid: req.user.uid,
+          actorEmail: req.user.email,
+          targetUid,
+          targetEmail: targetUser.email ?? null,
+          previousRole,
+          newRole,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await batch.commit();
+      } catch (writeError) {
+        // Prevent a role change without the corresponding application record and audit event.
+        await admin.auth().setCustomUserClaims(targetUid, previousClaims);
+        throw writeError;
+      }
+
+      return res.status(200).json({
+        success: true,
+        targetUid,
+        previousRole,
+        newRole,
+        refreshRequired: true,
+      });
     } catch (error) {
       redactedLogger.error("Role update error", { error: String(error) });
-      res.status(500).json({ error: "Failed to update user role." });
+      return res.status(500).json({ error: "Failed to update user role." });
     }
   });
+
 
   // 6. Vite middleware for development vs Static Serving in Production
   if (process.env.NODE_ENV !== "production") {
