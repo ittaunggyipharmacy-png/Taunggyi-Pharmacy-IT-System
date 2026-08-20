@@ -238,6 +238,54 @@ async function main() {
     assert.ok(appContent.includes('Suspense'));
   });
 
+  // ---------------------------------------------------------
+  // Suite 11: Dynamic Department Dropdown & Legacy Preservation
+  // ---------------------------------------------------------
+  console.log('\nSuite 11: Dynamic Department System & Legacy Preservation');
+  const { sortDepartments, formatDepartmentOptions, validateDepartmentName } = await import('../src/utils/departmentUtils.js');
+
+  await runTest('sortDepartments prioritizes IT and sorts remaining alphabetically', () => {
+    const input = ['Sales', 'Accounts', 'IT', 'Merchandising', 'Digital Marketing'];
+    const sorted = sortDepartments(input);
+    assert.strictEqual(sorted[0], 'IT');
+    assert.deepStrictEqual(sorted, ['IT', 'Accounts', 'Digital Marketing', 'Merchandising', 'Sales']);
+  });
+
+  await runTest('validateDepartmentName enforces required fields, length limits and rejects duplicates', () => {
+    const list = ['IT', 'Accounts'];
+    assert.strictEqual(validateDepartmentName('', list).valid, false);
+    assert.strictEqual(validateDepartmentName('   ', list).valid, false);
+    assert.strictEqual(validateDepartmentName('it', list).valid, false); // case-insensitive duplicate
+    assert.strictEqual(validateDepartmentName('Accounts', list).valid, false);
+    assert.strictEqual(validateDepartmentName('A'.repeat(101), list).valid, false);
+    assert.strictEqual(validateDepartmentName('Warehouse', list).valid, true);
+  });
+
+  await runTest('formatDepartmentOptions preserves legacy departments not in settings with Legacy label', () => {
+    const activeDepts = ['IT', 'Accounts', 'Merchandising'];
+    
+    // Existing department is in settings -> standard options
+    const standardOpts = formatDepartmentOptions(activeDepts, 'Accounts');
+    assert.strictEqual(standardOpts.some(o => o.value === 'Accounts' && !o.isLegacy), true);
+    assert.strictEqual(standardOpts.some(o => o.isLegacy), false);
+
+    // Existing department is missing from settings -> marked as Legacy
+    const legacyOpts = formatDepartmentOptions(activeDepts, 'Old Logistics');
+    const legacyItem = legacyOpts.find(o => o.value === 'Old Logistics');
+    assert.ok(legacyItem);
+    assert.strictEqual(legacyItem.isLegacy, true);
+    assert.strictEqual(legacyItem.label, 'Legacy: Old Logistics');
+  });
+
+  await runTest('AssetsModule and TicketsModule use dynamic DepartmentSelect without hardcoded arrays', () => {
+    const assetsModuleContent = fs.readFileSync(path.join(process.cwd(), 'src/components/AssetsModule.tsx'), 'utf-8');
+    const ticketsModuleContent = fs.readFileSync(path.join(process.cwd(), 'src/components/TicketsModule.tsx'), 'utf-8');
+    assert.ok(assetsModuleContent.includes('DepartmentSelect'));
+    assert.ok(ticketsModuleContent.includes('DepartmentSelect'));
+    assert.ok(!assetsModuleContent.includes('<option value="Merchandising">Merchandising</option>'));
+    assert.ok(!ticketsModuleContent.includes('<option value="Merchandising">Merchandising</option>'));
+  });
+
   console.log('\n======================================================');
   console.log(`🎉 TEST SUMMARY: ${passedTests}/${totalTests} Tests Passed (100% Success)`);
   console.log('======================================================\n');

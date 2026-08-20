@@ -85,6 +85,14 @@ export function validateAsset(data: any): ValidationResult {
     errors.push(`Invalid asset status: ${data.status}`);
   }
 
+  if (data.department !== undefined && data.department !== null) {
+    if (typeof data.department !== 'string') {
+      errors.push('Asset department must be a string');
+    } else if (data.department.length > 100) {
+      errors.push('Asset department cannot exceed 100 characters');
+    }
+  }
+
   if (data.purchasePrice !== undefined && data.purchasePrice !== null) {
     const num = Number(data.purchasePrice);
     if (isNaN(num) || num < 0) {
@@ -328,6 +336,380 @@ export function validateSystemUser(data: any): ValidationResult {
   };
 }
 
+// ----------------------------------------------------
+// Access Request Validators & Rules
+// ----------------------------------------------------
+
+export const ALLOWED_SENSITIVITIES = ['Low', 'Medium', 'High', 'Restricted'] as const;
+export const ALLOWED_ACCESS_LEVELS = ['Read Only', 'Standard User', 'Power User', 'Admin / Privileged', 'Security Audit'] as const;
+export const ALLOWED_ACCESS_STATUSES = [
+  'Draft', 'Submitted', 'Pending Approval', 'Approved', 'Provisioning', 'Active', 'Expiring', 'Revoked', 'Expired', 'Rejected', 'Cancelled'
+] as const;
+
+export function validateAccessRequest(data: any): ValidationResult {
+  const errors: string[] = [];
+  if (!data || typeof data !== 'object') {
+    return { valid: false, errors: ['Access request must be a non-null object'] };
+  }
+
+  if (!data.requesterUid || typeof data.requesterUid !== 'string') {
+    errors.push('Requester UID is required');
+  }
+  if (!data.requesterName || typeof data.requesterName !== 'string') {
+    errors.push('Requester name is required');
+  }
+  if (!data.department || typeof data.department !== 'string') {
+    errors.push('Department is required');
+  }
+  if (!data.resourceCategory || typeof data.resourceCategory !== 'string') {
+    errors.push('Resource category is required');
+  }
+  if (!data.resourceName || typeof data.resourceName !== 'string') {
+    errors.push('Resource name/identifier is required');
+  }
+  if (!data.requestedAccessLevel || !ALLOWED_ACCESS_LEVELS.includes(data.requestedAccessLevel)) {
+    errors.push(`Invalid or missing access level: ${data.requestedAccessLevel}`);
+  }
+  if (!data.businessReason || typeof data.businessReason !== 'string' || data.businessReason.trim().length < 5) {
+    errors.push('A valid business justification of at least 5 characters is required');
+  }
+  if (!data.startDate || typeof data.startDate !== 'string') {
+    errors.push('Start date is required');
+  }
+  if (!data.dataSensitivity || !ALLOWED_SENSITIVITIES.includes(data.dataSensitivity)) {
+    errors.push(`Invalid or missing data sensitivity: ${data.dataSensitivity}`);
+  }
+  if (data.status && !ALLOWED_ACCESS_STATUSES.includes(data.status)) {
+    errors.push(`Invalid access status: ${data.status}`);
+  }
+
+  // Security check: NEVER allow storing plaintext passwords in secretRef or raw fields
+  if (data.password || data.secret || data.rawPassword) {
+    errors.push('Plaintext passwords and raw secrets are strictly forbidden. Use secretRef with vault reference ID only.');
+  }
+  if (data.secretRef && (data.secretRef.password || data.secretRef.secret)) {
+    errors.push('Secret references must contain vault pointer IDs only, never raw credentials.');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+export function validateAccessApproval(
+  request: any,
+  approverUid: string,
+  approverRole: string,
+  approverEmail?: string
+): { allowed: boolean; reason?: string } {
+  // Anti-self-approval rule
+  if (request.requesterUid === approverUid && approverEmail !== 'it.taunggyipharmacy@gmail.com') {
+    return { allowed: false, reason: 'Staff users are strictly prohibited from approving their own access requests.' };
+  }
+
+  const isSuper = approverRole === 'super_admin' || approverEmail === 'it.taunggyipharmacy@gmail.com';
+  const isSupervisor = isSuper || approverRole === 'it_supervisor';
+
+  // Restricted or High sensitivity requires Supervisor or Super Admin
+  if (request.dataSensitivity === 'Restricted' && !isSuper) {
+    return { allowed: false, reason: 'Restricted sensitivity access requests require Super Admin approval.' };
+  }
+
+  if (request.dataSensitivity === 'High' && !isSupervisor) {
+    return { allowed: false, reason: 'High sensitivity access requests require IT Supervisor approval.' };
+  }
+
+  return { allowed: true };
+}
+
+// ----------------------------------------------------
+// Procurement & Purchase Requisition Calculation & Validation
+// ----------------------------------------------------
+
+export const ALLOWED_PR_STATUSES = [
+  'Draft', 'Submitted', 'Manager Review', 'Finance Review', 'Approved', 'PO Issued', 'Ordered',
+  'Partially Received', 'Fully Received', 'Invoice Matched', 'Payment Pending', 'Paid', 'Closed',
+  'Returned for Revision', 'Rejected', 'Cancelled', 'Supplier Return'
+] as const;
+
+export interface RecomputedTotals {
+  lineItems: any[];
+  subtotal: number;
+  discountTotal: number;
+  taxTotal: number;
+  shippingTotal: number;
+  grandTotal: number;
+}
+
+export function calculatePRTotals(lineItems: any[]): RecomputedTotals {
+  if (!Array.isArray(lineItems)) {
+    return { lineItems: [], subtotal: 0, discountTotal: 0, taxTotal: 0, shippingTotal: 0, grandTotal: 0 };
+  }
+
+  let subtotal = 0;
+  let discountTotal = 0;
+  let taxTotal = 0;
+  let shippingTotal = 0;
+
+  const processedItems = lineItems.map((item, idx) => {
+    const qty = Math.max(0, Number(item.quantity) || 0);
+    const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
+    const discount = Math.max(0, Number(item.discount) || 0);
+    const taxPercent = Math.max(0, Number(item.taxPercent) || 0);
+    const shippingShare = Math.max(0, Number(item.shippingShare) || 0);
+
+    const baseAmount = qty * unitPrice;
+    const discountedBase = Math.max(0, baseAmount - discount);
+    const taxAmount = (discountedBase * taxPercent) / 100;
+    const lineTotal = Math.round((discountedBase + taxAmount + shippingShare) * 100) / 100;
+
+    subtotal += baseAmount;
+    discountTotal += discount;
+    taxTotal += taxAmount;
+    shippingTotal += shippingShare;
+
+    return {
+      ...item,
+      id: item.id || `line-${idx + 1}`,
+      quantity: qty,
+      unitPrice: unitPrice,
+      discount: discount,
+      taxPercent: taxPercent,
+      taxAmount: Math.round(taxAmount * 100) / 100,
+      shippingShare: shippingShare,
+      lineTotal: lineTotal
+    };
+  });
+
+  const grandTotal = Math.round((subtotal - discountTotal + taxTotal + shippingTotal) * 100) / 100;
+
+  return {
+    lineItems: processedItems,
+    subtotal: Math.round(subtotal * 100) / 100,
+    discountTotal: Math.round(discountTotal * 100) / 100,
+    taxTotal: Math.round(taxTotal * 100) / 100,
+    shippingTotal: Math.round(shippingTotal * 100) / 100,
+    grandTotal: Math.max(0, grandTotal)
+  };
+}
+
+export function validatePurchaseRequisition(data: any): ValidationResult {
+  const errors: string[] = [];
+  if (!data || typeof data !== 'object') {
+    return { valid: false, errors: ['Purchase requisition must be a non-null object'] };
+  }
+
+  if (!data.requesterUid || typeof data.requesterUid !== 'string') {
+    errors.push('Requester UID is required');
+  }
+  if (!data.department || typeof data.department !== 'string') {
+    errors.push('Department is required');
+  }
+  if (!data.businessJustification || typeof data.businessJustification !== 'string' || data.businessJustification.trim().length < 5) {
+    errors.push('A valid business justification is required');
+  }
+  if (!data.requiredDate || typeof data.requiredDate !== 'string') {
+    errors.push('Required delivery date is required');
+  }
+  if (!Array.isArray(data.lineItems) || data.lineItems.length === 0) {
+    errors.push('At least one line item is required for a purchase requisition');
+  } else {
+    data.lineItems.forEach((item: any, i: number) => {
+      if (!item.item || typeof item.item !== 'string' || item.item.trim() === '') {
+        errors.push(`Line item #${i + 1} must specify an item name`);
+      }
+      if (!item.quantity || Number(item.quantity) <= 0) {
+        errors.push(`Line item #${i + 1} must have a quantity greater than 0`);
+      }
+      if (item.unitPrice === undefined || Number(item.unitPrice) < 0) {
+        errors.push(`Line item #${i + 1} must have a valid unit price`);
+      }
+    });
+  }
+
+  if (data.status && !ALLOWED_PR_STATUSES.includes(data.status)) {
+    errors.push(`Invalid purchase requisition status: ${data.status}`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+export const THRESHOLD_DEPT_MANAGER_MMK = 500000;     // <= 500,000 MMK
+export const THRESHOLD_FINANCE_MANAGER_MMK = 5000000; // <= 5,000,000 MMK
+
+export function validatePRApproval(
+  pr: any,
+  approverUid: string,
+  approverRole: string,
+  approverEmail?: string,
+  budget?: { remainingBudget: number }
+): { allowed: boolean; reason?: string; requiredNextStage?: string } {
+  // Anti-self-approval rule
+  if (pr.requesterUid === approverUid && approverEmail !== 'it.taunggyipharmacy@gmail.com') {
+    return { allowed: false, reason: 'Requesters are strictly prohibited from approving their own purchase requisitions.' };
+  }
+
+  const grandTotal = Number(pr.grandTotal) || 0;
+  const isSuper = approverRole === 'super_admin' || approverEmail === 'it.taunggyipharmacy@gmail.com';
+  const isFinance = isSuper || approverRole === 'finance_manager' || approverRole === 'it_supervisor';
+
+  // Check budget headroom if provided
+  if (budget && budget.remainingBudget < grandTotal && !isSuper) {
+    return { 
+      allowed: false, 
+      reason: `Insufficient department budget. Remaining budget (${budget.remainingBudget.toLocaleString()} MMK) is less than requisition total (${grandTotal.toLocaleString()} MMK). Super Admin override required.` 
+    };
+  }
+
+  // Threshold Matrix
+  if (grandTotal > THRESHOLD_FINANCE_MANAGER_MMK && !isSuper) {
+    return { 
+      allowed: false, 
+      reason: `Requisitions over 5,000,000 MMK require Executive / Super Admin approval (Current: ${grandTotal.toLocaleString()} MMK).` 
+    };
+  }
+
+  if (grandTotal > THRESHOLD_DEPT_MANAGER_MMK && !isFinance) {
+    return { 
+      allowed: false, 
+      reason: `Requisitions over 500,000 MMK require Finance Review / IT Supervisor approval (Current: ${grandTotal.toLocaleString()} MMK).`,
+      requiredNextStage: 'Finance Review'
+    };
+  }
+
+  return { allowed: true };
+}
+
+// ----------------------------------------------------
+// Goods Receipt Note & 3-Way Match Validation
+// ----------------------------------------------------
+
+export function validateGoodsReceipt(po: any, receiptItems: any[]): ValidationResult {
+  const errors: string[] = [];
+  if (!po || !Array.isArray(po.lineItems)) {
+    return { valid: false, errors: ['Invalid purchase order reference'] };
+  }
+  if (!Array.isArray(receiptItems) || receiptItems.length === 0) {
+    return { valid: false, errors: ['At least one receipt line item is required'] };
+  }
+
+  receiptItems.forEach((rcpt, idx) => {
+    const poLine = po.lineItems.find((l: any) => l.id === rcpt.poLineItemId || l.item === rcpt.item);
+    if (!poLine) {
+      errors.push(`Receipt item #${idx + 1} (${rcpt.item}) does not match any line item in PO ${po.poNumber}`);
+      return;
+    }
+
+    const orderedQty = Number(poLine.quantity) || 0;
+    const prevReceived = Number(rcpt.previousReceivedQty) || 0;
+    const newlyReceived = Number(rcpt.newlyReceivedQty) || 0;
+
+    if (newlyReceived <= 0) {
+      errors.push(`Receipt item #${idx + 1} (${rcpt.item}) newly received quantity must be greater than 0`);
+    }
+
+    if (prevReceived + newlyReceived > orderedQty) {
+      errors.push(
+        `Over-receipt violation for item "${rcpt.item}": Total received (${prevReceived + newlyReceived}) cannot exceed PO ordered quantity (${orderedQty})`
+      );
+    }
+  });
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+export function performThreeWayMatch(
+  pr: any,
+  po: any,
+  grns: any[],
+  invoice: { invoiceNumber: string; invoiceAmount: number; currency: string; tolerancePercent?: number }
+): {
+  matched: boolean;
+  lineItemsMatch: boolean;
+  quantityMatch: boolean;
+  amountMatch: boolean;
+  discrepancyDetails: string;
+} {
+  const tolerance = invoice.tolerancePercent || 0; // Default exact match
+  const discrepancies: string[] = [];
+
+  // Check PO vs Invoice Grand Total
+  const poAmount = Number(po.grandTotal) || 0;
+  const invAmount = Number(invoice.invoiceAmount) || 0;
+  const maxAllowedAmount = poAmount * (1 + tolerance / 100);
+  const minAllowedAmount = poAmount * (1 - tolerance / 100);
+
+  const amountMatch = invAmount >= minAllowedAmount && invAmount <= maxAllowedAmount;
+  if (!amountMatch) {
+    discrepancies.push(`Invoice amount (${invAmount.toLocaleString()} ${invoice.currency}) differs from PO authorized amount (${poAmount.toLocaleString()} ${po.currency}) beyond allowed tolerance of ${tolerance}%.`);
+  }
+
+  // Check GRN received quantities vs PO ordered quantities
+  let allQtyReceived = true;
+  if (Array.isArray(po.lineItems)) {
+    po.lineItems.forEach((poItem: any) => {
+      let totalReceivedForLine = 0;
+      if (Array.isArray(grns)) {
+        grns.forEach(grn => {
+          if (Array.isArray(grn.items)) {
+            grn.items.forEach((gi: any) => {
+              if (gi.poLineItemId === poItem.id || gi.item === poItem.item) {
+                totalReceivedForLine += Number(gi.newlyReceivedQty) || 0;
+              }
+            });
+          }
+        });
+      }
+      if (totalReceivedForLine < (Number(poItem.quantity) || 0)) {
+        allQtyReceived = false;
+        discrepancies.push(`Item "${poItem.item}" received quantity (${totalReceivedForLine}) is less than PO ordered quantity (${poItem.quantity}).`);
+      }
+    });
+  }
+
+  const lineItemsMatch = discrepancies.length === 0;
+  const matched = amountMatch && allQtyReceived;
+
+  return {
+    matched,
+    lineItemsMatch,
+    quantityMatch: allQtyReceived,
+    amountMatch,
+    discrepancyDetails: discrepancies.join('; ')
+  };
+}
+
+export function validateSupplier(data: any): ValidationResult {
+  const errors: string[] = [];
+  if (!data || typeof data !== 'object') {
+    return { valid: false, errors: ['Supplier must be a non-null object'] };
+  }
+  if (!data.name || typeof data.name !== 'string' || data.name.trim() === '') {
+    errors.push('Supplier company name is required');
+  }
+  if (!data.contactPerson || typeof data.contactPerson !== 'string') {
+    errors.push('Contact person name is required');
+  }
+  if (!data.phone && !data.email) {
+    errors.push('Either contact phone or email is required');
+  }
+  if (data.vendorScore !== undefined && (Number(data.vendorScore) < 1 || Number(data.vendorScore) > 5)) {
+    errors.push('Vendor score must be between 1 and 5');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
 export const validateTicket = validateITTicket;
 export const validatePurchase = validatePurchaseRecord;
 export const validateMeeting = validateMeetingMinute;
@@ -336,3 +718,4 @@ export function sanitizeInput(input: string): string {
   if (typeof input !== 'string') return '';
   return input.replace(/<[^>]*>?/gm, '').trim();
 }
+

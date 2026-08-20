@@ -21,7 +21,8 @@ import {
   Menu, 
   X,
   Lock,
-  ChevronRight
+  ChevronRight,
+  Key
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
@@ -38,13 +39,22 @@ import {
   BackupLog, 
   SystemSettings, 
   SystemUser, 
-  UserRole 
+  UserRole,
+  AccessRequest,
+  PurchaseRequisition,
+  PurchaseOrder,
+  GoodsReceiptNote,
+  Supplier,
+  DepartmentBudget,
+  InvoiceMatchRecord
 } from './types';
 
 // Route-level lazy loading
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const TicketsModule = lazy(() => import('./components/TicketsModule'));
-const AssetsModule = lazy(() => import('./components/AssetsModule'));
+const AssetsModule = lazy(() => import('./components/AssetsModule').then(m => ({ default: m.AssetsModule })));
+const AccessManagementModule = lazy(() => import('./components/AccessManagementModule').then(m => ({ default: m.AccessManagementModule })));
+const ProcurementModule = lazy(() => import('./components/ProcurementModule').then(m => ({ default: m.ProcurementModule })));
 const PurchasesModule = lazy(() => import('./components/PurchasesModule'));
 const RenewalsModule = lazy(() => import('./components/RenewalsModule'));
 const MeetingMinutesModule = lazy(() => import('./components/MeetingMinutesModule'));
@@ -84,6 +94,16 @@ export function App() {
   const [contentPlans, setContentPlans] = useState<ContentPlan[]>([]);
   const [backups, setBackups] = useState<BackupLog[]>([]);
   const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
+
+  // Enterprise Access & Procurement state
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [requisitions, setRequisitions] = useState<PurchaseRequisition[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [goodsReceipts, setGoodsReceipts] = useState<GoodsReceiptNote[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [budgets, setBudgets] = useState<DepartmentBudget[]>([]);
+  const [invoiceMatches, setInvoiceMatches] = useState<InvoiceMatchRecord[]>([]);
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>([]);
 
   // Authentication listener
   useEffect(() => {
@@ -147,6 +167,31 @@ export function App() {
       onSnapshot(collection(db, 'system_config'), (snap) => {
         const main = snap.docs.find(d => d.id === 'main');
         if (main) setSettings(main.data() as SystemSettings);
+      }),
+      // Enterprise collections
+      onSnapshot(collection(db, 'access_requests'), (snap) => {
+        setAccessRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }) as AccessRequest));
+      }),
+      onSnapshot(collection(db, 'purchase_requisitions'), (snap) => {
+        setRequisitions(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PurchaseRequisition));
+      }),
+      onSnapshot(collection(db, 'purchase_orders'), (snap) => {
+        setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PurchaseOrder));
+      }),
+      onSnapshot(collection(db, 'goods_receipts'), (snap) => {
+        setGoodsReceipts(snap.docs.map(d => ({ id: d.id, ...d.data() }) as GoodsReceiptNote));
+      }),
+      onSnapshot(collection(db, 'suppliers'), (snap) => {
+        setSuppliers(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Supplier));
+      }),
+      onSnapshot(collection(db, 'department_budgets'), (snap) => {
+        setBudgets(snap.docs.map(d => ({ id: d.id, ...d.data() }) as DepartmentBudget));
+      }),
+      onSnapshot(collection(db, 'invoices_and_matches'), (snap) => {
+        setInvoiceMatches(snap.docs.map(d => ({ id: d.id, ...d.data() }) as InvoiceMatchRecord));
+      }),
+      onSnapshot(collection(db, 'app_users'), (snap) => {
+        setSystemUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }) as unknown as SystemUser));
       })
     ];
 
@@ -169,11 +214,20 @@ export function App() {
 
   const handleSignOut = () => signOut(auth);
 
+  const pendingAccessApprovals = accessRequests.filter(r => 
+    r.status === 'Pending Approval' || r.status === 'Draft' || r.status === 'Provisioning'
+  ).length;
+
+  const pendingPRApprovals = requisitions.filter(r => 
+    r.status === 'Submitted' || r.status === 'Manager Review' || r.status === 'Finance Review'
+  ).length;
+
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'tickets', label: 'IT Tickets', icon: Ticket, badge: tickets.filter(t => t.status === 'Pending').length },
+    { id: 'access', label: 'IT Access Control', icon: Key, badge: pendingAccessApprovals > 0 ? pendingAccessApprovals : undefined },
     { id: 'assets', label: 'Hardware Assets', icon: Laptop },
-    { id: 'purchases', label: 'Procurement', icon: ShoppingCart },
+    { id: 'purchases', label: 'Procurement & PR', icon: ShoppingCart, badge: pendingPRApprovals > 0 ? pendingPRApprovals : undefined },
     { id: 'renewals', label: 'Renewals & Expiry', icon: CalendarClock },
     { id: 'meetings', label: 'Meeting Minutes', icon: FileText },
     { id: 'skills', label: 'Skill Matrix', icon: Users },
@@ -344,19 +398,33 @@ export function App() {
                 userProfile={userProfile}
               />
             )}
+            {activeTab === 'access' && (
+              <AccessManagementModule
+                requests={accessRequests}
+                currentUser={user}
+                userRole={userProfile?.role || 'staff'}
+                systemUsers={systemUsers}
+              />
+            )}
             {activeTab === 'assets' && (
               <AssetsModule
                 assets={assets}
                 searchTerm={globalSearch}
                 isAdmin={isAdmin}
                 settings={settings}
+                onNavigateToSettings={() => setActiveTab('settings')}
               />
             )}
             {activeTab === 'purchases' && (
-              <PurchasesModule
-                purchases={purchases}
-                searchTerm={globalSearch}
-                isAdmin={isAdmin}
+              <ProcurementModule
+                requisitions={requisitions}
+                purchaseOrders={purchaseOrders}
+                goodsReceipts={goodsReceipts}
+                suppliers={suppliers}
+                budgets={budgets}
+                invoiceMatches={invoiceMatches}
+                currentUser={user}
+                userRole={userProfile?.role || 'staff'}
               />
             )}
             {activeTab === 'renewals' && (

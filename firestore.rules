@@ -71,7 +71,8 @@ service cloud.firestore {
         && data.category is string && data.category.size() > 0
         && data.model is string && data.model.size() > 0
         && data.serialNumber is string
-        && data.status in allowedStatuses;
+        && data.status in allowedStatuses
+        && (!('department' in data) || (data.department is string && data.department.size() <= 100));
     }
 
     function isValidActivityEntry(data) {
@@ -246,6 +247,85 @@ service cloud.firestore {
       allow read: if isApprovedUser();
       allow create: if isApprovedUser() && isValidId(evidenceId) && isValidTaskEvidence(incoming());
       allow update: if false;
+      allow delete: if isSupervisor();
+    }
+
+    // Access Requests (Enterprise Access Lifecycle & RBAC Isolation)
+    match /access_requests/{requestId} {
+      // Users can only read their own requests unless they are a supervisor
+      allow read: if isApprovedUser() && (isSupervisor() || resource.data.requesterUid == request.auth.uid || resource.data.reportingManager == request.auth.token.email);
+      // Create allowed for approved users, must match their own requesterUid and have no raw passwords
+      allow create: if isApprovedUser() && isValidId(requestId) 
+        && incoming().requesterUid == request.auth.uid
+        && !incoming().keys().hasAny(['password', 'rawPassword', 'secret']);
+      // Update: Supervisors can update/approve, staff can only cancel their own draft/submitted request (never approve own request)
+      allow update: if isApprovedUser() && isValidId(requestId) && (
+        isSupervisor() || (
+          resource.data.requesterUid == request.auth.uid 
+          && incoming().status in ['Draft', 'Cancelled', 'Submitted']
+          && !incoming().diff(existing()).affectedKeys().hasAny(['status', 'approvals'])
+        )
+      );
+      allow delete: if isSupervisor();
+    }
+
+    // Access Audit Logs (Immutable history)
+    match /access_audit_logs/{logId} {
+      allow read: if isSupervisor();
+      allow create: if isApprovedUser();
+      allow update, delete: if false;
+    }
+
+    // Employee Lifecycle (Onboarding / Transfer / Offboarding)
+    match /employee_lifecycle/{lifecycleId} {
+      allow read: if isApprovedUser();
+      allow create, update, delete: if isSupervisor();
+    }
+
+    // Purchase Requisitions (PRs)
+    match /purchase_requisitions/{prId} {
+      allow read: if isApprovedUser();
+      // Users can create requisitions under their own UID
+      allow create: if isApprovedUser() && isValidId(prId) && incoming().requesterUid == request.auth.uid;
+      // Approvers/Supervisors can update. Requesters cannot approve their own PR
+      allow update: if isApprovedUser() && isValidId(prId) && (
+        isSupervisor() || hasRole(['finance_manager', 'asset_editor']) || (
+          resource.data.requesterUid == request.auth.uid && incoming().status in ['Draft', 'Cancelled', 'Submitted']
+        )
+      );
+      allow delete: if isSupervisor();
+    }
+
+    // Purchase Orders (POs)
+    match /purchase_orders/{poId} {
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor', 'asset_editor', 'finance_manager']) && isValidId(poId);
+      allow delete: if isSupervisor();
+    }
+
+    // Goods Receipt Notes (GRNs)
+    match /goods_receipts/{grnId} {
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor', 'asset_editor']) && isValidId(grnId);
+      allow delete: if isSupervisor();
+    }
+
+    // Suppliers Directory
+    match /suppliers/{supplierId} {
+      allow read: if isApprovedUser();
+      allow create, update, delete: if hasRole(['super_admin', 'it_supervisor', 'asset_editor']);
+    }
+
+    // Department Budgets
+    match /department_budgets/{budgetId} {
+      allow read: if isApprovedUser();
+      allow create, update, delete: if isSupervisor();
+    }
+
+    // Invoices & 3-Way Matches
+    match /invoices_and_matches/{matchId} {
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor', 'finance_manager']) && isValidId(matchId);
       allow delete: if isSupervisor();
     }
 

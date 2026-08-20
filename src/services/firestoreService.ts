@@ -106,6 +106,13 @@ export const deleteGenericRecord = async (collName: string, id: string) => {
 // System Settings & Permissions
 // ----------------------------------------------------
 
+export const DEFAULT_SETTINGS: SystemSettings = {
+  departments: ['IT', 'Merchandising', 'Digital Marketing', 'Accounts', 'Management', 'Sales', 'Warehouse'],
+  locations: ['Central Storage', 'Branch 1', 'Branch 2', 'Warehouse'],
+  itContacts: [],
+  branchNotes: []
+};
+
 export const saveSettings = async (settings: SystemSettings) => {
   try {
     await setDoc(doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID), cleanData(settings), { merge: true });

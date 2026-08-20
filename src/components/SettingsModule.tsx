@@ -10,10 +10,13 @@ import {
   CheckCircle, 
   Plus, 
   Users,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  X,
+  AlertCircle
 } from 'lucide-react';
 import { SystemSettings, UserRole, RolePermission } from '../types';
 import { saveSettings, wipeDatabaseServer } from '../services/firestoreService';
+import { validateDepartmentName, sortDepartments } from '../utils/departmentUtils';
 import UserManagement from './UserManagement';
 import AdminMigrationsModal from './AdminMigrationsModal';
 import ExcelImportModal from './ExcelImportModal';
@@ -32,6 +35,7 @@ export function SettingsModule({
   allNavItems = []
 }: SettingsModuleProps) {
   const [newDept, setNewDept] = useState('');
+  const [deptError, setDeptError] = useState<string | null>(null);
   const [newLoc, setNewLoc] = useState('');
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchLoc, setNewBranchLoc] = useState('');
@@ -49,11 +53,32 @@ export function SettingsModule({
   const [wipeError, setWipeError] = useState<string | null>(null);
 
   const addDept = () => {
-    if (!isAdmin || !newDept.trim()) return;
-    const updated = { ...settings, departments: [...(settings.departments || []), newDept.trim()] };
+    if (!isAdmin) return;
+    setDeptError(null);
+    const val = validateDepartmentName(newDept, settings.departments || []);
+    if (!val.valid) {
+      setDeptError(val.error || 'Invalid department');
+      return;
+    }
+
+    const trimmed = newDept.trim();
+    const updatedDepartments = sortDepartments([...(settings.departments || []), trimmed]);
+    const updated = { ...settings, departments: updatedDepartments };
     setSettings(updated);
     saveSettings(updated);
     setNewDept('');
+    setDeptError(null);
+  };
+
+  const removeDept = (deptToRemove: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm(`Are you sure you want to remove department "${deptToRemove}"?`)) return;
+    const updatedDepts = (settings.departments || []).filter(
+      d => (d || '').trim().toLowerCase() !== deptToRemove.trim().toLowerCase()
+    );
+    const updated = { ...settings, departments: updatedDepts };
+    setSettings(updated);
+    saveSettings(updated);
   };
 
   const addLoc = () => {
@@ -126,29 +151,65 @@ export function SettingsModule({
           </div>
 
           {isAdmin && (
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="New department..."
-                value={newDept}
-                onChange={(e) => setNewDept(e.target.value)}
-                className="flex-1 px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-              />
-              <button
-                onClick={addDept}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold"
-              >
-                Add
-              </button>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  id="new-department-input"
+                  type="text"
+                  placeholder="e.g. Quality Assurance"
+                  value={newDept}
+                  onChange={(e) => {
+                    setNewDept(e.target.value);
+                    if (deptError) setDeptError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addDept();
+                    }
+                  }}
+                  className="flex-1 px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+                <button
+                  id="add-department-btn"
+                  onClick={addDept}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
+                >
+                  Add
+                </button>
+              </div>
+              {deptError && (
+                <div className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 text-2xs font-medium">
+                  <AlertCircle size={12} />
+                  <span>{deptError}</span>
+                </div>
+              )}
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            {(settings.departments || []).map((d) => (
-              <span key={d} className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium">
-                {d}
-              </span>
-            ))}
+          <div className="flex flex-wrap gap-2 pt-1" id="departments-list">
+            {(settings.departments || []).length === 0 ? (
+              <p className="text-2xs text-slate-400 italic">No departments configured yet.</p>
+            ) : (
+              (settings.departments || []).map((d) => (
+                <span
+                  key={d}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-medium border border-slate-200/60 dark:border-slate-700/60"
+                >
+                  <span>{d}</span>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => removeDept(d)}
+                      className="p-0.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition-colors"
+                      title={`Remove ${d}`}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </span>
+              ))
+            )}
           </div>
         </div>
 

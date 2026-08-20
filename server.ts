@@ -15,7 +15,15 @@ import {
   validatePurchaseRecord, 
   validateITTicket, 
   validateMeetingMinute, 
-  validateRenewalRecord 
+  validateRenewalRecord,
+  validateAccessRequest,
+  validateAccessApproval,
+  validatePurchaseRequisition,
+  calculatePRTotals,
+  validatePRApproval,
+  validateGoodsReceipt,
+  performThreeWayMatch,
+  validateSupplier
 } from "./src/schema/validation";
 
 dotenv.config();
@@ -550,6 +558,761 @@ async function startServer() {
     } catch (error) {
       redactedLogger.error("Asset creation transaction error", { error: String(error) });
       res.status(500).json({ error: "Failed to create asset." });
+    }
+  });
+
+  // ----------------------------------------------------
+  // Enterprise IT Access Management Endpoints
+  // ----------------------------------------------------
+
+  // Create or update access request
+  app.post("/api/access/requests", verifyFirebaseToken, async (req: any, res) => {
+    try {
+      const payload = req.body;
+      const validation = validateAccessRequest(payload);
+      if (!validation.valid) {
+        return res.status(400).json({ error: "Invalid access request", details: validation.errors });
+      }
+
+      // Security check: must match caller UID unless supervisor creating on behalf
+      const isSuper = req.user.role === "super_admin" || req.user.email === "it.taunggyipharmacy@gmail.com";
+      if (payload.requesterUid !== req.user.uid && !isSuper && req.user.role !== "it_supervisor") {
+        return res.status(403).json({ error: "Forbidden: Cannot submit access request for another user without authorization." });
+      }
+
+      const db = getDb();
+      const currentYear = new Date().getFullYear();
+
+      const result = await db.runTransaction(async (transaction) => {
+        const counterRef = db.collection("counters").doc(`reqCode_${currentYear}`);
+        const counterSnap = await transaction.get(counterRef);
+        const lastNum = counterSnap.exists ? (counterSnap.data()?.lastNumber || 0) : 0;
+        const nextNum = lastNum + 1;
+        const reqNumber = `REQ-${currentYear}-${String(nextNum).padStart(3, "0")}`;
+
+        const reqRef = db.collection("access_requests").doc();
+        const initialTimeline: any = [{
+          id: `audit-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          actorUid: req.user.uid,
+          actorName: payload.requesterName || req.user.email,
+          actorEmail: req.user.email,
+          actorRole: req.user.role,
+          action: "SUBMIT_REQUEST",
+          afterValue: { status: payload.status || "Submitted", resource: payload.resourceName, accessLevel: payload.requestedAccessLevel },
+          comments: payload.businessReason
+        }];
+
+        const initialApprovals: any = [
+          {
+            stepId: "step-manager",
+            stepName: "Line Manager Review",
+            requiredRole: "department_manager",
+            status: "Pending"
+          },
+          {
+            stepId: "step-it",
+            stepName: "IT Technical Review",
+            requiredRole: "it_supervisor",
+            status: "Pending"
+          }
+        ];
+
+        if (payload.dataSensitivity === "High" || payload.dataSensitivity === "Restricted" || payload.requestedAccessLevel === "Admin / Privileged") {
+          initialApprovals.push({
+            stepId: "step-security",
+            stepName: "Security Clearance & Super Admin",
+            requiredRole: "super_admin",
+            status: "Pending"
+          });
+        }
+
+        const newRequest = {
+          ...payload,
+          id: reqRef.id,
+          requestNumber: reqNumber,
+          status: payload.status || "Submitted",
+          approvals: initialApprovals,
+          auditTimeline: initialTimeline,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        transaction.set(counterRef, { lastNumber: nextNum }, { merge: true });
+        transaction.set(reqRef, newRequest);
+
+        // Also record in immutable access audit log
+        const auditLogRef = db.collection("access_audit_logs").doc();
+        transaction.set(auditLogRef, {
+          id: auditLogRef.id,
+          requestId: reqRef.id,
+          requestNumber: reqNumber,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          actorUid: req.user.uid,
+          actorEmail: req.user.email,
+          action: "CREATED",
+          details: `Access request created for ${payload.resourceName} (${payload.requestedAccessLevel})`
+        });
+
+        return { id: reqRef.id, requestNumber: reqNumber };
+      });
+
+      res.json({ success: true, ...result });
+    } catch (error) {
+      redactedLogger.error("Access request creation error", { error: String(error) });
+      res.status(500).json({ error: "Failed to create access request." });
+    }
+  });
+
+  // Action on access request (Approve, Reject, Provision, Revoke)
+  app.put("/api/access/requests/:id/action", verifyFirebaseToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { action, comments, secretRef, stepId } = req.body;
+      const db = getDb();
+      const reqRef = db.collection("access_requests").doc(id);
+      const reqSnap = await reqRef.get();
+
+      if (!reqSnap.exists) {
+        return res.status(404).json({ error: "Access request not found." });
+      }
+
+      const currentData = reqSnap.data() as any;
+
+      // Anti-self-approval enforcement
+      const approvalCheck = validateAccessApproval(currentData, req.user.uid, req.user.role, req.user.email);
+      if ((action === "APPROVE" || action === "PROVISION") && !approvalCheck.allowed) {
+        return res.status(403).json({ error: approvalCheck.reason || "Forbidden: You cannot approve this request." });
+      }
+
+      let newStatus = currentData.status;
+      const updatedApprovals = [...(currentData.approvals || [])];
+
+      if (action === "APPROVE") {
+        if (stepId) {
+          const step = updatedApprovals.find((s: any) => s.stepId === stepId);
+          if (step) {
+            step.status = "Approved";
+            step.approverUid = req.user.uid;
+            step.approverEmail = req.user.email;
+            step.decisionDate = new Date().toISOString();
+            step.comments = comments;
+          }
+        }
+        const allApproved = updatedApprovals.every((s: any) => s.status === "Approved" || s.status === "Bypassed");
+        newStatus = allApproved ? "Provisioning" : "Pending Approval";
+      } else if (action === "REJECT") {
+        newStatus = "Rejected";
+        if (stepId) {
+          const step = updatedApprovals.find((s: any) => s.stepId === stepId);
+          if (step) {
+            step.status = "Rejected";
+            step.approverUid = req.user.uid;
+            step.approverEmail = req.user.email;
+            step.decisionDate = new Date().toISOString();
+            step.comments = comments;
+          }
+        }
+      } else if (action === "PROVISION") {
+        if (req.user.role !== "super_admin" && req.user.role !== "it_supervisor") {
+          return res.status(403).json({ error: "Only IT Supervisors or Super Admins can provision access." });
+        }
+        newStatus = "Active";
+      } else if (action === "REVOKE") {
+        newStatus = "Revoked";
+      }
+
+      const timelineEvent = {
+        id: `audit-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        actorUid: req.user.uid,
+        actorName: req.user.email,
+        actorEmail: req.user.email,
+        actorRole: req.user.role,
+        action: action,
+        beforeValue: { status: currentData.status },
+        afterValue: { status: newStatus },
+        comments: comments || "",
+        decision: action
+      };
+
+      const updatePayload: any = {
+        status: newStatus,
+        approvals: updatedApprovals,
+        auditTimeline: [...(currentData.auditTimeline || []), timelineEvent],
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      if (action === "PROVISION") {
+        updatePayload.provisionedByUid = req.user.uid;
+        updatePayload.provisionedByName = req.user.email;
+        updatePayload.provisionedAt = new Date().toISOString();
+        if (secretRef) updatePayload.secretRef = secretRef;
+      } else if (action === "REVOKE") {
+        updatePayload.revokedByUid = req.user.uid;
+        updatePayload.revokedByName = req.user.email;
+        updatePayload.revokedAt = new Date().toISOString();
+        updatePayload.revocationReason = comments;
+      }
+
+      await reqRef.update(updatePayload);
+
+      // Add to immutable audit log collection
+      await db.collection("access_audit_logs").add({
+        requestId: id,
+        requestNumber: currentData.requestNumber,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        actorUid: req.user.uid,
+        actorEmail: req.user.email,
+        action: action,
+        details: `Access request ${currentData.requestNumber} status changed from ${currentData.status} to ${newStatus}`
+      });
+
+      res.json({ success: true, status: newStatus });
+    } catch (error) {
+      redactedLogger.error("Access request action error", { error: String(error) });
+      res.status(500).json({ error: "Failed to update access request." });
+    }
+  });
+
+  // Employee Lifecycle Offboarding: Batch Revocation
+  app.post("/api/access/lifecycle/offboard", verifyFirebaseToken, async (req: any, res) => {
+    try {
+      const isSuper = req.user.role === "super_admin" || req.user.role === "it_supervisor" || req.user.email === "it.taunggyipharmacy@gmail.com";
+      if (!isSuper) {
+        return res.status(403).json({ error: "Forbidden: Only IT Supervisors can trigger offboarding revocation." });
+      }
+
+      const { employeeId, employeeName, notes } = req.body;
+      if (!employeeId) {
+        return res.status(400).json({ error: "Employee ID is required." });
+      }
+
+      const db = getDb();
+      // Find all active access requests for employee
+      const snap = await db.collection("access_requests")
+        .where("requesterUid", "==", employeeId)
+        .where("status", "in", ["Active", "Provisioning", "Approved", "Pending Approval"])
+        .get();
+
+      const revokedIds: string[] = [];
+      const batch = db.batch();
+
+      snap.docs.forEach((doc) => {
+        revokedIds.push(doc.id);
+        const data = doc.data();
+        const timelineEvent = {
+          id: `audit-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          actorUid: req.user.uid,
+          actorName: req.user.email,
+          actorEmail: req.user.email,
+          actorRole: req.user.role,
+          action: "OFFBOARDING_REVOKE",
+          beforeValue: { status: data.status },
+          afterValue: { status: "Revoked" },
+          comments: `Automatic offboarding revocation: ${notes || "Employee departed"}`
+        };
+
+        batch.update(doc.ref, {
+          status: "Revoked",
+          revokedByUid: req.user.uid,
+          revokedByName: req.user.email,
+          revokedAt: new Date().toISOString(),
+          revocationReason: `Offboarding: ${notes || "Staff departed"}`,
+          auditTimeline: [...(data.auditTimeline || []), timelineEvent],
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      });
+
+      // Save lifecycle record
+      const lifecycleRef = db.collection("employee_lifecycle").doc();
+      batch.set(lifecycleRef, {
+        id: lifecycleRef.id,
+        employeeId,
+        employeeName: employeeName || "Employee",
+        type: "Offboarding",
+        status: "Completed",
+        effectiveDate: new Date().toISOString(),
+        revokedAccessRequestIds: revokedIds,
+        notes: notes || "",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      await batch.commit();
+
+      res.json({ success: true, revokedCount: revokedIds.length, revokedIds });
+    } catch (error) {
+      redactedLogger.error("Offboarding error", { error: String(error) });
+      res.status(500).json({ error: "Failed to execute offboarding revocation." });
+    }
+  });
+
+  // ----------------------------------------------------
+  // Enterprise Procurement Endpoints (Server Recalculation & PR Workflow)
+  // ----------------------------------------------------
+
+  // Create Purchase Requisition (Server recomputes all line totals and grand totals)
+  app.post("/api/procurement/requisitions", verifyFirebaseToken, async (req: any, res) => {
+    try {
+      const payload = req.body;
+      const validation = validatePurchaseRequisition(payload);
+      if (!validation.valid) {
+        return res.status(400).json({ error: "Invalid purchase requisition", details: validation.errors });
+      }
+
+      // Recompute all totals server-side
+      const computed = calculatePRTotals(payload.lineItems);
+      const db = getDb();
+      const currentYear = new Date().getFullYear();
+
+      const result = await db.runTransaction(async (transaction) => {
+        const counterRef = db.collection("counters").doc(`prCode_${currentYear}`);
+        const counterSnap = await transaction.get(counterRef);
+        const lastNum = counterSnap.exists ? (counterSnap.data()?.lastNumber || 0) : 0;
+        const nextNum = lastNum + 1;
+        const prNumber = `PR-${currentYear}-${String(nextNum).padStart(3, "0")}`;
+
+        const prRef = db.collection("purchase_requisitions").doc();
+        const initialTimeline: any = [{
+          id: `audit-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          actorUid: req.user.uid,
+          actorName: payload.requesterName || req.user.email,
+          actorEmail: req.user.email,
+          actorRole: req.user.role,
+          action: "CREATE_REQUISITION",
+          afterValue: { grandTotal: computed.grandTotal, itemCount: computed.lineItems.length },
+          comments: payload.businessJustification
+        }];
+
+        const finalPR = {
+          ...payload,
+          id: prRef.id,
+          prNumber: prNumber,
+          lineItems: computed.lineItems,
+          subtotal: computed.subtotal,
+          discountTotal: computed.discountTotal,
+          taxTotal: computed.taxTotal,
+          shippingTotal: computed.shippingTotal,
+          grandTotal: computed.grandTotal,
+          currency: payload.currency || "MMK",
+          status: payload.status || "Submitted",
+          approvalHistory: initialTimeline,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        transaction.set(counterRef, { lastNumber: nextNum }, { merge: true });
+        transaction.set(prRef, finalPR);
+
+        return { id: prRef.id, prNumber, grandTotal: computed.grandTotal };
+      });
+
+      res.json({ success: true, ...result });
+    } catch (error) {
+      redactedLogger.error("Purchase requisition creation error", { error: String(error) });
+      res.status(500).json({ error: "Failed to create purchase requisition." });
+    }
+  });
+
+  // Review & Approve Purchase Requisition (with Threshold escalation & Budget checking)
+  app.put("/api/procurement/requisitions/:id/review", verifyFirebaseToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { action, comments } = req.body;
+      const db = getDb();
+      const prRef = db.collection("purchase_requisitions").doc(id);
+      const prSnap = await prRef.get();
+
+      if (!prSnap.exists) {
+        return res.status(404).json({ error: "Purchase requisition not found." });
+      }
+
+      const currentPR = prSnap.data() as any;
+
+      // Get Department Budget to verify available headroom
+      let budgetData: any = null;
+      if (currentPR.department) {
+        const currentFiscal = String(new Date().getFullYear());
+        const budgetSnap = await db.collection("department_budgets")
+          .where("department", "==", currentPR.department)
+          .where("fiscalYear", "==", currentFiscal)
+          .limit(1)
+          .get();
+        if (!budgetSnap.empty) {
+          budgetData = budgetSnap.docs[0].data();
+        }
+      }
+
+      // Check approval permissions, thresholds & anti-self-approval
+      if (action === "APPROVE") {
+        const check = validatePRApproval(currentPR, req.user.uid, req.user.role, req.user.email, budgetData);
+        if (!check.allowed) {
+          return res.status(403).json({ error: check.reason });
+        }
+      }
+
+      let nextStatus = currentPR.status;
+      if (action === "APPROVE") {
+        // If manager approved and > 500k, next is Finance Review; if Finance approved or <= 500k, status is Approved
+        if (currentPR.grandTotal > 500000 && currentPR.status === "Submitted" && req.user.role !== "super_admin") {
+          nextStatus = "Finance Review";
+        } else {
+          nextStatus = "Approved";
+        }
+      } else if (action === "REJECT") {
+        nextStatus = "Rejected";
+      } else if (action === "RETURN_FOR_REVISION") {
+        nextStatus = "Returned for Revision";
+      }
+
+      const timelineEvent = {
+        id: `audit-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        actorUid: req.user.uid,
+        actorName: req.user.email,
+        actorEmail: req.user.email,
+        actorRole: req.user.role,
+        action: action,
+        beforeValue: { status: currentPR.status },
+        afterValue: { status: nextStatus },
+        comments: comments || "",
+        decision: action
+      };
+
+      await prRef.update({
+        status: nextStatus,
+        approvalHistory: [...(currentPR.approvalHistory || []), timelineEvent],
+        rejectionReason: action === "REJECT" ? comments : null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // If fully approved, reserve budget in department_budgets
+      if (nextStatus === "Approved" && budgetData && budgetData.id) {
+        const budgetDocRef = db.collection("department_budgets").doc(budgetData.id);
+        const newReserved = (Number(budgetData.reservedBudget) || 0) + Number(currentPR.grandTotal);
+        const newRemaining = Math.max(0, (Number(budgetData.totalBudget) || 0) - newReserved - (Number(budgetData.spentBudget) || 0));
+        await budgetDocRef.update({
+          reservedBudget: newReserved,
+          remainingBudget: newRemaining
+        });
+      }
+
+      res.json({ success: true, status: nextStatus });
+    } catch (error) {
+      redactedLogger.error("PR review error", { error: String(error) });
+      res.status(500).json({ error: "Failed to review purchase requisition." });
+    }
+  });
+
+  // Issue Purchase Order (PO) from Approved PR
+  app.post("/api/procurement/purchase-orders", verifyFirebaseToken, async (req: any, res) => {
+    try {
+      const isAuthorized = req.user.role === "super_admin" || req.user.role === "it_supervisor" || req.user.role === "asset_editor" || req.user.role === "finance_manager";
+      if (!isAuthorized) {
+        return res.status(403).json({ error: "Forbidden: You are not authorized to issue Purchase Orders." });
+      }
+
+      const { prId, supplierName, supplierEmail, supplierPhone, expectedDeliveryDate } = req.body;
+      const db = getDb();
+      const prRef = db.collection("purchase_requisitions").doc(prId);
+      const prSnap = await prRef.get();
+
+      if (!prSnap.exists) {
+        return res.status(404).json({ error: "Requisition not found." });
+      }
+
+      const pr = prSnap.data() as any;
+      if (pr.status !== "Approved") {
+        return res.status(400).json({ error: `Cannot issue PO for requisition with status '${pr.status}'. Must be 'Approved'.` });
+      }
+
+      const currentYear = new Date().getFullYear();
+      const result = await db.runTransaction(async (transaction) => {
+        const counterRef = db.collection("counters").doc(`poCode_${currentYear}`);
+        const counterSnap = await transaction.get(counterRef);
+        const lastNum = counterSnap.exists ? (counterSnap.data()?.lastNumber || 0) : 0;
+        const nextNum = lastNum + 1;
+        const poNumber = `PO-${currentYear}-${String(nextNum).padStart(3, "0")}`;
+
+        const poRef = db.collection("purchase_orders").doc();
+        const newPO = {
+          id: poRef.id,
+          poNumber: poNumber,
+          prId: pr.id,
+          prNumber: pr.prNumber,
+          department: pr.department,
+          supplierName: supplierName || pr.preferredSupplier || "Approved Supplier",
+          supplierEmail: supplierEmail || "",
+          supplierPhone: supplierPhone || "",
+          orderDate: new Date().toISOString().split("T")[0],
+          expectedDeliveryDate: expectedDeliveryDate || "",
+          currency: pr.currency || "MMK",
+          lineItems: pr.lineItems,
+          subtotal: pr.subtotal,
+          discountTotal: pr.discountTotal,
+          taxTotal: pr.taxTotal,
+          shippingTotal: pr.shippingTotal,
+          grandTotal: pr.grandTotal,
+          status: "Issued",
+          approvalHistory: [{
+            id: `audit-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            actorUid: req.user.uid,
+            actorName: req.user.email,
+            actorEmail: req.user.email,
+            actorRole: req.user.role,
+            action: "ISSUE_PO",
+            comments: `Purchase order ${poNumber} issued for ${pr.prNumber}`
+          }],
+          supplierCommunicationLog: [],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        transaction.set(counterRef, { lastNumber: nextNum }, { merge: true });
+        transaction.set(poRef, newPO);
+        transaction.update(prRef, { 
+          status: "PO Issued", 
+          poId: poRef.id, 
+          poNumber: poNumber, 
+          updatedAt: admin.firestore.FieldValue.serverTimestamp() 
+        });
+
+        return { id: poRef.id, poNumber };
+      });
+
+      res.json({ success: true, ...result });
+    } catch (error) {
+      redactedLogger.error("PO issue error", { error: String(error) });
+      res.status(500).json({ error: "Failed to issue purchase order." });
+    }
+  });
+
+  // Goods Receipt Note (GRN) with Partial Receipts & Automatic Linked Asset Creation
+  app.post("/api/procurement/goods-receipts", verifyFirebaseToken, async (req: any, res) => {
+    try {
+      const isAuthorized = req.user.role === "super_admin" || req.user.role === "it_supervisor" || req.user.role === "asset_editor";
+      if (!isAuthorized) {
+        return res.status(403).json({ error: "Forbidden: You are not authorized to process Goods Receipts." });
+      }
+
+      const { poId, receivedItems, createAssets = false, remarks } = req.body;
+      const db = getDb();
+      const poRef = db.collection("purchase_orders").doc(poId);
+      const poSnap = await poRef.get();
+
+      if (!poSnap.exists) {
+        return res.status(404).json({ error: "Purchase order not found." });
+      }
+
+      const po = poSnap.data() as any;
+      const validation = validateGoodsReceipt(po, receivedItems);
+      if (!validation.valid) {
+        return res.status(400).json({ error: "Invalid goods receipt payload", details: validation.errors });
+      }
+
+      const currentYear = new Date().getFullYear();
+      const createdAssetIds: string[] = [];
+
+      const result = await db.runTransaction(async (transaction) => {
+        const counterRef = db.collection("counters").doc(`grnCode_${currentYear}`);
+        const counterSnap = await transaction.get(counterRef);
+        const lastNum = counterSnap.exists ? (counterSnap.data()?.lastNumber || 0) : 0;
+        const nextNum = lastNum + 1;
+        const grnNumber = `GRN-${currentYear}-${String(nextNum).padStart(3, "0")}`;
+
+        const grnRef = db.collection("goods_receipts").doc();
+
+        // Check if all PO lines are fully received
+        let allLinesFullyReceived = true;
+        po.lineItems.forEach((poItem: any) => {
+          const itemRcpt = receivedItems.find((r: any) => r.poLineItemId === poItem.id || r.item === poItem.item);
+          const previouslyReceived = itemRcpt ? Number(itemRcpt.previousReceivedQty) || 0 : 0;
+          const newlyReceived = itemRcpt ? Number(itemRcpt.newlyReceivedQty) || 0 : 0;
+          if (previouslyReceived + newlyReceived < (Number(poItem.quantity) || 0)) {
+            allLinesFullyReceived = false;
+          }
+        });
+
+        const newGRN = {
+          id: grnRef.id,
+          grnNumber,
+          poId: po.id,
+          poNumber: po.poNumber,
+          prId: po.prId,
+          receivedDate: new Date().toISOString().split("T")[0],
+          receivedByUid: req.user.uid,
+          receivedByName: req.user.email,
+          items: receivedItems,
+          isFinalReceipt: allLinesFullyReceived,
+          assetsCreated: createAssets,
+          remarks: remarks || "",
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        transaction.set(counterRef, { lastNumber: nextNum }, { merge: true });
+        transaction.set(grnRef, newGRN);
+
+        // Update PO status
+        const nextPOStatus = allLinesFullyReceived ? "Fully Received" : "Partially Received";
+        transaction.update(poRef, {
+          status: nextPOStatus,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Update PR status
+        if (po.prId) {
+          const prDocRef = db.collection("purchase_requisitions").doc(po.prId);
+          transaction.update(prDocRef, {
+            status: nextPOStatus,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
+
+        // Automatic Hardware Asset creation if requested
+        if (createAssets) {
+          for (const item of receivedItems) {
+            const countToCreate = Math.max(0, Number(item.newlyReceivedQty) || 0);
+            const serials = Array.isArray(item.serialNumbers) ? item.serialNumbers : [];
+
+            for (let i = 0; i < countToCreate; i++) {
+              const catKey = (item.category || "other").toLowerCase().replace(/\s+/g, "_");
+              const assetCounterRef = db.collection("counters").doc(`assetCode_${catKey}`);
+              const assetCounterSnap = await transaction.get(assetCounterRef);
+              const lastAssetNum = assetCounterSnap.exists ? (assetCounterSnap.data()?.lastNumber || 0) : 0;
+              const nextAssetNum = lastAssetNum + 1;
+
+              const getPrefix = (cat: string) => {
+                const c = (cat || "").toLowerCase();
+                if (c.includes("computer") || c.includes("laptop") || c.includes("desktop")) return "TG-PC-";
+                if (c.includes("keyboard")) return "TG-KB-";
+                if (c.includes("mouse")) return "TG-MS-";
+                if (c.includes("fan")) return "TG-FN-";
+                if (c.includes("usb")) return "TG-UB-";
+                if (c.includes("printer")) return "TG-PR-";
+                if (c.includes("mobile") || c.includes("phone")) return "TG-PH-";
+                if (c.includes("scanner")) return "TG-SC-";
+                return "TG-ACC-";
+              };
+
+              const assetCode = `${getPrefix(item.category || "Computer")}${String(nextAssetNum).padStart(3, "0")}`;
+              const assetDocRef = db.collection("it_assets").doc();
+
+              const newAsset = {
+                id: assetDocRef.id,
+                asset_code: assetCode,
+                category: item.category || "Computer",
+                model: item.item,
+                serialNumber: serials[i] || `SN-PENDING-${Date.now()}-${i + 1}`,
+                purchaseDate: new Date().toISOString().split("T")[0],
+                location: "Central Storage",
+                assignedTo: "Unassigned / In Stock",
+                status: "In Stock",
+                department: po.department || "IT",
+                supplier: po.supplierName,
+                purchasePrice: String(item.unitPrice || 0),
+                remarks: `Received via ${grnNumber} (PO: ${po.poNumber})`,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdByUid: req.user.uid
+              };
+
+              transaction.set(assetCounterRef, { lastNumber: nextAssetNum }, { merge: true });
+              transaction.set(assetDocRef, newAsset);
+              createdAssetIds.push(assetDocRef.id);
+            }
+          }
+        }
+
+        return { grnId: grnRef.id, grnNumber, isFinalReceipt: allLinesFullyReceived, createdAssetsCount: createdAssetIds.length };
+      });
+
+      res.json({ success: true, ...result });
+    } catch (error) {
+      redactedLogger.error("Goods receipt error", { error: String(error) });
+      res.status(500).json({ error: "Failed to process goods receipt note." });
+    }
+  });
+
+  // Three-Way Matching & Invoice Verification Endpoint
+  app.post("/api/procurement/invoices/match", verifyFirebaseToken, async (req: any, res) => {
+    try {
+      const { invoiceNumber, invoiceDate, invoiceAmount, currency = "MMK", poId, tolerancePercent = 0, approvePayment = false } = req.body;
+      const db = getDb();
+      const poRef = db.collection("purchase_orders").doc(poId);
+      const poSnap = await poRef.get();
+
+      if (!poSnap.exists) {
+        return res.status(404).json({ error: "Purchase order not found." });
+      }
+
+      const po = poSnap.data() as any;
+
+      // Get PR
+      let pr = null;
+      if (po.prId) {
+        const prSnap = await db.collection("purchase_requisitions").doc(po.prId).get();
+        if (prSnap.exists) pr = prSnap.data();
+      }
+
+      // Get all GRNs for this PO
+      const grnSnap = await db.collection("goods_receipts").where("poId", "==", poId).get();
+      const grns = grnSnap.docs.map(d => d.data());
+
+      const matchResult = performThreeWayMatch(pr, po, grns, {
+        invoiceNumber,
+        invoiceAmount: Number(invoiceAmount) || 0,
+        currency,
+        tolerancePercent: Number(tolerancePercent) || 0
+      });
+
+      // Save match record
+      const matchRef = db.collection("invoices_and_matches").doc();
+      const isPaymentApproved = approvePayment && matchResult.matched;
+
+      const record = {
+        id: matchRef.id,
+        invoiceNumber,
+        invoiceDate: invoiceDate || new Date().toISOString().split("T")[0],
+        invoiceAmount: Number(invoiceAmount) || 0,
+        currency,
+        poId: po.id,
+        poNumber: po.poNumber,
+        grnIds: grns.map((g: any) => g.id),
+        prId: po.prId,
+        department: po.department,
+        lineItemsMatch: matchResult.lineItemsMatch,
+        quantityMatch: matchResult.quantityMatch,
+        amountMatch: matchResult.amountMatch,
+        tolerancePercent: Number(tolerancePercent) || 0,
+        matchStatus: matchResult.matched ? "Matched" : "Discrepancy",
+        discrepancyDetails: matchResult.discrepancyDetails,
+        paymentApproved: isPaymentApproved,
+        paymentApprovedBy: isPaymentApproved ? req.user.email : null,
+        paymentApprovedAt: isPaymentApproved ? new Date().toISOString() : null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      await matchRef.set(record);
+
+      // If payment is approved and matched, advance PR status to "Paid"
+      if (isPaymentApproved && po.prId) {
+        await db.collection("purchase_requisitions").doc(po.prId).update({
+          status: "Paid",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
+      res.json({
+        success: true,
+        matchResult,
+        paymentApproved: isPaymentApproved,
+        recordId: matchRef.id
+      });
+    } catch (error) {
+      redactedLogger.error("Invoice matching error", { error: String(error) });
+      res.status(500).json({ error: "Failed to perform 3-way match." });
     }
   });
 

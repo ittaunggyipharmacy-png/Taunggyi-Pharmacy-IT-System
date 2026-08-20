@@ -16,6 +16,8 @@ import { ITTicket, Priority, Status, SystemSettings, ActionEntry } from '../type
 import { saveTicket } from '../services/firestoreService';
 import { isHistorical } from '../lib/utils';
 import { auth } from '../services/firebase';
+import { useDepartments } from '../hooks/useDepartments';
+import { DepartmentSelect } from './DepartmentSelect';
 
 interface TicketsModuleProps {
   tickets: ITTicket[];
@@ -33,6 +35,7 @@ export function TicketsModule({
   settings,
   userProfile
 }: TicketsModuleProps) {
+  const { departments: configuredDepts } = useDepartments(settings);
   const [isAdding, setIsAdding] = useState(false);
   const [isSavingTicket, setIsSavingTicket] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<ITTicket | null>(null);
@@ -46,8 +49,19 @@ export function TicketsModule({
   const [newTicket, setNewTicket] = useState<Partial<ITTicket>>({
     priority: Priority.MEDIUM,
     status: Status.PENDING,
-    actions: []
+    actions: [],
+    department: 'IT'
   });
+
+  const filterDepartmentsList = React.useMemo(() => {
+    const set = new Set<string>();
+    configuredDepts.forEach(d => { if (d && d.trim()) set.add(d.trim()); });
+    tickets.forEach(t => { if (t.department && t.department.trim()) set.add(t.department.trim()); });
+    const list = Array.from(set);
+    const it = list.find(d => d.toLowerCase() === 'it');
+    const rest = list.filter(d => d.toLowerCase() !== 'it').sort((a, b) => a.localeCompare(b));
+    return it ? [it, ...rest] : rest;
+  }, [configuredDepts, tickets]);
 
   const filteredTickets = tickets.filter(ticket => {
     const searchLower = (searchTerm || ticketSearch).toLowerCase();
@@ -195,11 +209,9 @@ export function TicketsModule({
           className="px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-200 focus:outline-none"
         >
           <option value="All">All Departments</option>
-          <option value="IT">IT</option>
-          <option value="Merchandising">Merchandising</option>
-          <option value="Digital Marketing">Digital Marketing</option>
-          <option value="Accounts">Accounts</option>
-          <option value="Management">Management</option>
+          {filterDepartmentsList.map(d => (
+            <option key={d} value={d}>{d}</option>
+          ))}
         </select>
       </div>
 
@@ -389,17 +401,12 @@ export function TicketsModule({
 
               <div>
                 <label className="block text-2xs font-semibold text-slate-500 uppercase mb-1">Department</label>
-                <select
-                  value={newTicket.department || "IT"}
-                  onChange={(e) => setNewTicket({ ...newTicket, department: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white"
-                >
-                  <option value="IT">IT</option>
-                  <option value="Merchandising">Merchandising</option>
-                  <option value="Digital Marketing">Digital Marketing</option>
-                  <option value="Accounts">Accounts</option>
-                  <option value="Management">Management</option>
-                </select>
+                <DepartmentSelect
+                  id="new-ticket-department-select"
+                  value={newTicket.department}
+                  onChange={(val) => setNewTicket({ ...newTicket, department: val })}
+                  settings={settings}
+                />
               </div>
 
               <div>
