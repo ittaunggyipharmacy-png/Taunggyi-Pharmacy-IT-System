@@ -64,6 +64,7 @@ export interface SkillEntry {
 export enum UserRole {
   SUPER_ADMIN = "super_admin",
   IT_SUPERVISOR = "it_supervisor",
+  FINANCE_MANAGER = "finance_manager",
   ASSET_EDITOR = "asset_editor",
   DOCUMENT_MANAGER = "document_manager",
   CONTENT_MANAGER = "content_manager",

@@ -145,6 +145,7 @@ const verifyFirebaseToken = async (req: any, res: any, next: any) => {
 // Super Admin bootstrap/recovery must use a separate audited break-glass process.
 const ASSIGNABLE_NON_ADMIN_ROLES = new Set([
   "it_supervisor",
+  "finance_manager",
   "asset_editor",
   "document_manager",
   "content_manager",
@@ -154,6 +155,7 @@ const ASSIGNABLE_NON_ADMIN_ROLES = new Set([
 
 type AssignableNonAdminRole =
   | "it_supervisor"
+  | "finance_manager"
   | "asset_editor"
   | "document_manager"
   | "content_manager"
@@ -910,7 +912,8 @@ async function startServer() {
           shippingTotal: computed.shippingTotal,
           grandTotal: computed.grandTotal,
           currency: payload.currency || "MMK",
-          status: payload.status || "Submitted",
+          // Requesters cannot create a requisition in a terminal or review status.
+          status: "Submitted",
           approvalHistory: initialTimeline,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -933,7 +936,19 @@ async function startServer() {
   app.put("/api/procurement/requisitions/:id/review", verifyFirebaseToken, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { action, comments } = req.body;
+      const { action, comments } = req.body ?? {};
+      const allowedActions = new Set(["APPROVE", "REJECT", "RETURN_FOR_REVISION"]);
+      if (!allowedActions.has(action)) {
+        return res.status(400).json({ error: "Invalid purchase requisition review action." });
+      }
+
+      // Read the caller's current claim from Firebase Admin for this privileged action.
+      const actorRole = await getFreshCustomClaimRole(req.user.uid);
+      const canReview = actorRole === "super_admin" || actorRole === "it_supervisor" || actorRole === "finance_manager";
+      if (!canReview) {
+        return res.status(403).json({ error: "Forbidden: only Finance Manager, IT Supervisor, or Super Admin can review purchase requisitions." });
+      }
+
       const db = getDb();
       const prRef = db.collection("purchase_requisitions").doc(id);
       const prSnap = await prRef.get();
@@ -958,25 +973,20 @@ async function startServer() {
         }
       }
 
-      // Check approval permissions, thresholds & anti-self-approval
-      if (action === "APPROVE") {
-        const check = validatePRApproval(currentPR, req.user.uid, req.user.role, req.user.email, budgetData);
-        if (!check.allowed) {
-          return res.status(403).json({ error: check.reason });
-        }
+      if (currentPR.status !== "Submitted" && currentPR.status !== "Finance Review") {
+        return res.status(409).json({ error: `Cannot review requisition with status '${currentPR.status}'.` });
       }
 
       let nextStatus = currentPR.status;
       if (action === "APPROVE") {
-        // If manager approved and > 500k, next is Finance Review; if Finance approved or <= 500k, status is Approved
-        if (currentPR.grandTotal > 500000 && currentPR.status === "Submitted" && req.user.role !== "super_admin") {
-          nextStatus = "Finance Review";
-        } else {
-          nextStatus = "Approved";
+        const check = validatePRApproval(currentPR, req.user.uid, actorRole, budgetData);
+        if (!check.allowed || !check.nextStatus) {
+          return res.status(403).json({ error: check.reason || "Forbidden: purchase requisition approval denied." });
         }
+        nextStatus = check.nextStatus;
       } else if (action === "REJECT") {
         nextStatus = "Rejected";
-      } else if (action === "RETURN_FOR_REVISION") {
+      } else {
         nextStatus = "Returned for Revision";
       }
 
@@ -986,7 +996,7 @@ async function startServer() {
         actorUid: req.user.uid,
         actorName: req.user.email,
         actorEmail: req.user.email,
-        actorRole: req.user.role,
+        actorRole,
         action: action,
         beforeValue: { status: currentPR.status },
         afterValue: { status: nextStatus },

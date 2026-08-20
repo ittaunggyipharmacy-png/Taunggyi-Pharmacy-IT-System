@@ -545,43 +545,67 @@ export function validatePRApproval(
   pr: any,
   approverUid: string,
   approverRole: string,
-  approverEmail?: string,
   budget?: { remainingBudget: number }
-): { allowed: boolean; reason?: string; requiredNextStage?: string } {
-  // Anti-self-approval rule
-  if (pr.requesterUid === approverUid && approverEmail !== 'it.taunggyipharmacy@gmail.com') {
+): { allowed: boolean; reason?: string; nextStatus?: 'Finance Review' | 'Approved' } {
+  // A requester can never approve their own requisition, including Super Admins.
+  if (pr.requesterUid === approverUid) {
     return { allowed: false, reason: 'Requesters are strictly prohibited from approving their own purchase requisitions.' };
   }
 
-  const grandTotal = Number(pr.grandTotal) || 0;
-  const isSuper = approverRole === 'super_admin' || approverEmail === 'it.taunggyipharmacy@gmail.com';
-  const isFinance = isSuper || approverRole === 'finance_manager' || approverRole === 'it_supervisor';
-
-  // Check budget headroom if provided
-  if (budget && budget.remainingBudget < grandTotal && !isSuper) {
-    return { 
-      allowed: false, 
-      reason: `Insufficient department budget. Remaining budget (${budget.remainingBudget.toLocaleString()} MMK) is less than requisition total (${grandTotal.toLocaleString()} MMK). Super Admin override required.` 
-    };
+  const grandTotal = Number(pr.grandTotal);
+  if (!Number.isFinite(grandTotal) || grandTotal < 0) {
+    return { allowed: false, reason: 'Purchase requisition has an invalid grand total.' };
   }
 
-  // Threshold Matrix
-  if (grandTotal > THRESHOLD_FINANCE_MANAGER_MMK && !isSuper) {
-    return { 
-      allowed: false, 
-      reason: `Requisitions over 5,000,000 MMK require Executive / Super Admin approval (Current: ${grandTotal.toLocaleString()} MMK).` 
-    };
+  const isSuper = approverRole === 'super_admin';
+  const isFinance = approverRole === 'finance_manager';
+  const isSupervisor = approverRole === 'it_supervisor';
+  const canPerformFirstReview = isSuper || isFinance || isSupervisor;
+
+  if (!canPerformFirstReview) {
+    return { allowed: false, reason: 'Only Finance Manager, IT Supervisor, or Super Admin can approve purchase requisitions.' };
   }
 
-  if (grandTotal > THRESHOLD_DEPT_MANAGER_MMK && !isFinance) {
-    return { 
-      allowed: false, 
-      reason: `Requisitions over 500,000 MMK require Finance Review / IT Supervisor approval (Current: ${grandTotal.toLocaleString()} MMK).`,
-      requiredNextStage: 'Finance Review'
-    };
+  // A departmental/IT review begins from Submitted. Finance Review is a distinct
+  // second stage for requisitions above the departmental approval threshold.
+  if (pr.status === 'Submitted') {
+    if (grandTotal > THRESHOLD_FINANCE_MANAGER_MMK && !isSuper) {
+      return {
+        allowed: false,
+        reason: `Requisitions over 5,000,000 MMK require Super Admin approval (Current: ${grandTotal.toLocaleString()} MMK).`
+      };
+    }
+
+    if (budget && Number(budget.remainingBudget) < grandTotal && !isSuper) {
+      return {
+        allowed: false,
+        reason: `Insufficient department budget. Remaining budget (${Number(budget.remainingBudget).toLocaleString()} MMK) is less than requisition total (${grandTotal.toLocaleString()} MMK). Super Admin override required.`
+      };
+    }
+
+    if (grandTotal > THRESHOLD_DEPT_MANAGER_MMK && !isSuper) {
+      return { allowed: true, nextStatus: 'Finance Review' };
+    }
+
+    return { allowed: true, nextStatus: 'Approved' };
   }
 
-  return { allowed: true };
+  if (pr.status === 'Finance Review') {
+    if (!isSuper && !isFinance) {
+      return { allowed: false, reason: 'Finance Review requires Finance Manager or Super Admin approval.' };
+    }
+
+    if (budget && Number(budget.remainingBudget) < grandTotal && !isSuper) {
+      return {
+        allowed: false,
+        reason: `Insufficient department budget. Remaining budget (${Number(budget.remainingBudget).toLocaleString()} MMK) is less than requisition total (${grandTotal.toLocaleString()} MMK). Super Admin override required.`
+      };
+    }
+
+    return { allowed: true, nextStatus: 'Approved' };
+  }
+
+  return { allowed: false, reason: `Cannot approve a purchase requisition with status '${pr.status}'.` };
 }
 
 // ----------------------------------------------------
