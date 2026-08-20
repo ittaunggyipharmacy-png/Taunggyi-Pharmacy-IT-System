@@ -32,6 +32,7 @@ import { cn } from "../lib/utils";
 import { format, isBefore, isToday, parseISO, differenceInDays } from "date-fns";
 
 interface MeetingMinutesModuleProps {
+  meetings?: MeetingMinute[];
  userRole?: UserRole;
  isAdmin?: boolean;
 }

@@ -44,7 +44,7 @@ const LEVEL_CONFIG: { [key: number]: { color: string; label: string; text: strin
  4: { color: 'bg-indigo-600', text: 'text-white', label: 'Mentor', light: 'bg-indigo-50', border: 'border-indigo-100', glow: 'shadow-indigo-100' },
 };
 
-const SkillMatrix: React.FC = () => {
+export const SkillMatrix: React.FC<{ employees?: any[]; settings?: any }> = () => {
  const [employees, setEmployees] = useState<Employee[]>([]);
  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
  const [viewMode, setViewMode] = useState<'matrix' | 'cards'>('cards');

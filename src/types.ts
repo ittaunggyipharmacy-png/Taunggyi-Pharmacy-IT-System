@@ -62,13 +62,13 @@ export interface SkillEntry {
 }
 
 export enum UserRole {
- IT_SUPERVISOR = "IT Supervisor",
- IT_SUPERVISOR_CAPS = "IT SUPERVISOR",
- MERCHANDISING_SUPERVISOR = "Merchandising Supervisor",
- IT_DIGITAL_MARKETING = "IT Digital Marketing",
- ADMIN = "System Admin",
- ADMIN_CAPS = "SYSTEM ADMIN",
- STAFF = "Staff"
+  SUPER_ADMIN = "super_admin",
+  IT_SUPERVISOR = "it_supervisor",
+  ASSET_EDITOR = "asset_editor",
+  DOCUMENT_MANAGER = "document_manager",
+  CONTENT_MANAGER = "content_manager",
+  STAFF_VIEWER = "staff_viewer",
+  DISABLED = "disabled"
 }
 
 export interface SystemUser {
@@ -277,64 +277,62 @@ export interface WeeklyLog {
  updatedAt: any;
 }
 
+export type DataState<T> =
+  | { status: 'loading' }
+  | { status: 'empty' }
+  | { status: 'success'; data: T }
+  | { status: 'offline'; error: string }
+  | { status: 'unauthorized'; error: string }
+  | { status: 'retryable_failure'; error: string; retry: () => Promise<void> }
+  | { status: 'configuration_failure'; error: string };
+
 export interface BranchNote {
- id: string;
- name: string; // e.g. Branch Name
- location: string;
- phone: string;
-}
-
-export interface PasswordNote {
- id: string;
- label: string; // e.g. "Gmail", "Router PPPoE"
- account: string;
- password: string;
-}
-
-export interface PasswordVaultEntry {
- id: string;
- label: string;
- account: string;
- password: string;
+  id: string;
+  name: string; // e.g. Branch Name
+  location: string;
+  phone: string;
 }
 
 export interface SystemSettings {
- departments: string[];
- locations: string[];
- itContacts: { name: string; role: string; phone: string }[];
- branchNotes?: BranchNote[];
- menuPermissions?: {
- [role: string]: string[];
- };
+  departments: string[];
+  locations: string[];
+  itContacts: { name: string; role: string; phone: string }[];
+  branchNotes?: BranchNote[];
+  menuPermissions?: {
+    [role: string]: string[];
+  };
 }
 
 export interface RolePermission {
- role: string;
- allowed_menus: Record<string, boolean>;
+  role: string;
+  allowed_menus: Record<string, boolean>;
 }
 
 export interface MeetingActionItem {
- id: string;
- task: string;
- assignedTo: string;
- department?: string;
- dueDate: string;
- status: "Pending" | "In Progress" | "Completed" | "Cancelled";
- remarks?: string;
- completedAt?: string;
+  id: string;
+  task: string;
+  assignedTo: string;
+  department?: string;
+  dueDate: string;
+  status: "Pending" | "In Progress" | "Completed" | "Cancelled";
+  remarks?: string;
+  completedAt?: string;
 }
 
 export interface MeetingMinute {
- id: string;
- title: string;
- date: string;
- time?: string;
- location?: string;
- tags?: string[];
- attendees: string[];
- content: string;
- actionItems: MeetingActionItem[];
- createdAt: string;
- createdBy: string;
- createdByEmail?: string;
+  id: string;
+  title: string;
+  date: string;
+  time?: string;
+  location?: string;
+  tags?: string[];
+  attendees: string[];
+  content: string;
+  actionItems: MeetingActionItem[];
+  createdAt: any;
+  updatedAt?: any;
+  createdBy?: string;
+  createdByUid: string;
+  createdByEmail?: string;
+  designatedEditors?: string[];
 }

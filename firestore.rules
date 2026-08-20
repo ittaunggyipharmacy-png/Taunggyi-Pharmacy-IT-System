@@ -1,100 +1,77 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // 0. Global Safety Net
-    match /{document=**} {
-      allow read, write: if false;
-    }
 
-    // --- Hardened Global Helpers ---
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isEmailVerified() {
-      return isSignedIn() && (
-        request.auth.token.get('email_verified', false) == true ||
-        request.auth.token.email == "it.taunggyipharmacy@gmail.com" ||
-        exists(/databases/$(database)/documents/app_users/$(request.auth.uid))
-      );
-    }
-
-    function isVerifiedUser() {
-      return isSignedIn();
-    }
-
-    function isAdmin() {
-      return isVerifiedUser() && (
-        request.auth.token.email == "it.taunggyipharmacy@gmail.com" ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/app_users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/app_users/$(request.auth.uid)).data.isAdmin == true)
-      );
-    }
-
-    function isSuperAdmin() {
-      return isVerifiedUser() && request.auth.token.email == "it.taunggyipharmacy@gmail.com";
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
+    // --- Helper Functions ---
     function incoming() {
       return request.resource.data;
     }
-
+    
     function existing() {
       return resource.data;
     }
 
-    // --- Entity Validations ---
-
-    function isValidPurchaseRecord(data) {
-      return data.keys().hasAll(['item', 'date', 'price'])
-        && data.item is string && data.item.size() > 0 && data.item.size() <= 200
-        && data.date is string && data.date.size() <= 20
-        && data.price is number && data.price >= 0
-        && (data.get('category', '') is string)
-        && (data.get('supplier', '') is string)
-        && (data.get('supplierContact', '') is string)
-        && (data.get('quantity', 0) is number)
-        && (data.get('currency', 'MMK') is string);
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    function isValidITAsset(data) {
-      let isAssigned = data.get('assignedTo', 'Unassigned') != 'Unassigned' && data.get('assignedTo', '') != '' && data.get('assignedTo', '') != null;
-      let allowedStatuses = ['Active', 'In Stock', 'New'];
-      let hasValidStatusForAssignment = data.status in allowedStatuses;
-      
-      return data.keys().hasAll(['model', 'status'])
-        && data.model is string && data.model.size() > 0 && data.model.size() <= 200
-        && data.status is string && data.status in ['Active', 'In Stock', 'Maintenance', 'Under Repair', 'Retired', 'New', 'Disposed', 'Pending / New Arrival', 'Standalone / Spare']
-        && (isAssigned ? hasValidStatusForAssignment : true)
-        && (data.get('assignedTo', 'Unassigned') is string)
-        && (data.get('location', 'Warehouse') is string)
-        && (data.get('parentId', null) == null || data.get('parentId', '') is string)
-        && (data.get('purchaseRecordId', '') is string)
-        && (data.get('purchasePrice', '0') is string || data.get('purchasePrice', 0) is number)
-        && (data.get('purchaseDate', '') is string)
-        && (data.get('brand', '') is string)
-        && (data.get('serialNumber', '') is string)
-        && (data.get('department', '') is string)
-        && (data.get('specs', '') is string && data.get('specs', '').size() <= 6000);
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserRole() {
+      return (request.auth != null && request.auth.token.email == "it.taunggyipharmacy@gmail.com") 
+        ? "super_admin" 
+        : (request.auth.token.role != null ? request.auth.token.role : "none");
+    }
+
+    function isApprovedUser() {
+      let role = getUserRole();
+      return isSignedIn() && request.auth.token.email_verified == true && role != 'none' && role != 'disabled';
+    }
+
+    function hasRole(allowedRoles) {
+      return isApprovedUser() && (getUserRole() in allowedRoles);
+    }
+    
+    function isSuperAdmin() {
+      return hasRole(['super_admin']);
+    }
+    
+    function isSupervisor() {
+      return hasRole(['super_admin', 'it_supervisor']);
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Validation Functions for Collections ---
+    function isValidPurchaseRecord(data) {
+      return data.keys().hasAll(['item', 'category', 'price', 'currency', 'quantity', 'date', 'supplier', 'status'])
+        && data.item is string && data.item.size() > 0 && data.item.size() <= 200
+        && (data.price is number || data.price is string)
+        && data.quantity is number
+        && data.date is string
+        && data.supplier is string
+        && data.status in ['Ordered', 'Transit', 'Received'];
     }
 
     function isValidITTicket(data) {
-      return data.keys().hasAll(['problemType', 'requesterName', 'status'])
-        && data.problemType is string && data.problemType.size() <= 500
-        && data.requesterName is string && data.requesterName.size() <= 200
-        && data.status is string && data.status in ['Pending', 'In Progress', 'Completed', 'Cancelled']
-        && (data.get('priority', 'Medium') is string)
-        && (data.get('assignedTo', '') is string)
-        && (data.get('assignedToName', '') is string)
-        && (data.get('requesterBranch', '') is string)
-        && (data.get('description', '') is string)
-        && (data.get('responseTime', 0) is number);
+      return data.keys().hasAll(['problemType', 'priority', 'requestTime', 'requesterName', 'status', 'actions'])
+        && data.problemType is string && data.problemType.size() > 0
+        && data.priority in ['Low', 'Medium', 'High', 'Critical']
+        && data.status in ['Pending', 'In Progress', 'Completed', 'Cancelled']
+        && data.actions is list;
+    }
+
+    function isValidITAsset(data) {
+      let allowedStatuses = ['Active', 'Maintenance', 'Under Repair', 'Retired', 'New', 'In Stock', 'Disposed', 'Pending / New Arrival', 'Standalone / Spare'];
+      return data.keys().hasAll(['category', 'model', 'serialNumber', 'purchaseDate', 'location', 'assignedTo', 'status'])
+        && data.category is string && data.category.size() > 0
+        && data.model is string && data.model.size() > 0
+        && data.serialNumber is string
+        && data.status in allowedStatuses;
     }
 
     function isValidActivityEntry(data) {
@@ -104,248 +81,205 @@ service cloud.firestore {
     }
 
     function isValidTaskEvidence(data) {
-      return data.keys().hasAll(['taskId', 'logId', 'imageUrl', 'userId'])
+      return data.keys().hasAll(['taskId', 'imageUrl', 'timestamp', 'userId', 'userName'])
         && data.taskId is string
-        && data.logId is string
         && data.imageUrl is string
-        && data.userId is string && data.userId == request.auth.uid;
-    }
-
-    function isValidEmployee(data) {
-      return data.keys().hasAll(['name', 'department'])
-        && data.name is string
-        && data.department is string;
-    }
-
-    function isValidBackupLog(data) {
-      return data.keys().hasAll(['date', 'storageType', 'status'])
-        && data.date is string
-        && data.storageType is string
-        && data.status is string;
-    }
-
-    function isValidCCTVRequest(data) {
-      return data.keys().hasAll(['requester', 'dateOfFootage', 'reason', 'approvalStatus'])
-        && data.requester is string
-        && data.reason is string
-        && data.approvalStatus is string;
-    }
-
-    function isValidContentPlan(data) {
-      return data.keys().hasAll(['platform', 'productName', 'status'])
-        && data.platform is string
-        && data.productName is string
-        && data.status is string;
-    }
-
-    function isValidRenewalRecord(data) {
-      return data.keys().hasAll(['serviceName', 'status'])
-        && data.serviceName is string && data.serviceName.size() <= 200
-        && data.status is string && data.status in ['Active', 'Expiring Soon', 'Expired']
-        && (data.get('shopName', '') is string)
-        && (data.get('expireDate', '') is string)
-        && (data.get('price', 0) is number)
-        && (data.get('currency', 'MMK') is string)
-        && (data.get('billingCycle', 'Yearly') is string)
-        && (data.get('provider', '') is string)
-        && (data.get('renewalMethod', '') is string)
-        && (data.get('contactPerson', '') is string)
-        && (data.get('contactPhone', '') is string)
-        && (data.get('websiteLink', '') is string);
+        && data.timestamp is string
+        && data.userId is string
+        && data.userName is string;
     }
 
     function isValidMeetingMinute(data) {
-      return data.keys().hasAll(['title', 'date', 'content'])
-        && data.title is string && data.title.size() > 0 && data.title.size() <= 600
+      return data.keys().hasAll(['title', 'date', 'content', 'createdByUid'])
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
         && data.date is string
-        && data.content is string;
+        && data.content is string
+        && data.createdByUid is string
+        && (!('actionItems' in data) || data.actionItems is list);
+    }
+
+    function isValidRenewalRecord(data) {
+      return data.keys().hasAll(['serviceName', 'shopName', 'expireDate', 'price', 'billingCycle', 'status'])
+        && data.serviceName is string && data.serviceName.size() > 0
+        && data.shopName is string && data.shopName.size() > 0
+        && data.expireDate is string
+        && (data.price is number || data.price is string)
+        && data.billingCycle in ['Monthly', 'Quarterly', 'Yearly']
+        && data.status in ['Active', 'Expiring Soon', 'Expired'];
     }
 
     function isValidDailyLog(data) {
       return data.keys().hasAll(['id', 'date', 'userId', 'tasks'])
-        && data.id is string && data.id.size() <= 200
-        && data.date is string && data.date.size() <= 20
-        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
+        && data.userId is string && (data.userId == request.auth.uid || isSupervisor())
         && data.tasks is map;
     }
 
     function isValidMonthlyLog(data) {
       return data.keys().hasAll(['id', 'month', 'userId', 'tasks'])
-        && data.id is string && data.id.size() <= 200
-        && data.month is string && data.month.size() <= 20
-        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
+        && data.userId is string && (data.userId == request.auth.uid || isSupervisor())
         && data.tasks is map;
     }
 
     function isValidWeeklyLog(data) {
       return data.keys().hasAll(['id', 'week', 'userId', 'tasks'])
-        && data.id is string && data.id.size() <= 200
-        && data.week is string && data.week.size() <= 20
-        && data.userId is string && (data.userId == request.auth.uid || isAdmin())
+        && data.userId is string && (data.userId == request.auth.uid || isSupervisor())
         && data.tasks is map;
     }
 
-    function isValidAssetLog(data) {
-      return data.keys().hasAll(['id', 'name', 'createdAt'])
-        && data.id is string
-        && data.name is string;
-    }
-
-    function isValidRolePermission(data) {
-      return data.keys().hasAll(['role', 'allowed_menus'])
-        && data.role is string && data.role.size() > 0
-        && data.allowed_menus is map;
-    }
-
     // --- Collection Routes ---
-
+    
     // Role Permissions
     match /role_permissions/{roleId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isAdmin() && isValidRolePermission(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow write: if isSupervisor();
     }
-
-    // System Config
+    
+    // System Config (Super Admin & IT Supervisor only)
     match /system_config/{configId} {
-      allow read: if isVerifiedUser();
-      allow write: if isAdmin();
-    }
-
-    // Password Vault (Admin only)
-    match /password_vault/{entryId} {
-      allow read, write: if isAdmin();
+      allow read: if isApprovedUser();
+      allow write: if isSupervisor();
     }
 
     // Purchase Records
     match /purchase_records/{recordId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isAdmin() && isValidId(recordId) && isValidPurchaseRecord(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor', 'asset_editor']) && isValidId(recordId) && isValidPurchaseRecord(incoming());
+      allow delete: if isSupervisor();
     }
 
-    // Asset Code Counters
+    // Asset Code Counters (Server-only write - Clients CANNOT write)
     match /counters/{counterId} {
-      allow read, write: if isSignedIn();
+      allow read: if isApprovedUser();
+      allow write: if false; // Only server-side transaction can write
     }
 
     // IT Assets
     match /it_assets/{assetId} {
-      allow read: if isVerifiedUser();
-      // All verified IT staff can create & update assets; only Admin can delete
-      allow create, update: if isVerifiedUser() && isValidId(assetId) && isValidITAsset(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor', 'asset_editor']) && isValidId(assetId) && isValidITAsset(incoming());
+      allow delete: if isSupervisor();
     }
 
     // IT Tickets
     match /it_tickets/{ticketId} {
-      allow read: if isVerifiedUser();
-      allow create: if isAdmin() && isValidId(ticketId) && isValidITTicket(incoming());
-      allow update: if isAdmin() && isValidId(ticketId) && isValidITTicket(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow create, update: if isApprovedUser() && isValidId(ticketId) && isValidITTicket(incoming());
+      allow delete: if isSupervisor();
     }
 
     // Backup Logs
     match /backup_logs/{logId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isAdmin() && isValidId(logId) && isValidBackupLog(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor', 'document_manager']);
+      allow delete: if isSupervisor();
     }
 
     // CCTV Requests
     match /cctv_requests/{requestId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isAdmin() && isValidId(requestId) && isValidCCTVRequest(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor', 'document_manager']);
+      allow delete: if isSupervisor();
     }
 
     // Content Plans
     match /content_plans/{planId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isAdmin() && isValidId(planId) && isValidContentPlan(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor', 'content_manager']);
+      allow delete: if isSupervisor();
     }
 
     // Renewals
     match /renewals/{renewalId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isAdmin() && isValidId(renewalId) && isValidRenewalRecord(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow create, update: if hasRole(['super_admin', 'it_supervisor']) && isValidId(renewalId) && isValidRenewalRecord(incoming());
+      allow delete: if isSupervisor();
     }
 
     // Employees
     match /employees/{employeeId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isAdmin() && isValidId(employeeId) && isValidEmployee(incoming());
-      allow delete: if isAdmin();
+      allow read: if isApprovedUser();
+      allow create, update, delete: if isSupervisor();
     }
 
-    // Meeting Minutes
+    // Meeting Minutes (Strict Authorship, Immutability & Action Items)
     match /meeting_minutes/{meetingId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isVerifiedUser() && isValidId(meetingId) && isValidMeetingMinute(incoming());
-      allow delete: if isAdmin() || (isVerifiedUser() && (resource == null || resource.data.createdByEmail == request.auth.token.email));
+      allow read: if isApprovedUser();
+      allow create: if isApprovedUser() && isValidId(meetingId) && isValidMeetingMinute(incoming()) 
+        && incoming().createdByUid == request.auth.uid;
+      allow update: if isValidId(meetingId) && isValidMeetingMinute(incoming()) 
+        && (isSupervisor() || (hasRole(['document_manager']) && (resource.data.createdByUid == request.auth.uid || (resource.data.designatedEditors != null && request.auth.uid in resource.data.designatedEditors))))
+        && incoming().createdByUid == existing().createdByUid;
+      allow delete: if isSupervisor() || (hasRole(['document_manager']) && resource.data.createdByUid == request.auth.uid);
     }
 
     // Daily KPI Logs
     match /daily_logs/{logId} {
-      allow get: if isVerifiedUser() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
-      allow list: if isVerifiedUser() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create, update: if isVerifiedUser() && isValidId(logId) && isValidDailyLog(incoming());
-      allow delete: if isAdmin();
+      allow get, list: if isApprovedUser() && (isSupervisor() || resource.data.userId == request.auth.uid);
+      allow create, update: if isApprovedUser() && isValidId(logId) && isValidDailyLog(incoming());
+      allow delete: if isSupervisor();
     }
 
     // Monthly KPI Logs
     match /monthly_logs/{logId} {
-      allow get: if isVerifiedUser() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
-      allow list: if isVerifiedUser() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create, update: if isVerifiedUser() && isValidId(logId) && isValidMonthlyLog(incoming());
-      allow delete: if isAdmin();
+      allow get, list: if isApprovedUser() && (isSupervisor() || resource.data.userId == request.auth.uid);
+      allow create, update: if isApprovedUser() && isValidId(logId) && isValidMonthlyLog(incoming());
+      allow delete: if isSupervisor();
     }
 
     // Weekly KPI Logs
     match /weekly_logs/{logId} {
-      allow get: if isVerifiedUser() && (isAdmin() || resource == null || resource.data.userId == request.auth.uid);
-      allow list: if isVerifiedUser() && (isAdmin() || resource.data.userId == request.auth.uid);
-      allow create, update: if isVerifiedUser() && isValidId(logId) && isValidWeeklyLog(incoming());
-      allow delete: if isAdmin();
-    }
-
-    // Admins Collection
-    match /admins/{adminId} {
-      allow read: if isVerifiedUser();
-      allow write: if isSuperAdmin(); 
+      allow get, list: if isApprovedUser() && (isSupervisor() || resource.data.userId == request.auth.uid);
+      allow create, update: if isApprovedUser() && isValidId(logId) && isValidWeeklyLog(incoming());
+      allow delete: if isSupervisor();
     }
 
     // Activity Feed
     match /activities/{activityId} {
-      allow read: if isVerifiedUser();
-      allow create: if isVerifiedUser() && isValidId(activityId) && isValidActivityEntry(incoming());
+      allow read: if isApprovedUser();
+      allow create: if isApprovedUser() && isValidId(activityId) && isValidActivityEntry(incoming());
       allow update: if false;
-      allow delete: if isAdmin();
+      allow delete: if isSupervisor();
     }
 
     // Task Evidence
     match /task_evidence/{evidenceId} {
-      allow read: if isVerifiedUser();
-      allow create: if isVerifiedUser() && isValidId(evidenceId) && isValidTaskEvidence(incoming());
+      allow read: if isApprovedUser();
+      allow create: if isApprovedUser() && isValidId(evidenceId) && isValidTaskEvidence(incoming());
       allow update: if false;
-      allow delete: if isAdmin();
+      allow delete: if isSupervisor();
     }
 
-    // Asset Logs
-    match /asset_logs/{logId} {
-      allow read: if isVerifiedUser();
-      allow create, update: if isAdmin() && isValidId(logId) && isValidAssetLog(incoming());
-      allow delete: if isAdmin();
+    // Server-Only Collections (Audit Logs, Migration Ledgers, Drive Audit Logs)
+    match /audit_logs/{logId} {
+      allow read: if isSupervisor();
+      allow write: if false;
     }
 
-    // App Users Profiles
+    match /migration_ledger/{ledgerId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /drive_audit_logs/{logId} {
+      allow read: if isSupervisor();
+      allow write: if false;
+    }
+
+    // Counters Collection (Strictly Server-Authoritative)
+    match /counters/{counterId} {
+      allow read, write: if false;
+    }
+
+    // App Users Profiles (Privilege Escalation Protected)
     match /app_users/{userId} {
       allow get: if isSignedIn();
-      allow list: if isAdmin();
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSuperAdmin() || (isSignedIn() && request.auth.uid == userId && !incoming().diff(existing()).affectedKeys().hasAny(['role']));
+      allow list: if isSupervisor();
+      // Allow creation by self (safe fields only, NEVER allow setting role, isAdmin, or active)
+      allow create: if isSignedIn() && request.auth.uid == userId 
+        && !incoming().keys().hasAny(['role', 'isAdmin', 'active']);
+      // Allow update by super_admin OR by self (strictly blocking role elevation and privileged flags)
+      allow update: if isSuperAdmin() || (isSignedIn() && request.auth.uid == userId 
+        && !incoming().diff(existing()).affectedKeys().hasAny(['role', 'isAdmin', 'active', 'uid', 'email', 'createdAt', 'lastLogin', 'audit']));
       allow delete: if isSuperAdmin();
     }
   }

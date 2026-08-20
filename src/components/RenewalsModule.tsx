@@ -23,7 +23,7 @@ import { toast } from "react-hot-toast";
 
 interface RenewalsModuleProps {
  renewals: RenewalRecord[];
- setRenewals: (r: RenewalRecord[]) => void;
+ setRenewals?: (r: RenewalRecord[]) => void;
  isAdmin: boolean;
 }
 
@@ -740,3 +740,5 @@ export function RenewalsModule({ renewals, setRenewals, isAdmin }: RenewalsModul
  </div>
  );
 }
+
+export default RenewalsModule;

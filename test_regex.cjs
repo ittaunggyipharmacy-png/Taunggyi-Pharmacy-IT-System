@@ -1,0 +1,10 @@
+const fs = require('fs');
+let app = fs.readFileSync('src/App.tsx', 'utf8');
+const p1 = app.match(/\s*\/\/ Legacy password migration.*?loadAndMigratePasswords\(\);\n\s*\}/s);
+console.log("Match 1:", !!p1);
+const p2 = app.match(/\s*const addPasswordNote = async \(\) => \{[\s\S]*?setNewPassVal\(""\);\n\s*};\n/s);
+console.log("Match 2:", !!p2);
+const p3 = app.match(/\s*\{\/\* Password Notes Section \*\/\}.*?\{\/\* Branch Notes Section \*\/\}/s);
+console.log("Match 3:", !!p3);
+const p4 = app.match(/\s*\{\/\* RESET DATABASE TOOL \*\/\}.*?<\/ResetAssetsButton>\n\s*<\/div>\n\s*\)}/s);
+console.log("Match 4:", !!p4);
