@@ -174,6 +174,25 @@ async function getFreshCustomClaimRole(uid: string): Promise<string> {
 
 async function startServer() {
   const app = express();
+  const corsAllowedOrigin = process.env.CORS_ALLOWED_ORIGIN;
+
+  // Allow one explicitly configured, separately hosted frontend to call the API.
+  // Same-origin deployments need no CORS configuration.
+  app.use("/api", (req, res, next) => {
+    const requestOrigin = req.get("origin");
+    if (corsAllowedOrigin && requestOrigin === corsAllowedOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+      res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+      res.setHeader("Vary", "Origin");
+    }
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+
+    next();
+  });
 
   // 1. Security Headers via Helmet
   app.use(

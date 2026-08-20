@@ -10,6 +10,7 @@ import {
   sanitizeInput 
 } from '../src/schema/validation.js';
 import { UserRole } from '../src/types.js';
+import { getApiErrorMessage, resolveApiUrl } from '../src/services/apiClient.js';
 
 // Color logging helpers
 const pass = (msg: string) => console.log(`  \x1b[32m✔\x1b[0m ${msg}`);
@@ -75,9 +76,25 @@ async function main() {
   });
 
   // ---------------------------------------------------------
-  // Suite 2: Firestore Security Rules (Static & Pattern Audit)
+  // Suite 2: Asset API Routing & Deployment Diagnostics
   // ---------------------------------------------------------
-  console.log('\nSuite 2: Firestore Rules "Eight Pillars" & Security Hardening');
+  console.log('\nSuite 2: Asset API Routing & Deployment Diagnostics');
+  await runTest('Asset API helper uses the configured backend URL and explains a missing API route', async () => {
+    const endpoint = resolveApiUrl('/api/assets', 'https://api.taunggyipharmacy.example/');
+    assert.strictEqual(endpoint, 'https://api.taunggyipharmacy.example/api/assets');
+
+    const message = await getApiErrorMessage(
+      new Response('<!doctype html><title>Not found</title>', { status: 404, statusText: 'Not Found' }),
+      endpoint
+    );
+    assert.ok(message.includes('VITE_API_BASE_URL'));
+    assert.ok(message.includes('asset API is unavailable'));
+  });
+
+  // ---------------------------------------------------------
+  // Suite 3: Firestore Security Rules (Static & Pattern Audit)
+  // ---------------------------------------------------------
+  console.log('\nSuite 3: Firestore Rules "Eight Pillars" & Security Hardening');
   const rulesContent = fs.readFileSync(path.join(process.cwd(), 'firestore.rules'), 'utf-8');
 
   await runTest('Rules enforce Eight Pillars and deny unauthenticated requests', () => {
@@ -108,7 +125,7 @@ async function main() {
   // ---------------------------------------------------------
   // Suite 3: RBAC & Permission Matrix
   // ---------------------------------------------------------
-  console.log('\nSuite 3: Role-Based Access Control (RBAC) Matrix');
+  console.log('\nSuite 4: Role-Based Access Control (RBAC) Matrix');
   await runTest('User roles are strictly typed with no undefined permissions', () => {
     const roles = Object.values(UserRole);
     assert.ok(roles.includes(UserRole.SUPER_ADMIN));
@@ -129,7 +146,7 @@ async function main() {
   // ---------------------------------------------------------
   // Suite 4: Google Drive Folder Containment & Deletion Safety
   // ---------------------------------------------------------
-  console.log('\nSuite 4: Google Drive Security & Scoped Operations');
+  console.log('\nSuite 5: Google Drive Security & Scoped Operations');
   const serverContent = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf-8');
 
   await runTest('Drive file deletion requires verification of parent folder hierarchy', () => {
@@ -142,10 +159,16 @@ async function main() {
     assert.ok(!serverContent.includes('type: "anyone", role: "writer"'));
   });
 
+  await runTest('API CORS is restricted to the explicit configured frontend origin', () => {
+    assert.ok(serverContent.includes('const corsAllowedOrigin = process.env.CORS_ALLOWED_ORIGIN'));
+    assert.ok(serverContent.includes('requestOrigin === corsAllowedOrigin'));
+    assert.ok(!serverContent.includes('Access-Control-Allow-Origin", "*"'));
+  });
+
   // ---------------------------------------------------------
   // Suite 5: Server-Side Atomic Counter Generation
   // ---------------------------------------------------------
-  console.log('\nSuite 5: Atomic Concurrency & Unique Code Generation');
+  console.log('\nSuite 6: Atomic Concurrency & Unique Code Generation');
   await runTest('Server implements atomic transaction increment for asset codes', () => {
     assert.ok(serverContent.includes('db.runTransaction'));
     assert.ok(serverContent.includes('nextNumber = lastNumber + 1'));
@@ -155,7 +178,7 @@ async function main() {
   // ---------------------------------------------------------
   // Suite 6: Versioned Server-Side Admin Migrations & Batch Import
   // ---------------------------------------------------------
-  console.log('\nSuite 6: Server-Side Versioned Migrations & Resumable Batch Import');
+  console.log('\nSuite 7: Server-Side Versioned Migrations & Resumable Batch Import');
   await runTest('Server processes batch import writes in chunks <= 400', () => {
     assert.ok(serverContent.includes('records.length > 400') || serverContent.includes('batchCount >= 400'));
   });
@@ -169,7 +192,7 @@ async function main() {
   // ---------------------------------------------------------
   // Suite 7: Super-Admin Disaster Recovery Wipe Safety
   // ---------------------------------------------------------
-  console.log('\nSuite 7: Disaster Recovery & Safe Super-Admin Data Operations');
+  console.log('\nSuite 8: Disaster Recovery & Safe Super-Admin Data Operations');
   await runTest('Server wipe endpoint requires exact string and verified backup confirmation', () => {
     assert.ok(serverContent.includes('CONFIRM_WIPE'));
     assert.ok(serverContent.includes('backupVerified'));
@@ -183,7 +206,7 @@ async function main() {
   // ---------------------------------------------------------
   // Suite 8: Meeting Minutes Author Immutability & Permissions
   // ---------------------------------------------------------
-  console.log('\nSuite 8: Meeting Minutes Immutability & Action Items Validation');
+  console.log('\nSuite 9: Meeting Minutes Immutability & Action Items Validation');
   await runTest('Meeting schema validates required date, topic, createdByUid, and action items', () => {
     const validMeeting = {
       date: '2026-08-20',
@@ -205,7 +228,7 @@ async function main() {
   // ---------------------------------------------------------
   // Suite 9: Server Hardening, CSP & Environment Safety
   // ---------------------------------------------------------
-  console.log('\nSuite 9: Server Security, Helmet CSP & Environment Validation');
+  console.log('\nSuite 10: Server Security, Helmet CSP & Environment Validation');
   await runTest('Server utilizes Helmet with configured Content Security Policy', () => {
     assert.ok(serverContent.includes('helmet('));
     assert.ok(serverContent.includes('contentSecurityPolicy'));
@@ -224,7 +247,7 @@ async function main() {
   // ---------------------------------------------------------
   // Suite 10: Frontend Bundle & Secret Isolation
   // ---------------------------------------------------------
-  console.log('\nSuite 10: Frontend Secret Isolation & Code Modularization');
+  console.log('\nSuite 11: Frontend Secret Isolation & Code Modularization');
   const viteConfig = fs.readFileSync(path.join(process.cwd(), 'vite.config.ts'), 'utf-8');
 
   await runTest('Vite config does not inject GEMINI_API_KEY into client bundle', () => {
@@ -241,7 +264,7 @@ async function main() {
   // ---------------------------------------------------------
   // Suite 11: Dynamic Department Dropdown & Legacy Preservation
   // ---------------------------------------------------------
-  console.log('\nSuite 11: Dynamic Department System & Legacy Preservation');
+  console.log('\nSuite 12: Dynamic Department System & Legacy Preservation');
   const { sortDepartments, formatDepartmentOptions, validateDepartmentName } = await import('../src/utils/departmentUtils.js');
 
   await runTest('sortDepartments prioritizes IT and sorts remaining alphabetically', () => {

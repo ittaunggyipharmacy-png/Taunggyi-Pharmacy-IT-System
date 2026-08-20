@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { handleFirestoreError, OperationType } from './firestoreErrors';
+import { getApiErrorMessage, resolveApiUrl } from './apiClient';
 import { 
   PurchaseRecord, 
   ITAsset, 
@@ -59,6 +60,7 @@ const SETTINGS_COLLECTION = 'system_config';
 const ROLE_PERMISSIONS_COLLECTION = 'role_permissions';
 const MEETING_MINUTES_COLLECTION = 'meeting_minutes';
 const SETTINGS_DOC_ID = 'main';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 // Helper to remove undefined fields recursively
 export const cleanData = (obj: any): any => {
@@ -290,7 +292,8 @@ export const saveAsset = async (asset: Partial<ITAsset>) => {
       const authUser = auth.currentUser;
       if (!authUser) throw new Error("Not authenticated");
       const token = await authUser.getIdToken();
-      const res = await fetch("/api/assets", {
+      const endpoint = resolveApiUrl('/api/assets', API_BASE_URL);
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -299,8 +302,7 @@ export const saveAsset = async (asset: Partial<ITAsset>) => {
         body: JSON.stringify(sanitized)
       });
       if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(errorText);
+        throw new Error(await getApiErrorMessage(res, endpoint));
       }
       const data = await res.json();
       
