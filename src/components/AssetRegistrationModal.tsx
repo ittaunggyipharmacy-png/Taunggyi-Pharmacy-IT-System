@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ITAsset } from '../types';
-import { X, Tag, Plus, Check } from 'lucide-react';
+import { X, Tag, Plus, Check, Edit3 } from 'lucide-react';
 
 interface AssetRegistrationModalProps {
   isOpen: boolean;
@@ -9,6 +9,7 @@ interface AssetRegistrationModalProps {
   departments: string[];
   locations: string[];
   suppliers?: string[];
+  assetToEdit?: ITAsset | null;
 }
 
 export function AssetRegistrationModal({
@@ -17,7 +18,8 @@ export function AssetRegistrationModal({
   onSave,
   departments,
   locations,
-  suppliers = ['KMD Computer Taunggyi', 'Apex IT Solutions', 'Royal Myanmar Tech', 'Local Supplier']
+  suppliers = ['KMD Computer Taunggyi', 'Apex IT Solutions', 'Royal Myanmar Tech', 'Local Supplier'],
+  assetToEdit = null
 }: AssetRegistrationModalProps) {
   if (!isOpen) return null;
 
@@ -47,6 +49,50 @@ export function AssetRegistrationModal({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (assetToEdit) {
+      setCategory(assetToEdit.category || 'Computer');
+      setModel(assetToEdit.model || '');
+      setBrand(assetToEdit.brand || '');
+      setSerialNumber(assetToEdit.serialNumber || '');
+      setDepartment(assetToEdit.department || departments[0] || 'IT');
+      setLocation(assetToEdit.location || locations[0] || 'Central Storage');
+      setAssignedTo(assetToEdit.assignedTo || 'Unassigned');
+      setCondition(assetToEdit.condition || 'Good');
+      setPurchasePrice(assetToEdit.purchasePrice || assetToEdit.itemPrice || 500000);
+      setInvoiceNumber(assetToEdit.invoiceNumber || '');
+      setPurchaseDate(assetToEdit.purchaseDate || new Date().toISOString().split('T')[0]);
+      setWarrantyEndDate(assetToEdit.warrantyEndDate || '');
+      setSupplier(assetToEdit.supplier || suppliers[0] || '');
+      
+      const specs = assetToEdit.detailedSpecs || {};
+      setCpu(specs.cpu || '');
+      setRam(specs.ram || '');
+      setStorage(specs.storage || '');
+      setOs(specs.os || '');
+      setImei1(specs.imei1 || '');
+      setImei2(specs.imei2 || '');
+      setNetworkIp(specs.networkIp || '');
+      setMacAddress(specs.macAddress || '');
+    } else {
+      setCategory('Computer');
+      setModel('');
+      setBrand('');
+      setSerialNumber('');
+      setDepartment(departments[0] || 'IT');
+      setLocation(locations[0] || 'Central Storage');
+      setAssignedTo('Unassigned');
+      setCondition('Brand New');
+      setPurchasePrice(500000);
+      setInvoiceNumber('');
+      setPurchaseDate(new Date().toISOString().split('T')[0]);
+      setWarrantyEndDate('');
+      setSupplier(suppliers[0] || '');
+      setCpu(''); setRam(''); setStorage(''); setOs('');
+      setImei1(''); setImei2(''); setNetworkIp(''); setMacAddress('');
+    }
+  }, [assetToEdit, isOpen]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!model.trim()) {
@@ -70,6 +116,7 @@ export function AssetRegistrationModal({
       }
 
       await onSave({
+        ...(assetToEdit ? { id: assetToEdit.id, asset_code: assetToEdit.asset_code } : {}),
         category,
         model: model.trim(),
         brand: brand.trim(),
@@ -89,8 +136,8 @@ export function AssetRegistrationModal({
       });
       onClose();
     } catch (err) {
-      console.error("Failed to register asset:", err);
-      alert('Error registering asset.');
+      console.error("Failed to save asset:", err);
+      alert('Error saving asset.');
     } finally {
       setIsSubmitting(false);
     }
@@ -103,11 +150,13 @@ export function AssetRegistrationModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 flex items-center justify-center font-bold">
-              <Plus className="w-5 h-5" />
+              {assetToEdit ? <Edit3 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">Smart IT Asset Registration</h2>
-              <p className="text-xs text-slate-500">Register hardware with category-aware specifications and auto asset code</p>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                {assetToEdit ? `Edit Asset (${assetToEdit.asset_code || assetToEdit.model})` : 'Smart IT Asset Registration'}
+              </h2>
+              <p className="text-xs text-slate-500">Manage hardware specifications, department assignment, and lifecycle metadata</p>
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">

@@ -15,13 +15,16 @@ import {
   FileSpreadsheet,
   Building2,
   Tag,
-  User
+  User,
+  Edit3
 } from 'lucide-react';
 
 interface AssetRegistryTableProps {
   assets: ITAsset[];
   onSelectAsset: (asset: ITAsset) => void;
   onOpenAddModal: () => void;
+  onOpenEdit: (asset: ITAsset) => void;
+  onDeleteAsset: (assetId: string) => void;
   onOpenAssign: (asset: ITAsset) => void;
   onOpenTransfer: (asset: ITAsset) => void;
   onOpenRepair: (asset: ITAsset) => void;
@@ -36,6 +39,8 @@ export function AssetRegistryTable({
   assets,
   onSelectAsset,
   onOpenAddModal,
+  onOpenEdit,
+  onDeleteAsset,
   onOpenAssign,
   onOpenTransfer,
   onOpenRepair,
@@ -257,12 +262,28 @@ export function AssetRegistryTable({
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
+                          onClick={() => onOpenEdit(asset)}
+                          title="Edit Asset"
+                          className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-600 hover:bg-amber-100 transition"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => onOpenLabels(asset)}
                           title="Generate QR Label"
                           className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition"
                         >
                           <QrCode className="w-4 h-4" />
                         </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => onDeleteAsset(asset.id)}
+                            title="Delete Asset"
+                            className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 hover:bg-rose-100 transition"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

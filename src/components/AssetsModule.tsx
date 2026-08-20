@@ -32,6 +32,7 @@ export function AssetsModule({
   const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'registry'>('dashboard');
   const [selectedAsset, setSelectedAsset] = useState<ITAsset | null>(null);
   const [isAddingModalOpen, setIsAddingModalOpen] = useState(false);
+  const [editingAsset, setEditingAsset] = useState<ITAsset | null>(null);
 
   // Lifecycle modal state
   const [lifecycleAsset, setLifecycleAsset] = useState<ITAsset | null>(null);
@@ -42,6 +43,28 @@ export function AssetsModule({
 
   const handleSaveAsset = async (assetData: Partial<ITAsset>) => {
     await saveAsset(assetData);
+  };
+
+  const handleOpenAdd = () => {
+    setEditingAsset(null);
+    setIsAddingModalOpen(true);
+  };
+
+  const handleOpenEdit = (asset: ITAsset) => {
+    setEditingAsset(asset);
+    setIsAddingModalOpen(true);
+  };
+
+  const handleDeleteAsset = async (assetId: string) => {
+    try {
+      await deleteAsset(assetId);
+      if (selectedAsset && selectedAsset.id === assetId) {
+        setSelectedAsset(null);
+      }
+    } catch (err) {
+      console.error("Failed to delete asset:", err);
+      alert("Failed to delete asset.");
+    }
   };
 
   const handleLifecycleAction = async (actionType: string, payload: any) => {
@@ -198,7 +221,7 @@ export function AssetsModule({
           </div>
 
           <button
-            onClick={() => setIsAddingModalOpen(true)}
+            onClick={handleOpenAdd}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition"
           >
             <Plus className="w-4 h-4" /> Register Asset
@@ -217,7 +240,9 @@ export function AssetsModule({
         <AssetRegistryTable
           assets={assets}
           onSelectAsset={(asset) => setSelectedAsset(asset)}
-          onOpenAddModal={() => setIsAddingModalOpen(true)}
+          onOpenAddModal={handleOpenAdd}
+          onOpenEdit={handleOpenEdit}
+          onDeleteAsset={handleDeleteAsset}
           onOpenAssign={(asset) => { setLifecycleAsset(asset); setLifecycleMode('assign'); }}
           onOpenTransfer={(asset) => { setLifecycleAsset(asset); setLifecycleMode('transfer'); }}
           onOpenRepair={(asset) => { setLifecycleAsset(asset); setLifecycleMode('repair'); }}
@@ -233,6 +258,8 @@ export function AssetsModule({
         <AssetDetailModal
           asset={selectedAsset}
           onClose={() => setSelectedAsset(null)}
+          onOpenEdit={handleOpenEdit}
+          onDeleteAsset={handleDeleteAsset}
           onOpenAssign={(asset) => { setLifecycleAsset(asset); setLifecycleMode('assign'); }}
           onOpenTransfer={(asset) => { setLifecycleAsset(asset); setLifecycleMode('transfer'); }}
           onOpenReturn={(asset) => { setLifecycleAsset(asset); setLifecycleMode('return'); }}
@@ -249,6 +276,7 @@ export function AssetsModule({
         onSave={handleSaveAsset}
         departments={configuredDepts}
         locations={locations}
+        assetToEdit={editingAsset}
       />
 
       <AssetLifecycleModal

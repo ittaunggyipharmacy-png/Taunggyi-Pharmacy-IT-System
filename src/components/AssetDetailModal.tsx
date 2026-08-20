@@ -17,12 +17,15 @@ import {
   RefreshCw,
   Trash2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Edit3
 } from 'lucide-react';
 
 interface AssetDetailModalProps {
   asset: ITAsset;
   onClose: () => void;
+  onOpenEdit: (asset: ITAsset) => void;
+  onDeleteAsset: (assetId: string) => void;
   onOpenAssign: (asset: ITAsset) => void;
   onOpenTransfer: (asset: ITAsset) => void;
   onOpenReturn: (asset: ITAsset) => void;
@@ -35,6 +38,8 @@ interface AssetDetailModalProps {
 export function AssetDetailModal({
   asset,
   onClose,
+  onOpenEdit,
+  onDeleteAsset,
   onOpenAssign,
   onOpenTransfer,
   onOpenReturn,
@@ -219,13 +224,27 @@ export function AssetDetailModal({
                   >
                     <Wrench className="w-3.5 h-3.5" /> Log Repair
                   </button>
+                  <button
+                    onClick={() => { onClose(); onOpenEdit(asset); }}
+                    className="px-3.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 text-amber-700 dark:text-amber-400 text-xs font-semibold transition flex items-center gap-1.5"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" /> Edit Details
+                  </button>
                   {isAdmin && (
-                    <button
-                      onClick={() => onDispose(asset.id)}
-                      className="px-3.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition flex items-center gap-1.5"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Dispose
-                    </button>
+                    <>
+                      <button
+                        onClick={() => onDispose(asset.id)}
+                        className="px-3.5 py-2 rounded-xl bg-orange-50 dark:bg-orange-950/50 hover:bg-orange-100 text-orange-600 text-xs font-semibold transition flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Dispose
+                      </button>
+                      <button
+                        onClick={() => { if (confirm('Are you sure you want to permanently delete this asset?')) { onDeleteAsset(asset.id); onClose(); } }}
+                        className="px-3.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete Asset
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
