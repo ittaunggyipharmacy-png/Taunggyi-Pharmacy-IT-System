@@ -50,5 +50,3 @@ export function HelpSupportModule() {
  </div>
  );
 }
-
-export default HelpSupportModule;

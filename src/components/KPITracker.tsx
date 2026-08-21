@@ -109,7 +109,12 @@ export const KPITracker: React.FC<{ userRole?: UserRole }> = ({ userRole }) => {
  const [showHistory, setShowHistory] = useState(false);
 
  const currentUser = auth.currentUser;
- const isSupervisor = userRole === UserRole.IT_SUPERVISOR || userRole === UserRole.CONTENT_MANAGER || userRole === UserRole.DOCUMENT_MANAGER || userRole === UserRole.SUPER_ADMIN;
+ const isSupervisor = userRole === UserRole.IT_SUPERVISOR || 
+ userRole === UserRole.IT_SUPERVISOR_CAPS ||
+ userRole === UserRole.MERCHANDISING_SUPERVISOR ||
+ userRole === UserRole.IT_DIGITAL_MARKETING ||
+ userRole === UserRole.ADMIN ||
+ userRole === UserRole.ADMIN_CAPS;
 
  useEffect(() => {
  if (currentUser) {

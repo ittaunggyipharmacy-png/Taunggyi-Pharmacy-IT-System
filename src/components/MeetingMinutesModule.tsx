@@ -30,10 +30,8 @@ import { saveMeetingMinute, deleteMeetingMinute, saveActivity } from "../service
 import { MeetingMinute, MeetingActionItem, UserRole, SystemUser } from "../types";
 import { cn } from "../lib/utils";
 import { format, isBefore, isToday, parseISO, differenceInDays } from "date-fns";
-import { useDepartments } from "../hooks/useDepartments";
 
 interface MeetingMinutesModuleProps {
-  meetings?: MeetingMinute[];
  userRole?: UserRole;
  isAdmin?: boolean;
 }
@@ -72,7 +70,7 @@ export default function MeetingMinutesModule({ userRole, isAdmin }: MeetingMinut
  const [editingRemarkItemId, setEditingRemarkItemId] = useState<string | null>(null);
  const [tempRemark, setTempRemark] = useState("");
 
- const { departments: DEPARTMENTS } = useDepartments();
+ const DEPARTMENTS = ["IT", "Merchandising", "Digital Marketing", "Management", "Sales", "Retail"];
 
  const currentUser = auth.currentUser;
 
