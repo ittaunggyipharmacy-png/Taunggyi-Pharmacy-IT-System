@@ -1,50 +1,53 @@
-const admin = require('firebase-admin');
-const fs = require('fs');
-const path = require('path');
+// This script makes ONE person a "super_admin" so they can log in and
+// manage the whole system for the first time.
+//
+// How to run it:
+//   node scripts/bootstrap_super_admin.cjs someone@example.com
 
-// Initialize Firebase Admin
-try {
-  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-    admin.initializeApp({
-      credential: admin.credential.cert(credentials),
-      projectId: credentials.project_id
-    });
-  } else {
-    admin.initializeApp({
-      projectId: "gen-lang-client-0768528628"
-    });
+const { connectToFirebase } = require('./lib/connectToFirebase.cjs');
+
+/** Reads the email address the user typed after the script name. */
+function getEmailFromCommandLine() {
+  const email = process.argv[2];
+  if (!email) {
+    console.error('Usage: node bootstrap_super_admin.cjs <email>');
+    process.exit(1);
   }
-} catch (e) {
-  console.error("Firebase Admin initialization failed:", e);
-  process.exit(1);
+  return email;
 }
 
-const targetEmail = process.argv[2];
-
-if (!targetEmail) {
-  console.error("Usage: node bootstrap_super_admin.js <email>");
-  process.exit(1);
+/** Gives the "super_admin" role to the Firebase Auth account for this email. */
+async function grantSuperAdminAuthRole(auth, email) {
+  const user = await auth.getUserByEmail(email);
+  await auth.setCustomUserClaims(user.uid, { role: 'super_admin' });
+  return user;
 }
 
-async function bootstrap() {
+/**
+ * Also updates the "app_users" database record for this person, so the
+ * app's own UI (which reads from the database, not from Auth) shows
+ * them as a super admin too.
+ */
+async function updateSuperAdminProfile(db, userId) {
+  await db.collection('app_users').doc(userId).set(
+    { role: 'super_admin', isAdmin: true },
+    { merge: true }
+  );
+}
+
+async function main() {
+  const email = getEmailFromCommandLine();
+  const { auth, db } = connectToFirebase();
+
   try {
-    const user = await admin.auth().getUserByEmail(targetEmail);
-    await admin.auth().setCustomUserClaims(user.uid, { role: "super_admin" });
-    
-    // Also update app_users collection just for UI read access
-    const db = admin.firestore();
-    await db.collection("app_users").doc(user.uid).set({
-      role: "super_admin",
-      isAdmin: true
-    }, { merge: true });
-    
-    console.log(`Successfully bootstrapped super_admin for ${targetEmail}`);
+    const user = await grantSuperAdminAuthRole(auth, email);
+    await updateSuperAdminProfile(db, user.uid);
+    console.log(`Success! ${email} is now a super_admin.`);
     process.exit(0);
-  } catch (err) {
-    console.error("Bootstrap error:", err);
+  } catch (error) {
+    console.error('Could not bootstrap super admin:', error);
     process.exit(1);
   }
 }
 
-bootstrap();
+main();
