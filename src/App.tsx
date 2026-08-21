@@ -1,3 +1,4 @@
+import { supabase } from "./lib/supabase";
 import React, { useState, useEffect, useRef, Fragment, useMemo } from "react";
 import { 
  LayoutDashboard, 
@@ -477,13 +478,14 @@ export default function App() {
  useEffect(() => {
  let unsubUserDoc: (() => void) | null = null;
 
- const unsubAuth = onAuthStateChanged(auth, async (user) => {
+ const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
  if (unsubUserDoc) {
  unsubUserDoc();
  unsubUserDoc = null;
  }
 
- setCurrentUser(user);
+ const user = session?.user || null;
+ setCurrentUser(user as any); // Type assertion for now to avoid cascading type errors
  if (user) {
  try {
  const dbSettings = await getSettings();
@@ -494,11 +496,13 @@ export default function App() {
  console.error("Error loading settings on auth change:", settingsError);
  }
 
+ // Passing Supabase user instead of Firebase user
  const profile = await syncSystemUser(user);
  setUserProfile(profile);
 
- // Listen to the user's role/profile changes in real-time
- unsubUserDoc = onSnapshot(doc(db, "app_users", user.uid), (docSnap) => {
+ // Try catching firestore issues if dummy key fails
+ try {
+ unsubUserDoc = onSnapshot(doc(db, "app_users", user.id), (docSnap) => {
  if (docSnap.exists()) {
  const updatedProfile = docSnap.data() as SystemUser;
  setUserProfile(updatedProfile);
@@ -516,8 +520,10 @@ export default function App() {
  }, (error) => {
  console.error("Profile onSnapshot error:", error);
  });
+ } catch (e) {
+ console.error("Firestore onSnapshot setup failed", e);
+ }
 
- // Define which roles are treated as super-admins with full access
  const isSuperAdmin = [
  UserRole.ADMIN, 
  UserRole.ADMIN_CAPS, 
@@ -535,7 +541,7 @@ export default function App() {
  });
 
  return () => {
- unsubAuth();
+ subscription.unsubscribe();
  if (unsubUserDoc) {
  unsubUserDoc();
  }
@@ -613,14 +619,20 @@ export default function App() {
 
  const handleLogin = async () => {
  try {
- const provider = new GoogleAuthProvider();
- await signInWithPopup(auth, provider);
+ const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+ if (error) throw error;
  } catch (error) {
  console.error("Login failed", error);
  }
  };
 
- const handleLogout = () => signOut(auth);
+ const handleLogout = async () => {
+ try {
+ await supabase.auth.signOut();
+ } catch (error) {
+ console.error("Logout failed", error);
+ }
+ };
 
  useEffect(() => {
  const checkSopReminders = () => {

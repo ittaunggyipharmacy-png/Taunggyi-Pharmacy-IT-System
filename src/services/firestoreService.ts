@@ -144,7 +144,8 @@ export const getSystemUser = async (uid: string): Promise<SystemUser | null> => 
 
 export const syncSystemUser = async (firebaseUser: any) => {
  try {
- const userRef = doc(db, USER_COLLECTION, firebaseUser.uid);
+ const uid = uid || firebaseUser.id;
+ const userRef = doc(db, USER_COLLECTION, uid);
  const snap = await getDoc(userRef);
  
  const elevatedRoles = [
@@ -158,12 +159,12 @@ export const syncSystemUser = async (firebaseUser: any) => {
 
  if (!snap.exists()) {
  // Check if they are in the admins collection to bootstrap
- const isAdminDoc = await checkAdminStatus(firebaseUser.uid);
+ const isAdminDoc = await checkAdminStatus(uid);
  const initialRole = isAdminDoc ? UserRole.ADMIN : UserRole.STAFF;
  const isUserAdmin = elevatedRoles.includes(initialRole);
  
  const newUser: SystemUser = {
- uid: firebaseUser.uid,
+ uid: uid,
  email: firebaseUser.email || "",
  displayName: firebaseUser.displayName || "",
  role: initialRole,
@@ -176,7 +177,7 @@ export const syncSystemUser = async (firebaseUser: any) => {
  
  // Sync to admins if needed
  if (elevatedRoles.includes(newUser.role)) {
- await setDoc(doc(db, 'admins', firebaseUser.uid), { 
+ await setDoc(doc(db, 'admins', uid), { 
  active: true, 
  email: firebaseUser.email,
  role: newUser.role,
@@ -198,7 +199,7 @@ export const syncSystemUser = async (firebaseUser: any) => {
  
  // ENSURE sync to admins for existing users if they have the role
  if (elevatedRoles.includes(userData.role)) {
- await setDoc(doc(db, 'admins', firebaseUser.uid), { 
+ await setDoc(doc(db, 'admins', uid), { 
  active: true, 
  email: firebaseUser.email,
  role: userData.role,

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserRole, RolePermission } from '../types';
 import { fetchRolePermissions, saveRolePermission } from '../services/firestoreService';
 import { onSnapshot, collection, query } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { supabase } from '../lib/supabase';
 import { db, auth } from '../services/firebase';
 import { handleFirestoreError, OperationType } from '../services/firestoreErrors';
 
@@ -27,7 +27,8 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
  useEffect(() => {
  let unsubscribeSnapshot: (() => void) | null = null;
 
- const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+ const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+ const user = session?.user;
  if (unsubscribeSnapshot) {
  unsubscribeSnapshot();
  unsubscribeSnapshot = null;
@@ -50,7 +51,7 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
  });
 
  return () => {
- unsubscribeAuth();
+ subscription.unsubscribe();
  if (unsubscribeSnapshot) {
  unsubscribeSnapshot();
  }
