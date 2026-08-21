@@ -1,57 +1,67 @@
-const admin = require('firebase-admin');
+// This script updates every user's role to match our newer role names.
+// It's meant to be run ONCE, after the app switched from old role
+// names (like "System Admin") to new ones (like "super_admin").
+//
+// How to run it:
+//   node scripts/migrate_roles.js
 
-try {
-  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-    admin.initializeApp({
-      credential: admin.credential.cert(credentials),
-      projectId: credentials.project_id
-    });
-  } else {
-    admin.initializeApp({
-      projectId: "gen-lang-client-0768528628"
-    });
-  }
-} catch (e) {
-  console.error("Firebase Admin initialization failed:", e);
-  process.exit(1);
-}
+const { connectToFirebase } = require('./lib/connectToFirebase.cjs');
 
-const db = admin.firestore();
-
-const ROLE_MAP = {
-  "System Admin": "super_admin",
-  "SYSTEM ADMIN": "super_admin",
-  "IT Supervisor": "it_supervisor",
-  "IT SUPERVISOR": "it_supervisor",
-  "Merchandising Supervisor": "content_manager",
-  "IT Digital Marketing": "document_manager",
-  "Staff": "staff_viewer"
+// Old role name -> new role name.
+// Anything not in this list becomes "staff_viewer" (the safest default).
+const OLD_ROLE_TO_NEW_ROLE = {
+  'System Admin': 'super_admin',
+  'SYSTEM ADMIN': 'super_admin',
+  'IT Supervisor': 'it_supervisor',
+  'IT SUPERVISOR': 'it_supervisor',
+  'Merchandising Supervisor': 'content_manager',
+  'IT Digital Marketing': 'document_manager',
+  'Staff': 'staff_viewer',
 };
 
-async function migrate() {
+const DEFAULT_ROLE = 'staff_viewer';
+
+/** Looks up the new role name for an old one, falling back to the default. */
+function getNewRoleFor(oldRole) {
+  return OLD_ROLE_TO_NEW_ROLE[oldRole] || DEFAULT_ROLE;
+}
+
+/** True for roles that should keep admin-style access in the app. */
+function isAdminRole(role) {
+  return role === 'super_admin' || role === 'it_supervisor';
+}
+
+/**
+ * Updates one user everywhere their role is stored:
+ *   1. Firebase Auth custom claims (used for permission checks)
+ *   2. Their "app_users" database record (used for the UI)
+ */
+async function migrateOneUser(auth, userDoc) {
+  const data = userDoc.data();
+  const newRole = getNewRoleFor(data.role);
+
+  console.log(`Migrating ${userDoc.id} (${data.email}): ${data.role} -> ${newRole}`);
+
+  await auth.setCustomUserClaims(userDoc.id, { role: newRole });
+  await userDoc.ref.update({ role: newRole, isAdmin: isAdminRole(newRole) });
+}
+
+async function main() {
+  const { auth, db } = connectToFirebase();
+
   try {
-    const snapshot = await db.collection("app_users").get();
-    let count = 0;
-    
-    for (const doc of snapshot.docs) {
-      const data = doc.data();
-      let currentRole = data.role;
-      let newRole = ROLE_MAP[currentRole] || "staff_viewer";
-      
-      console.log(`Migrating user ${doc.id} (${data.email}) from ${currentRole} to ${newRole}`);
-      
-      await admin.auth().setCustomUserClaims(doc.id, { role: newRole });
-      await doc.ref.update({ role: newRole, isAdmin: newRole === "super_admin" || newRole === "it_supervisor" });
-      count++;
+    const allUsers = await db.collection('app_users').get();
+
+    for (const userDoc of allUsers.docs) {
+      await migrateOneUser(auth, userDoc);
     }
-    
-    console.log(`Migrated ${count} users successfully.`);
+
+    console.log(`Done! Migrated ${allUsers.size} users.`);
     process.exit(0);
   } catch (error) {
-    console.error("Migration failed:", error);
+    console.error('Migration failed:', error);
     process.exit(1);
   }
 }
 
-migrate();
+main();
