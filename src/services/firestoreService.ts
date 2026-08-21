@@ -12,6 +12,10 @@ import {
   writeBatch 
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import {
+  DEFAULT_SYSTEM_SETTINGS,
+  isPrimaryAdministrator,
+} from '../config/application';
 import { handleFirestoreError, OperationType } from './firestoreErrors';
 import { 
   PurchaseRecord, 
@@ -106,12 +110,8 @@ export const deleteGenericRecord = async (collName: string, id: string) => {
 // System Settings & Permissions
 // ----------------------------------------------------
 
-export const DEFAULT_SETTINGS: SystemSettings = {
-  departments: ['IT', 'Merchandising', 'Digital Marketing', 'Accounts', 'Management', 'Sales', 'Warehouse'],
-  locations: ['Central Storage', 'Branch 1', 'Branch 2', 'Warehouse'],
-  itContacts: [],
-  branchNotes: []
-};
+/** Backward-compatible name for modules that still import the old constant. */
+export const DEFAULT_SETTINGS = DEFAULT_SYSTEM_SETTINGS;
 
 export const saveSettings = async (settings: SystemSettings) => {
   try {
@@ -175,7 +175,7 @@ export const getSystemUser = async (uid: string): Promise<SystemUser | null> => 
 export const syncSystemUser = async (firebaseUser: any): Promise<SystemUser | null> => {
   if (!firebaseUser) return null;
 
-  const isSuperAdminEmail = firebaseUser.email === "it.taunggyipharmacy@gmail.com";
+  const isSuperAdminEmail = isPrimaryAdministrator(firebaseUser.email);
   const userRef = doc(db, USER_COLLECTION, firebaseUser.uid);
   
   try {

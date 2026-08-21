@@ -25,6 +25,10 @@ import {
   performThreeWayMatch,
   validateSupplier
 } from "./src/schema/validation";
+import {
+  DATABASE_WIPE_CONFIRMATION,
+  isPrimaryAdministrator,
+} from "./src/config/application";
 
 dotenv.config();
 
@@ -172,6 +176,30 @@ async function getFreshCustomClaimRole(uid: string): Promise<string> {
   return typeof role === "string" ? role : "none";
 }
 
+/**
+ * Resolves a caller's current role while preserving the role carried by the
+ * verified token if Firebase Admin cannot be reached temporarily.
+ */
+async function resolveCurrentUserRole(user: {
+  uid: string;
+  email?: string;
+  role: string;
+}): Promise<string> {
+  if (isPrimaryAdministrator(user.email)) {
+    return "super_admin";
+  }
+
+  try {
+    return await getFreshCustomClaimRole(user.uid);
+  } catch (error) {
+    redactedLogger.warn("Using the role from the verified token", {
+      error: String(error),
+      uid: user.uid,
+    });
+    return user.role;
+  }
+}
+
 async function startServer() {
   const app = express();
 
@@ -310,15 +338,7 @@ async function startServer() {
 
   const requireDriveAccess = async (req: any, res: any, next: any) => {
     try {
-      let role = req.user.role;
-      try {
-        const user = await admin.auth().getUser(req.user.uid);
-        if (user.customClaims?.role) role = user.customClaims.role;
-      } catch (e) {}
-      
-      if (req.user.email === "it.taunggyipharmacy@gmail.com") {
-        role = "super_admin";
-      }
+      const role = await resolveCurrentUserRole(req.user);
 
       if (role !== "super_admin" && role !== "it_supervisor" && role !== "document_manager") {
         return res.status(403).json({ error: "Forbidden: You do not have permission to manage documents." });
@@ -507,14 +527,7 @@ async function startServer() {
 
   app.post("/api/assets", verifyFirebaseToken, async (req: any, res) => {
     try {
-      let role = req.user.role;
-      try {
-        const user = await admin.auth().getUser(req.user.uid);
-        if (user.customClaims?.role) role = user.customClaims.role;
-      } catch (e) {}
-      if (req.user.email === "it.taunggyipharmacy@gmail.com") {
-        role = "super_admin";
-      }
+      const role = await resolveCurrentUserRole(req.user);
 
       if (role !== "super_admin" && role !== "it_supervisor" && role !== "asset_editor") {
         return res.status(403).json({ error: "Forbidden: You do not have permission to create assets." });
@@ -590,7 +603,7 @@ async function startServer() {
       }
 
       // Security check: must match caller UID unless supervisor creating on behalf
-      const isSuper = req.user.role === "super_admin" || req.user.email === "it.taunggyipharmacy@gmail.com";
+      const isSuper = (await resolveCurrentUserRole(req.user)) === "super_admin";
       if (payload.requesterUid !== req.user.uid && !isSuper && req.user.role !== "it_supervisor") {
         return res.status(403).json({ error: "Forbidden: Cannot submit access request for another user without authorization." });
       }
@@ -793,7 +806,8 @@ async function startServer() {
   // Employee Lifecycle Offboarding: Batch Revocation
   app.post("/api/access/lifecycle/offboard", verifyFirebaseToken, async (req: any, res) => {
     try {
-      const isSuper = req.user.role === "super_admin" || req.user.role === "it_supervisor" || req.user.email === "it.taunggyipharmacy@gmail.com";
+      const currentRole = await resolveCurrentUserRole(req.user);
+      const isSuper = currentRole === "super_admin" || currentRole === "it_supervisor";
       if (!isSuper) {
         return res.status(403).json({ error: "Forbidden: Only IT Supervisors can trigger offboarding revocation." });
       }
@@ -1345,14 +1359,7 @@ async function startServer() {
 
   app.post("/api/admin/migrations/run", verifyFirebaseToken, async (req: any, res) => {
     try {
-      let role = req.user.role;
-      try {
-        const user = await admin.auth().getUser(req.user.uid);
-        if (user.customClaims?.role) role = user.customClaims.role;
-      } catch (e) {}
-      if (req.user.email === "it.taunggyipharmacy@gmail.com") {
-        role = "super_admin";
-      }
+      const role = await resolveCurrentUserRole(req.user);
 
       if (role !== "super_admin") {
         return res.status(403).json({ error: "Forbidden: Super Admin authorization required for migration jobs." });
@@ -1495,14 +1502,7 @@ async function startServer() {
 
   app.post("/api/admin/import/excel", verifyFirebaseToken, async (req: any, res) => {
     try {
-      let role = req.user.role;
-      try {
-        const user = await admin.auth().getUser(req.user.uid);
-        if (user.customClaims?.role) role = user.customClaims.role;
-      } catch (e) {}
-      if (req.user.email === "it.taunggyipharmacy@gmail.com") {
-        role = "super_admin";
-      }
+      const role = await resolveCurrentUserRole(req.user);
 
       if (role !== "super_admin" && role !== "it_supervisor" && role !== "asset_editor") {
         return res.status(403).json({ error: "Forbidden: Insufficient privileges for batch import." });
@@ -1577,14 +1577,7 @@ async function startServer() {
 
   app.post("/api/admin/wipe-database", verifyFirebaseToken, async (req: any, res) => {
     try {
-      let role = req.user.role;
-      try {
-        const user = await admin.auth().getUser(req.user.uid);
-        if (user.customClaims?.role) role = user.customClaims.role;
-      } catch (e) {}
-      if (req.user.email === "it.taunggyipharmacy@gmail.com") {
-        role = "super_admin";
-      }
+      const role = await resolveCurrentUserRole(req.user);
 
       if (role !== "super_admin") {
          return res.status(403).json({ error: "Forbidden: Super Admin required." });
@@ -1596,7 +1589,7 @@ async function startServer() {
         return res.status(403).json({ error: "Forbidden: Recent login required. Please re-authenticate." });
       }
 
-      if (req.body.confirmation !== "CONFIRM_WIPE") {
+      if (req.body.confirmation !== DATABASE_WIPE_CONFIRMATION) {
          return res.status(400).json({ error: "Bad Request: Missing exact confirmation string." });
       }
       

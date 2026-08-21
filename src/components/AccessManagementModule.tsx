@@ -8,6 +8,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { AccessRequest, SystemUser, UserRole } from '../types';
 import { useDepartments } from '../hooks/useDepartments';
+import { hasSuperAdministratorAccess } from '../config/application';
 
 interface AccessManagementModuleProps {
   requests: AccessRequest[];
@@ -108,7 +109,10 @@ export const AccessManagementModule: React.FC<AccessManagementModuleProps> = ({
   const [offboardTargetUid, setOffboardTargetUid] = useState<string>('');
   const [offboardNotes, setOffboardNotes] = useState<string>('');
 
-  const isSuperAdmin = userRole === UserRole.SUPER_ADMIN || currentUser?.email === 'it.taunggyipharmacy@gmail.com';
+  const isSuperAdmin = hasSuperAdministratorAccess(
+    userRole,
+    currentUser?.email,
+  );
   const isSupervisor = isSuperAdmin || userRole === UserRole.IT_SUPERVISOR;
 
   // Filtered Requests

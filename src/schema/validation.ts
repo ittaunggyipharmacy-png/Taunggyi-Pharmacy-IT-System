@@ -13,6 +13,10 @@ import {
   Status,
   UserRole
 } from '../types';
+import {
+  hasSuperAdministratorAccess,
+  isPrimaryAdministrator,
+} from '../config/application';
 
 export interface ValidationResult {
   valid: boolean;
@@ -404,11 +408,11 @@ export function validateAccessApproval(
   approverEmail?: string
 ): { allowed: boolean; reason?: string } {
   // Anti-self-approval rule
-  if (request.requesterUid === approverUid && approverEmail !== 'it.taunggyipharmacy@gmail.com') {
+  if (request.requesterUid === approverUid && !isPrimaryAdministrator(approverEmail)) {
     return { allowed: false, reason: 'Staff users are strictly prohibited from approving their own access requests.' };
   }
 
-  const isSuper = approverRole === 'super_admin' || approverEmail === 'it.taunggyipharmacy@gmail.com';
+  const isSuper = hasSuperAdministratorAccess(approverRole, approverEmail);
   const isSupervisor = isSuper || approverRole === 'it_supervisor';
 
   // Restricted or High sensitivity requires Supervisor or Super Admin

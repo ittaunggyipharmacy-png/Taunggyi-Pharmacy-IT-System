@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { useDepartments } from '../hooks/useDepartments';
 import { calculatePRTotals } from '../schema/validation';
+import { hasSuperAdministratorAccess } from '../config/application';
 
 interface ProcurementModuleProps {
   requisitions: PurchaseRequisition[];
@@ -123,7 +124,10 @@ export const ProcurementModule: React.FC<ProcurementModuleProps> = ({
   const [suppPaymentTerms, setSuppPaymentTerms] = useState<string>('Net 30');
   const [suppScore, setSuppScore] = useState<number>(5);
 
-  const isSuperAdmin = userRole === UserRole.SUPER_ADMIN || currentUser?.email === 'it.taunggyipharmacy@gmail.com';
+  const isSuperAdmin = hasSuperAdministratorAccess(
+    userRole,
+    currentUser?.email,
+  );
   const isSupervisor = isSuperAdmin || userRole === UserRole.IT_SUPERVISOR;
   const isFinance = isSuperAdmin || userRole === 'finance_manager' || isSupervisor;
 

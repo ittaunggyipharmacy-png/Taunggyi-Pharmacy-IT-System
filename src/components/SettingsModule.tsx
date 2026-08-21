@@ -17,6 +17,7 @@ import {
 import { SystemSettings, UserRole, RolePermission } from '../types';
 import { saveSettings, wipeDatabaseServer } from '../services/firestoreService';
 import { validateDepartmentName, sortDepartments } from '../utils/departmentUtils';
+import { DATABASE_WIPE_CONFIRMATION } from '../config/application';
 import UserManagement from './UserManagement';
 import AdminMigrationsModal from './AdminMigrationsModal';
 import ExcelImportModal from './ExcelImportModal';
@@ -110,7 +111,7 @@ export function SettingsModule({
 
   const handleWipeDatabase = async () => {
     if (!isAdmin) return;
-    if (wipeConfirmation !== 'DELETE ALL DATA CONFIRMED' || !backupVerified) return;
+    if (wipeConfirmation !== DATABASE_WIPE_CONFIRMATION || !backupVerified) return;
 
     setIsWiping(true);
     setWipeError(null);
@@ -367,7 +368,7 @@ export function SettingsModule({
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
               This will remove business collection documents. To confirm, verify backup and type 
-              <span className="font-mono font-bold text-rose-600 select-all"> DELETE ALL DATA CONFIRMED</span>.
+              <span className="font-mono font-bold text-rose-600 select-all"> {DATABASE_WIPE_CONFIRMATION}</span>.
             </p>
 
             <div className="space-y-3">
@@ -407,7 +408,7 @@ export function SettingsModule({
               </button>
               <button
                 onClick={handleWipeDatabase}
-                disabled={isWiping || wipeConfirmation !== 'DELETE ALL DATA CONFIRMED' || !backupVerified}
+                disabled={isWiping || wipeConfirmation !== DATABASE_WIPE_CONFIRMATION || !backupVerified}
                 className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-xs"
               >
                 {isWiping ? 'Wiping...' : 'Execute Wipe'}

@@ -14,40 +14,26 @@ import {
   Settings as SettingsIcon, 
   HelpCircle, 
   Search, 
-  Bell, 
   LogOut, 
   Sun, 
   Moon, 
   Menu, 
   X,
   Lock,
-  ChevronRight,
   Key
 } from 'lucide-react';
-import { onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
-import { auth, db } from './services/firebase';
+import {
+  onAuthStateChanged,
+  signOut,
+  GoogleAuthProvider,
+  signInWithPopup,
+  type User,
+} from 'firebase/auth';
+import { auth } from './services/firebase';
 import { syncSystemUser } from './services/firestoreService';
-import { 
-  ITAsset, 
-  ITTicket, 
-  PurchaseRecord, 
-  RenewalRecord, 
-  MeetingMinute, 
-  EmployeeProfile, 
-  ContentPlan, 
-  BackupLog, 
-  SystemSettings, 
-  SystemUser, 
-  UserRole,
-  AccessRequest,
-  PurchaseRequisition,
-  PurchaseOrder,
-  GoodsReceiptNote,
-  Supplier,
-  DepartmentBudget,
-  InvoiceMatchRecord
-} from './types';
+import { hasAdministratorAccess } from './config/application';
+import { useAppData } from './hooks/useAppData';
+import { SystemUser } from './types';
 
 // Route-level lazy loading
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -66,17 +52,15 @@ const ReportsModule = lazy(() => import('./components/ReportsModule'));
 const SettingsModule = lazy(() => import('./components/SettingsModule'));
 const HelpSupportModule = lazy(() => import('./components/HelpSupportModule'));
 
-const DEFAULT_SETTINGS: SystemSettings = {
-  departments: ['IT', 'Merchandising', 'Digital Marketing', 'Accounts', 'Management', 'Warehouse'],
-  locations: ['Central Storage', 'Branch 1', 'Branch 2', 'Branch 3', 'HQ Server Room'],
-  itContacts: [
-    { name: 'IT Support Team', role: 'Helpdesk', phone: '09-940-931-313' }
-  ],
-  branchNotes: []
-};
+const ACCESS_APPROVAL_STATUSES = ['Pending Approval', 'Draft', 'Provisioning'];
+const PURCHASE_APPROVAL_STATUSES = [
+  'Submitted',
+  'Manager Review',
+  'Finance Review',
+];
 
 export function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<SystemUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -84,26 +68,26 @@ export function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
 
-  // Collections state with scoped snapshots
-  const [assets, setAssets] = useState<ITAsset[]>([]);
-  const [tickets, setTickets] = useState<ITTicket[]>([]);
-  const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
-  const [renewals, setRenewals] = useState<RenewalRecord[]>([]);
-  const [meetings, setMeetings] = useState<MeetingMinute[]>([]);
-  const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
-  const [contentPlans, setContentPlans] = useState<ContentPlan[]>([]);
-  const [backups, setBackups] = useState<BackupLog[]>([]);
-  const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
-
-  // Enterprise Access & Procurement state
-  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
-  const [requisitions, setRequisitions] = useState<PurchaseRequisition[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [goodsReceipts, setGoodsReceipts] = useState<GoodsReceiptNote[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [budgets, setBudgets] = useState<DepartmentBudget[]>([]);
-  const [invoiceMatches, setInvoiceMatches] = useState<InvoiceMatchRecord[]>([]);
-  const [systemUsers, setSystemUsers] = useState<SystemUser[]>([]);
+  const {
+    assets,
+    tickets,
+    purchases,
+    renewals,
+    meetings,
+    employees,
+    contentPlans,
+    backups,
+    settings,
+    setSettings,
+    accessRequests,
+    requisitions,
+    purchaseOrders,
+    goodsReceipts,
+    suppliers,
+    budgets,
+    invoiceMatches,
+    systemUsers,
+  } = useAppData(user);
 
   // Authentication listener
   useEffect(() => {
@@ -135,73 +119,10 @@ export function App() {
     }
   }, [isDarkMode]);
 
-  // Firestore Subscriptions (Scoped when authenticated)
-  useEffect(() => {
-    if (!user) return;
-
-    const unsubs = [
-      onSnapshot(collection(db, 'it_assets'), (snap) => {
-        setAssets(snap.docs.map(d => ({ id: d.id, ...d.data() }) as ITAsset));
-      }),
-      onSnapshot(collection(db, 'it_tickets'), (snap) => {
-        setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() }) as ITTicket));
-      }),
-      onSnapshot(collection(db, 'purchase_records'), (snap) => {
-        setPurchases(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PurchaseRecord));
-      }),
-      onSnapshot(collection(db, 'renewals'), (snap) => {
-        setRenewals(snap.docs.map(d => ({ id: d.id, ...d.data() }) as RenewalRecord));
-      }),
-      onSnapshot(collection(db, 'meeting_minutes'), (snap) => {
-        setMeetings(snap.docs.map(d => ({ id: d.id, ...d.data() }) as MeetingMinute));
-      }),
-      onSnapshot(collection(db, 'employees'), (snap) => {
-        setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmployeeProfile));
-      }),
-      onSnapshot(collection(db, 'content_plans'), (snap) => {
-        setContentPlans(snap.docs.map(d => ({ id: d.id, ...d.data() }) as ContentPlan));
-      }),
-      onSnapshot(collection(db, 'backup_logs'), (snap) => {
-        setBackups(snap.docs.map(d => ({ id: d.id, ...d.data() }) as BackupLog));
-      }),
-      onSnapshot(collection(db, 'system_config'), (snap) => {
-        const main = snap.docs.find(d => d.id === 'main');
-        if (main) setSettings(main.data() as SystemSettings);
-      }),
-      // Enterprise collections
-      onSnapshot(collection(db, 'access_requests'), (snap) => {
-        setAccessRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }) as AccessRequest));
-      }),
-      onSnapshot(collection(db, 'purchase_requisitions'), (snap) => {
-        setRequisitions(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PurchaseRequisition));
-      }),
-      onSnapshot(collection(db, 'purchase_orders'), (snap) => {
-        setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }) as PurchaseOrder));
-      }),
-      onSnapshot(collection(db, 'goods_receipts'), (snap) => {
-        setGoodsReceipts(snap.docs.map(d => ({ id: d.id, ...d.data() }) as GoodsReceiptNote));
-      }),
-      onSnapshot(collection(db, 'suppliers'), (snap) => {
-        setSuppliers(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Supplier));
-      }),
-      onSnapshot(collection(db, 'department_budgets'), (snap) => {
-        setBudgets(snap.docs.map(d => ({ id: d.id, ...d.data() }) as DepartmentBudget));
-      }),
-      onSnapshot(collection(db, 'invoices_and_matches'), (snap) => {
-        setInvoiceMatches(snap.docs.map(d => ({ id: d.id, ...d.data() }) as InvoiceMatchRecord));
-      }),
-      onSnapshot(collection(db, 'app_users'), (snap) => {
-        setSystemUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }) as unknown as SystemUser));
-      })
-    ];
-
-    return () => unsubs.forEach(u => u());
-  }, [user]);
-
-  const isAdmin = userProfile?.isAdmin || 
-    userProfile?.role === UserRole.SUPER_ADMIN || 
-    userProfile?.role === UserRole.IT_SUPERVISOR || 
-    user?.email === "it.taunggyipharmacy@gmail.com";
+  const isAdmin = Boolean(
+    userProfile?.isAdmin ||
+      hasAdministratorAccess(userProfile?.role, user?.email),
+  );
 
   const handleSignIn = async () => {
     try {
@@ -214,12 +135,12 @@ export function App() {
 
   const handleSignOut = () => signOut(auth);
 
-  const pendingAccessApprovals = accessRequests.filter(r => 
-    r.status === 'Pending Approval' || r.status === 'Draft' || r.status === 'Provisioning'
+  const pendingAccessApprovals = accessRequests.filter((request) =>
+    ACCESS_APPROVAL_STATUSES.includes(request.status),
   ).length;
 
-  const pendingPRApprovals = requisitions.filter(r => 
-    r.status === 'Submitted' || r.status === 'Manager Review' || r.status === 'Finance Review'
+  const pendingPRApprovals = requisitions.filter((requisition) =>
+    PURCHASE_APPROVAL_STATUSES.includes(requisition.status),
   ).length;
 
   const navigationItems = [

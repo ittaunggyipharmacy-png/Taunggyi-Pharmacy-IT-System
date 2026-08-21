@@ -10,6 +10,7 @@ import {
   sanitizeInput 
 } from '../src/schema/validation.js';
 import { UserRole } from '../src/types.js';
+import { DATABASE_WIPE_CONFIRMATION } from '../src/config/application.js';
 
 // Color logging helpers
 const pass = (msg: string) => console.log(`  \x1b[32m✔\x1b[0m ${msg}`);
@@ -171,7 +172,8 @@ async function main() {
   // ---------------------------------------------------------
   console.log('\nSuite 7: Disaster Recovery & Safe Super-Admin Data Operations');
   await runTest('Server wipe endpoint requires exact string and verified backup confirmation', () => {
-    assert.ok(serverContent.includes('CONFIRM_WIPE'));
+    assert.strictEqual(DATABASE_WIPE_CONFIRMATION, 'DELETE ALL DATA CONFIRMED');
+    assert.ok(serverContent.includes('DATABASE_WIPE_CONFIRMATION'));
     assert.ok(serverContent.includes('backupVerified'));
   });
 
@@ -286,9 +288,16 @@ async function main() {
     assert.ok(!ticketsModuleContent.includes('<option value="Merchandising">Merchandising</option>'));
   });
 
+  const failedTests = totalTests - passedTests;
+  const successRate = Math.round((passedTests / totalTests) * 100);
+
   console.log('\n======================================================');
-  console.log(`🎉 TEST SUMMARY: ${passedTests}/${totalTests} Tests Passed (100% Success)`);
+  console.log(`TEST SUMMARY: ${passedTests}/${totalTests} Tests Passed (${successRate}% Success)`);
   console.log('======================================================\n');
+
+  if (failedTests > 0) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {
