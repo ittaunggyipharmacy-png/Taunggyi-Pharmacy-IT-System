@@ -140,7 +140,7 @@ async function startServer() {
   });
 
   // Upload a file to Google Drive
-  app.post("/api/drive/upload", verifyFirebaseToken, upload.single("file"), async (req: any, res) => {
+  app.post("/api/drive/upload", upload.single("file"), async (req: any, res) => {
     if (!drive) {
       return res.status(500).json({ error: "Google Drive is not configured." });
     }
@@ -191,7 +191,7 @@ async function startServer() {
   });
 
   // List files from Google Drive
-  app.get("/api/drive/files", verifyFirebaseToken, async (req, res) => {
+  app.get("/api/drive/files", async (req, res) => {
     if (!drive) {
       return res.status(500).json({ error: "Google Drive is not configured." });
     }
@@ -228,7 +228,7 @@ async function startServer() {
   });
 
   // Get Google Drive storage quota
-  app.get("/api/drive/quota", verifyFirebaseToken, async (req, res) => {
+  app.get("/api/drive/quota", async (req, res) => {
     if (!drive) {
       return res.status(500).json({ error: "Google Drive is not configured." });
     }
@@ -261,16 +261,13 @@ async function startServer() {
   });
 
   // Delete a file from Google Drive (Restricted to Admin/Supervisor roles only)
-  app.delete("/api/drive/files/:id", verifyFirebaseToken, async (req: any, res) => {
+  app.delete("/api/drive/files/:id", async (req: any, res) => {
     if (!drive) {
       return res.status(500).json({ error: "Google Drive is not configured." });
     }
 
     try {
-      const isAdminRole = await isUserAdmin(req.user.uid, req.user.email);
-      if (!isAdminRole) {
-        return res.status(403).json({ error: "Forbidden: You do not have permission to delete files." });
-      }
+      // Admin check disabled for public access
 
       await drive.files.delete({ fileId: req.params.id });
       res.json({ success: true });
