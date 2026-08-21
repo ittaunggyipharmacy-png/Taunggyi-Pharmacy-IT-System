@@ -25,6 +25,7 @@ export interface ValidationResult {
 
 export const ALLOWED_ASSET_STATUSES = [
   'Active',
+  'Assigned',
   'Maintenance',
   'Under Repair',
   'Retired',
@@ -746,4 +747,3 @@ export function sanitizeInput(input: string): string {
   if (typeof input !== 'string') return '';
   return input.replace(/<[^>]*>?/gm, '').trim();
 }
-
