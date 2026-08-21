@@ -1,4 +1,9 @@
 import { supabase } from "./lib/supabase";
+
+// If this window is a popup and has an access token in the URL, close it after Supabase processes it
+if (typeof window !== 'undefined' && window.opener && window.location.hash.includes('access_token')) {
+  setTimeout(() => window.close(), 1500);
+}
 import React, { useState, useEffect, useRef, Fragment, useMemo } from "react";
 import { 
  LayoutDashboard, 
@@ -619,8 +624,18 @@ export default function App() {
 
  const handleLogin = async () => {
  try {
- const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+ const { data, error } = await supabase.auth.signInWithOAuth({ 
+ provider: 'google',
+ options: {
+ skipBrowserRedirect: true, redirectTo: window.location.origin // Crucial for iframes
+ }
+ });
  if (error) throw error;
+ 
+ if (data?.url) {
+ // Open in a popup to escape the iframe
+ window.open(data.url, 'oauth_popup', 'width=600,height=700');
+ }
  } catch (error) {
  console.error("Login failed", error);
  }
