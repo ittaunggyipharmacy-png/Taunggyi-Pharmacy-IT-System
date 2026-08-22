@@ -79,7 +79,7 @@ const verifyFirebaseToken = async (req: any, res: any, next: any) => {
 
 // Check if User is Admin/Supervisor Role
 const isUserAdmin = async (uid: string, email?: string): Promise<boolean> => {
-  if (email === "it.taunggyipharmacy@gmail.com") return true;
+  if (email?.toLowerCase() === "it.taunggyipharmacy@gmail.com") return true;
   
   try {
     const db = getDb();
