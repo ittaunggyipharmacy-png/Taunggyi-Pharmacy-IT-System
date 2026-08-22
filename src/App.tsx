@@ -187,6 +187,7 @@ import {
  deletePasswordEntry,
  deleteRenewal
 } from "./services/firestoreService";
+import { migrateExistingUsersToAdmins } from "./services/firestoreService";
 
 import { Toaster, toast } from "react-hot-toast";
 import { ConfirmationModal } from "./components/ConfirmationModal";
@@ -439,6 +440,28 @@ export default function App() {
  const [userProfile, setUserProfile] = useState<SystemUser | null>(null);
  const [isAdmin, setIsAdmin] = useState(false);
  const [authReady, setAuthReady] = useState(false);
+ const [migrationRunning, setMigrationRunning] = useState(false);
+ const [migrationResult, setMigrationResult] = useState<string | null>(null);
+
+ const runFullMigration = async () => {
+   setMigrationRunning(true);
+   setMigrationResult(null);
+   try {
+     const res = await migrateExistingUsersToAdmins();
+     if (res.success) {
+       setMigrationResult(`Successfully migrated ${res.count} records from Firebase to Supabase!`);
+       toast.success(`Successfully migrated ${res.count} records from Firebase to Supabase!`);
+     } else {
+       setMigrationResult(`Migration failed: ${res.error || 'Unknown error'}`);
+       toast.error(`Migration failed: ${res.error || 'Unknown error'}`);
+     }
+   } catch (err: any) {
+     setMigrationResult(`Error: ${err.message || String(err)}`);
+     toast.error(`Error during migration`);
+   } finally {
+     setMigrationRunning(false);
+   }
+ };
 
  const [confirmTarget, setConfirmTarget] = useState<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>(null);
  const [activeTab, setActiveTab] = useState<"dashboard" | "tickets" | "assets" | "security" | "marketing" | "renewals" | "purchases" | "files" | "settings" | "help" | "kpi" | "daily-kpi" | "reports" | "skills" | "users" | "meetings" | "id-layout">("dashboard");
