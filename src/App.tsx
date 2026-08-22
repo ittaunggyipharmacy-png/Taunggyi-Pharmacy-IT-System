@@ -32,11 +32,12 @@ if (typeof window !== 'undefined' && !window.opener) {
         }
       }
       
-      // A full reload ensures everything boots up correctly
-      window.location.reload();
+      // Avoid reloading the window here! 
+      // In the AI Studio preview iframe, localStorage is often blocked.
+      // If Supabase falls back to in-memory storage, reloading the page destroys the session.
+      // Setting the session above will automatically trigger onAuthStateChange in React.
     } else if (event.data === 'SUPABASE_AUTH_COMPLETED') { // backward compatibility
       await supabase.auth.getSession();
-      window.location.reload();
     }
   });
 }
