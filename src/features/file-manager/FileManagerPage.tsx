@@ -133,7 +133,7 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  };
 
  const handleRename = async (id: string) => {
- // Firebase storage doesn't support rename natively without copy/delete
+ // Cloud storage doesn't support rename natively without copy/delete
  alert("Rename is not supported in this version.");
  setEditingId(null);
  };

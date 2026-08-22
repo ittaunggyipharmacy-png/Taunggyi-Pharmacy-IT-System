@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { toast } from "react-hot-toast";
 import { ITAsset } from "../types";
-import { clearAllAssets } from "../services/firestoreService";
+import { clearAllAssets } from "../services/assetService";
 
 export function ResetAssetsButton({ 
  setAssets, 

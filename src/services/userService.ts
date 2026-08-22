@@ -144,7 +144,3 @@ export const subscribeToUsers = (callback: (users: SystemUser[]) => void) => {
     supabase.removeChannel(channel);
   };
 };
-
-export const migrateExistingUsersToAdmins = async () => {
-  return { success: true, count: 0, error: null };
-};

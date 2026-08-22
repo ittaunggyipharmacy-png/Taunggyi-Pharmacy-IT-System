@@ -10,3 +10,4 @@ export * from './kpiService';
 export * from './meetingService';
 export * from './settingsService';
 export * from './marketingService';
+export * from './syncService';

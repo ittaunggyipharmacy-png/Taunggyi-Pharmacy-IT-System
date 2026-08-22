@@ -234,7 +234,7 @@ export function PurchasesModule({
  <p className="text-sm text-slate-400">No Purchase Records found.</p>
  <p className="text-xs text-amber-500 font-medium text-slate-500 dark:text-slate-400 leading-loose text-center px-4">
  SOP-001 Protocol: Please upload the latest Data Export (CSV/JSON)<br/>
- or Trigger the Firestore Sync Function. (ဒေတာများစုစည်းနေဆဲဖြစ်ပါသည်။)
+ or Sync data with Supabase. (ဒေတာများစုစည်းနေဆဲဖြစ်ပါသည်။)
  </p>
  </div>
  </td>

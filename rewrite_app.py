@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+with open('src/App.tsx', 'r') as f:
+    app_content = f.read()
+
+new_app_content = '''import React, { useState, useEffect, useMemo } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -37,8 +40,9 @@ import {
 } from './types';
 
 import { subscribeToTickets } from './services/ticketService';
-import { subscribeToSync, subscribeToSupervisorFeatures } from './services/syncService';
-import { getSettings } from './services/settingsService';
+import { 
+  subscribeToSync, getSettings, migrateExistingUsersToAdmins, subscribeToSupervisorFeatures
+} from './services/firestoreService';
 
 // If this window is a popup and has an access token in the URL, close it after Supabase processes it
 if (typeof window !== 'undefined' && window.opener && window.location.hash.includes('access_token')) {
@@ -75,10 +79,17 @@ if (typeof window !== 'undefined' && !window.opener) {
 }
 
 const INITIAL_SETTINGS: SystemSettings = {
-  departments: [],
-  locations: [],
-  itContacts: [],
-  branchNotes: []
+  appName: 'ManageZ',
+  companyName: 'Lex Corp',
+  supportEmail: 'it.support@example.com',
+  supportPhone: '09-123456789',
+  backupFrequency: 'daily',
+  retentionDays: 30,
+  maxStorageQuota: 50,
+  requireApprovalForAssets: true,
+  autoAssignTickets: false,
+  emailNotifications: true,
+  maintenanceMode: false
 };
 
 const INITIAL_SCHEDULE: BackupSchedule[] = [
@@ -90,7 +101,28 @@ export default function App() {
   const { canAccess, loading: accessLoading } = useAccessControl();
   const { currentUser, userProfile, isAdmin, authReady, login, logout } = useAuth();
   
+  const [migrationRunning, setMigrationRunning] = useState(false);
+  const [migrationResult, setMigrationResult] = useState<string | null>(null);
 
+  const runFullMigration = async () => {
+    setMigrationRunning(true);
+    setMigrationResult(null);
+    try {
+      const res = await migrateExistingUsersToAdmins();
+      if (res.success) {
+        setMigrationResult(`Successfully migrated ${res.count} records from Firebase to Supabase!`);
+        toast.success(`Successfully migrated ${res.count} records from Firebase to Supabase!`);
+      } else {
+        setMigrationResult(`Migration failed: ${res.error || 'Unknown error'}`);
+        toast.error(`Migration failed: ${res.error || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      setMigrationResult(`Error: ${err.message || String(err)}`);
+      toast.error(`Error during migration`);
+    } finally {
+      setMigrationRunning(false);
+    }
+  };
 
   const [confirmTarget, setConfirmTarget] = useState<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'tickets' | 'assets' | 'security' | 'marketing' | 'renewals' | 'purchases' | 'files' | 'settings' | 'help' | 'kpi' | 'daily-kpi' | 'reports' | 'skills' | 'users' | 'meetings' | 'id-layout'>('dashboard');
@@ -449,3 +481,9 @@ export default function App() {
     </>
   );
 }
+'''
+
+with open('src/App.tsx', 'w') as f:
+    f.write(new_app_content)
+
+print('App.tsx rewritten successfully!')

@@ -312,7 +312,7 @@ export const KPITracker: React.FC<{ userRole?: UserRole }> = ({ userRole }) => {
  const newCustomTasks = [...customTasks, newTask];
  setCustomTasks(newCustomTasks);
  
- // Save to Firebase
+ // Save to database
  const logId = view === "daily" ? `${selectedDate}_${currentUser.uid}` : 
  view === "weekly" ? `${selectedWeek}_${currentUser.uid}` : 
  `${selectedMonth}_${currentUser.uid}`;

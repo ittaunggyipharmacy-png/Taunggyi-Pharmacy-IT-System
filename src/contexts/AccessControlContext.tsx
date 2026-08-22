@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserRole, RolePermission } from '../types';
-import { fetchRolePermissions, saveRolePermission } from '../services/firestoreService';
+import { fetchRolePermissions, saveRolePermission } from '../services/settingsService';
 import { supabase } from '../lib/supabase';
 
 interface AccessControlContextType {

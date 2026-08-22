@@ -3,10 +3,11 @@ import { supabase } from '../../../lib/supabase';
 import { UserRole, SystemUser } from '../../../types';
 import { 
   loginWithGoogle as authLogin, 
-  logoutUser as authLogout, 
-  syncSystemUser, 
-  isUserAdmin 
+  logout as authLogout
 } from '../../../services/authService';
+import { 
+  syncSystemUser 
+} from '../../../services/userService';
 
 export function useAuth() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -28,7 +29,7 @@ export function useAuth() {
           setUserProfile(profile);
 
           if (profile) {
-            setIsAdmin(isUserAdmin(profile.role));
+            setIsAdmin(profile.role === UserRole.IT_SUPERVISOR || profile.role === UserRole.IT_SUPERVISOR_CAPS || profile.role === UserRole.ADMIN || profile.role === UserRole.ADMIN_CAPS);
           }
 
           // Realtime user profile updates
@@ -43,7 +44,7 @@ export function useAuth() {
                 if (payload.new) {
                   const updatedProfile = payload.new as SystemUser;
                   setUserProfile(updatedProfile);
-                  setIsAdmin(isUserAdmin(updatedProfile.role));
+                  setIsAdmin(updatedProfile.role === UserRole.IT_SUPERVISOR || updatedProfile.role === UserRole.IT_SUPERVISOR_CAPS || updatedProfile.role === UserRole.ADMIN || updatedProfile.role === UserRole.ADMIN_CAPS);
                 }
               }).subscribe();
 

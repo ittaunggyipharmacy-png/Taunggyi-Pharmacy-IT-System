@@ -388,7 +388,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  }
 
  try {
- // Make updates persistent in Firestore
+ // Make updates persistent in database
  const updatePromises = selectedAssetIds.map(id => {
  const asset = assets.find(a => a.id === id);
  if (asset) {
@@ -406,7 +406,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  setSelectedAssetIds([]);
  } catch (error) {
  console.error("Bulk update failed", error);
- alert("Failed to apply bulk updates to Firestore.");
+ alert("Failed to apply bulk updates to database.");
  }
  };
 

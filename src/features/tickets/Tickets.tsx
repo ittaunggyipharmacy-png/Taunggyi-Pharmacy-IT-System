@@ -23,7 +23,7 @@ import { toast } from 'react-hot-toast';
 import { utils, writeFile } from 'xlsx';
 import { ITTicket, Priority, Status, ActionEntry, UserRole, SystemSettings } from '../../types';
 import { saveTicket, deleteTicket } from '../../services/ticketService';
-import { getDailyLog, saveDailyLog } from '../../services/firestoreService';
+import { getDailyLog, saveDailyLog } from '../../services/kpiService';
 import { safeFormat, isHistorical, formatId } from '../../utils/file';
 import { cn } from '../../lib/utils';
 import { SearchableDropdown } from '../../components/SearchableDropdown';

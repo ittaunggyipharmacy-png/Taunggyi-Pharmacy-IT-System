@@ -13,7 +13,7 @@ import {
  RefreshCw
 } from "lucide-react";
 import { SystemUser, UserRole } from "../../types";
-import { getAllSystemUsers, updateSystemUserRole, migrateExistingUsersToAdmins } from "../../services/userService";
+import { getAllSystemUsers, updateSystemUserRole } from "../../services/userService";
 import { motion, AnimatePresence } from "motion/react";
 
 const ROLE_CONFIG = {
@@ -28,31 +28,11 @@ export const UserManagement = ({ isSuperAdmin }: { isSuperAdmin: boolean }) => {
  const [users, setUsers] = useState<SystemUser[]>([]);
  const [loading, setLoading] = useState(true);
  const [updating, setUpdating] = useState<string | null>(null);
- const [migrationStatus, setMigrationStatus] = useState<{ running: boolean; message?: string; success?: boolean } | null>(null);
+ 
 
  useEffect(() => {
  fetchUsers();
  }, []);
-
- const handleMigration = async () => {
- if (!isSuperAdmin) return;
- setMigrationStatus({ running: true, message: "Migrating user database records..." });
- const result = await migrateExistingUsersToAdmins();
- if (result.success) {
- setMigrationStatus({ 
- running: false, 
- success: true, 
- message: `Successfully migrated database! Calculated & wrote isAdmin flag for ${result.count} user document(s).` 
- });
- fetchUsers();
- } else {
- setMigrationStatus({ 
- running: false, 
- success: false, 
- message: `Migration failed: ${result.error || "Unknown error occurred"}` 
- });
- }
- };
 
  const fetchUsers = async () => {
  setLoading(true);
@@ -99,52 +79,7 @@ export const UserManagement = ({ isSuperAdmin }: { isSuperAdmin: boolean }) => {
  </div>
  </header>
 
- {isSuperAdmin && (
- <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
- <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
- <div className="space-y-1">
- <h3 className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
- <Database size={16} className="text-indigo-600" />
- Database Role Migration Tool
- </h3>
- <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
- Calculate and sync the new <code className="bg-slate-100 px-1 py-0.5 rounded text-indigo-600 font-mono">isAdmin</code> boolean field for all existing personnel accounts.
- </p>
- </div>
- <button
- onClick={handleMigration}
- disabled={migrationStatus?.running}
- className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium text-white shadow-sm transition-all bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] ${migrationStatus?.running ? "opacity-50 cursor-not-allowed" : ""}`}
- >
- {migrationStatus?.running ? (
- <RefreshCw size={14} className="animate-spin" />
- ) : (
- <Database size={14} />
- )}
- {migrationStatus?.running ? "Running Migration..." : "Migrate Saved Users"}
- </button>
- </div>
- <AnimatePresence mode="wait">
- {migrationStatus && (
- <motion.div
- initial={{ opacity: 0, y: -8 }}
- animate={{ opacity: 1, y: 0 }}
- exit={{ opacity: 0, y: -8 }}
- className={`p-3.5 rounded-xl border flex items-start gap-2 text-xs font-semibold ${migrationStatus.success ? "bg-emerald-50 border-emerald-100 text-emerald-800" : migrationStatus.running ? "bg-indigo-50 border-indigo-100 text-indigo-800 animate-pulse" : "bg-rose-50 border-rose-100 text-rose-800"}`}
- >
- {migrationStatus.success ? (
- <CheckCircle2 size={16} className="text-emerald-600 mt-0.5 shrink-0" />
- ) : (
- <AlertCircle size={16} className={`${migrationStatus.running ? "text-indigo-600" : "text-rose-600"} mt-0.5 shrink-0`} />
- )}
- <div>
- <p>{migrationStatus.message}</p>
- </div>
- </motion.div>
- )}
- </AnimatePresence>
- </div>
- )}
+ 
 
  <div className="grid grid-cols-1 gap-4">
  {users.map((user) => {
