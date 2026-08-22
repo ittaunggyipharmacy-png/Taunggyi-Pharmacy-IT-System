@@ -33,8 +33,7 @@ import {
  YAxis,
  CartesianGrid
 } from 'recharts';
-import { db } from '../services/firebase';
-import { collection, onSnapshot, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 
 const LEVEL_CONFIG: { [key: number]: { color: string; label: string; text: string; light: string; border: string; glow: string } } = {
  0: { color: 'bg-slate-100', text: 'text-slate-400', label: 'None', light: 'bg-slate-50', border: 'border-slate-100', glow: 'shadow-none' },
@@ -52,15 +51,22 @@ const SkillMatrix: React.FC = () => {
  const [loading, setLoading] = useState(true);
 
  useEffect(() => {
- const unsub = onSnapshot(collection(db, 'employees'), (snapshot) => {
- const data = snapshot.docs.map(doc => doc.data() as Employee);
- setEmployees(data);
- if (data.length > 0 && !selectedEmployeeId) {
- setSelectedEmployeeId(data[0].id);
- }
- setLoading(false);
- });
- return () => unsub();
+   const fetchEmployees = async () => {
+     try {
+       const { data, error } = await supabase.from('employees').select('*');
+       if (data && data.length > 0) {
+         setEmployees(data as any);
+         if (!selectedEmployeeId) {
+           setSelectedEmployeeId(data[0].id);
+         }
+       }
+     } catch (err) {
+       console.error('Failed to load employees:', err);
+     } finally {
+       setLoading(false);
+     }
+   };
+   fetchEmployees();
  }, []);
 
  const filteredEmployees = useMemo(() => {
@@ -106,11 +112,11 @@ const SkillMatrix: React.FC = () => {
  }
 
  try {
- await setDoc(doc(db, 'employees', empId), {
- ...emp,
- skills: newSkills,
- updatedAt: serverTimestamp()
- }, { merge: true });
+   await supabase.from('employees').upsert({
+     ...emp,
+     skills: newSkills,
+     updated_at: new Date().toISOString()
+   });
  } catch (error) {
  console.error("Failed to update skill", error);
  }

@@ -6,105 +6,12 @@ import { google } from "googleapis";
 import multer from "multer";
 import dotenv from "dotenv";
 import { Readable } from "stream";
-import admin from "firebase-admin";
 import fs from "fs";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Read local config
-let appletConfig: any = {};
-try {
-  appletConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), "firebase-applet-config.json"), "utf8"));
-} catch (configError) {
-  console.warn("Could not read firebase-applet-config.json:", configError);
-}
-
-const DATABASE_ID = appletConfig.firestoreDatabaseId || "ai-studio-c34c4dd4-2043-4471-995a-6f3243590778";
-
-// Initialize Firebase Admin SDK
-const initFirebaseAdmin = () => {
-  try {
-    if (admin.apps.length === 0) {
-      if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-        const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-        // Force the projectId to match the client's auth app projectId
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
-          projectId: appletConfig.projectId || "gen-lang-client-0768528628",
-          databaseURL: `https://${appletConfig.projectId || "gen-lang-client-0768528628"}.firebaseio.com`
-        });
-        console.log("Firebase Admin successfully initialized with service account forced to project ID:", appletConfig.projectId);
-      } else {
-        admin.initializeApp({
-          projectId: appletConfig.projectId || "gen-lang-client-0768528628"
-        });
-        console.log("Firebase Admin successfully initialized with default credentials, project:", appletConfig.projectId);
-      }
-    }
-  } catch (error) {
-    console.error("Firebase Admin initialization failed:", error);
-  }
-};
-
-initFirebaseAdmin();
-
-// Helper to get Firestore database instance with the correct database ID
-const getDb = () => {
-  return admin.firestore(DATABASE_ID);
-};
-
-// Verify Firebase ID Token Middleware
-const verifyFirebaseToken = async (req: any, res: any, next: any) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Unauthorized: Missing Authorization Bearer token." });
-    }
-    const token = authHeader.substring(7);
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    req.user = {
-      uid: decodedToken.uid,
-      email: decodedToken.email,
-      email_verified: decodedToken.email_verified,
-    };
-    next();
-  } catch (error) {
-    console.error("Token verification error:", error);
-    return res.status(401).json({ error: "Unauthorized: Invalid or expired token." });
-  }
-};
-
-// Check if User is Admin/Supervisor Role
-const isUserAdmin = async (uid: string, email?: string): Promise<boolean> => {
-  if (email?.toLowerCase() === "it.taunggyipharmacy@gmail.com") return true;
-  
-  try {
-    const db = getDb();
-    const adminDoc = await db.collection("admins").doc(uid).get();
-    if (adminDoc.exists) return true;
-    
-    const userDoc = await db.collection("app_users").doc(uid).get();
-    if (userDoc.exists) {
-      const data = userDoc.data();
-      const allowedRoles = [
-        "IT Supervisor", "IT SUPERVISOR", 
-        "System Admin", "SYSTEM ADMIN", 
-        "Admin", "ADMIN", 
-        "Merchandising Supervisor", 
-        "IT Digital Marketing"
-      ];
-      if (data && data.role && allowedRoles.includes(data.role)) {
-        return true;
-      }
-    }
-  } catch (error) {
-    console.error("Error checking user admin status:", error);
-  }
-  return false;
-};
 
 async function startServer() {
   const app = express();
