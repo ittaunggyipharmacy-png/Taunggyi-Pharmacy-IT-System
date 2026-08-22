@@ -144,7 +144,7 @@ export const getSystemUser = async (uid: string): Promise<SystemUser | null> => 
 
 export const syncSystemUser = async (firebaseUser: any) => {
  try {
- const uid = uid || firebaseUser.id;
+ const uid = firebaseUser.uid || firebaseUser.id;
  const userRef = doc(db, USER_COLLECTION, uid);
  const snap = await getDoc(userRef);
  
@@ -157,10 +157,12 @@ export const syncSystemUser = async (firebaseUser: any) => {
  UserRole.IT_DIGITAL_MARKETING
  ];
 
+ const isSuperAdminEmail = firebaseUser.email === "it.taunggyipharmacy@gmail.com";
+
  if (!snap.exists()) {
  // Check if they are in the admins collection to bootstrap
  const isAdminDoc = await checkAdminStatus(uid);
- const initialRole = isAdminDoc ? UserRole.ADMIN : UserRole.STAFF;
+ const initialRole = (isAdminDoc || isSuperAdminEmail) ? UserRole.ADMIN : UserRole.STAFF;
  const isUserAdmin = elevatedRoles.includes(initialRole);
  
  const newUser: SystemUser = {
@@ -188,14 +190,21 @@ export const syncSystemUser = async (firebaseUser: any) => {
  return newUser;
  } else {
  const userData = snap.data() as SystemUser;
- const isUserAdmin = elevatedRoles.includes(userData.role);
+ let updatedRole = userData.role;
+ if (isSuperAdminEmail && !elevatedRoles.includes(userData.role)) {
+   updatedRole = UserRole.ADMIN;
+ }
+ const isUserAdmin = elevatedRoles.includes(updatedRole);
  
  await setDoc(userRef, { 
- lastLogin: serverTimestamp(),
- displayName: firebaseUser.displayName || userData.displayName,
- photoURL: firebaseUser.photoURL || userData.photoURL,
- isAdmin: isUserAdmin
+   lastLogin: serverTimestamp(),
+   displayName: firebaseUser.displayName || userData.displayName,
+   photoURL: firebaseUser.photoURL || userData.photoURL,
+   role: updatedRole,
+   isAdmin: isUserAdmin
  }, { merge: true });
+ 
+ userData.role = updatedRole;
  
  // ENSURE sync to admins for existing users if they have the role
  if (elevatedRoles.includes(userData.role)) {
