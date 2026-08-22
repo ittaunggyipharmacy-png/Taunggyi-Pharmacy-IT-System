@@ -1,4 +1,6 @@
 import { supabase } from '../lib/supabase';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from './firebase';
 import { 
   PurchaseRecord, 
   ITAsset, 
@@ -452,4 +454,76 @@ export const importKeyboardsMigration = async () => { return { success: true }; 
 export const fetchAllRecords = async () => { return {}; };
 export const subscribeToSync = () => () => {};
 export const subscribeToSupervisorFeatures = () => () => {};
-export const migrateExistingUsersToAdmins = async () => { return { success: true, count: 0 }; };
+export const migrateExistingUsersToAdmins = async () => {
+  try {
+    const collectionsToMigrate = [
+      { firestore: 'users', supabase: 'app_users' },
+      { firestore: 'app_users', supabase: 'app_users' },
+      { firestore: 'system_config', supabase: 'system_config' },
+      { firestore: 'role_permissions', supabase: 'role_permissions' },
+      { firestore: 'password_vault', supabase: 'password_vault' },
+      { firestore: 'tickets', supabase: 'tickets' },
+      { firestore: 'assets', supabase: 'assets' },
+      { firestore: 'asset_counters', supabase: 'asset_counters' },
+      { firestore: 'backups', supabase: 'backups' },
+      { firestore: 'cctv_requests', supabase: 'cctv_requests' },
+      { firestore: 'content_plans', supabase: 'content_plans' },
+      { firestore: 'renewals', supabase: 'renewals' },
+      { firestore: 'purchases', supabase: 'purchases' },
+      { firestore: 'meeting_minutes', supabase: 'meeting_minutes' },
+      { firestore: 'daily_logs', supabase: 'daily_logs' },
+      { firestore: 'weekly_logs', supabase: 'weekly_logs' },
+      { firestore: 'monthly_logs', supabase: 'monthly_logs' },
+      { firestore: 'employees', supabase: 'employees' },
+      { firestore: 'activities', supabase: 'activities' },
+      { firestore: 'task_evidence', supabase: 'task_evidence' }
+    ];
+
+    let totalMigrated = 0;
+
+    for (const mapping of collectionsToMigrate) {
+      try {
+        const querySnapshot = await getDocs(collection(db, mapping.firestore));
+        if (!querySnapshot.empty) {
+          const records = querySnapshot.docs.map(docSnap => {
+            const data = docSnap.data();
+            const cleaned: any = {};
+            for (const key of Object.keys(data)) {
+              let val = data[key];
+              if (val && typeof val.toDate === 'function') {
+                val = val.toDate().toISOString();
+              } else if (val && val.seconds && typeof val.seconds === 'number') {
+                val = new Date(val.seconds * 1000).toISOString();
+              }
+              cleaned[key] = val;
+            }
+            if (!cleaned.id) {
+              cleaned.id = docSnap.id;
+            }
+            if (mapping.supabase === 'app_users' && !cleaned.uid) {
+              cleaned.uid = docSnap.id;
+            }
+            if (mapping.supabase === 'system_config' && !cleaned.id) {
+              cleaned.id = 'main';
+            }
+            return cleaned;
+          });
+
+          if (records.length > 0) {
+            const { error } = await supabase.from(mapping.supabase).upsert(records);
+            if (!error) {
+              totalMigrated += records.length;
+            }
+          }
+        }
+      } catch (colErr) {
+        // ignore missing collections
+      }
+    }
+
+    return { success: true, count: totalMigrated };
+  } catch (error: any) {
+    console.error("Migration error:", error);
+    return { success: false, count: 0, error: error.message || String(error) };
+  }
+};
