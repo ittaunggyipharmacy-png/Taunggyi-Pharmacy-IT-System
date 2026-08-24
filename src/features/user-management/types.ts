@@ -9,4 +9,8 @@ export interface UserProfile {
   createdAt?: any;
   lastLogin?: any;
   isAdmin?: boolean;
+  employeeId?: string;
+  position?: string;
+  department?: string;
+  branch?: string;
 }
