@@ -46,54 +46,19 @@ export const mapAssetFromDatabase = (dbAsset: any): ITAsset => {
 
 export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
   const {
-    id,
-    asset_code,
-    category,
-    model,
-    serialNumber,
-    purchaseDate,
-    location,
-    assignedTo,
-    status,
-    brand,
-    specs,
-    remarks,
-    remark2,
-    department,
-    uom,
-    purchasePrice,
-    itemPrice,
-    parentId,
-    assignedToAssetId,
-    currency,
-    purchaseRecordId,
-    maintenanceDueDate,
-    addedBy,
-    supplier,
-    peripherals,
+    id, asset_code, category, model, serialNumber, purchaseDate, location,
+    assignedTo, status, brand, specs, remarks, remark2, department, uom,
+    purchasePrice, itemPrice, parentId, assignedToAssetId, currency,
+    purchaseRecordId, maintenanceDueDate, addedBy, supplier, peripherals,
   } = asset;
 
   const validPurchaseDate = sanitizeDateForDb(purchaseDate);
-
   const extraFields = {
-    serialNumber,
-    brand,
-    specs,
-    remarks,
-    remark2,
-    uom,
-    purchasePrice,
-    itemPrice,
-    assignedToAssetId,
-    currency,
-    purchaseRecordId,
-    maintenanceDueDate,
-    addedBy,
-    supplier,
-    peripherals,
+    serialNumber, brand, specs, remarks, remark2, uom, purchasePrice,
+    itemPrice, assignedToAssetId, currency, purchaseRecordId,
+    maintenanceDueDate, addedBy, supplier, peripherals,
     rawPurchaseDate: purchaseDate || undefined,
   };
-  
   const specsPayload = JSON.stringify(cleanData(extraFields));
 
   return {
@@ -130,21 +95,13 @@ export const generateNextAssetCode = async (category: string, currentOffset: num
     .select('count')
     .eq('id', `assetCode_${catKey}`)
     .single();
-
-  if (fetchError && fetchError.code !== 'PGRST116') {
-    throw fetchError;
-  }
-
+  if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
   const lastNum = data?.count || 0;
   const nextNum = lastNum + 1 + currentOffset;
-
   const { error: upsertError } = await supabase
     .from('asset_counters')
     .upsert({ id: `assetCode_${catKey}`, count: nextNum, updated_at: new Date().toISOString() });
-
-  if (upsertError) {
-    throw upsertError;
-  }
+  if (upsertError) throw upsertError;
 
   const getPrefix = (cat: string) => {
     const c = (cat || '').toLowerCase();
@@ -158,32 +115,20 @@ export const generateNextAssetCode = async (category: string, currentOffset: num
     if (c === 'scanner') return 'TG-SC-';
     return 'TG-ACC-';
   };
-
   return `${getPrefix(category)}${String(nextNum).padStart(3, '0')}`;
 };
 
 export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undefined> => {
   let code = asset.asset_code;
-  if (!asset.id && !code && asset.category) {
-    code = await generateNextAssetCode(asset.category);
-  }
-  
-  const payload = mapAssetToDatabase({
-    ...asset,
-    id: asset.id || crypto.randomUUID(),
-    asset_code: code
-  });
-
+  if (!asset.id && !code && asset.category) code = await generateNextAssetCode(asset.category);
+  const payload = mapAssetToDatabase({ ...asset, id: asset.id || crypto.randomUUID(), asset_code: code });
   const { error } = await supabase.from('assets').upsert({
-    ...cleanData(payload),
-    updated_at: new Date().toISOString()
+    ...cleanData(payload), updated_at: new Date().toISOString()
   });
-
   if (error) {
     console.error('Error saving asset:', error);
     throw error;
   }
-
   asset.id = payload.id;
   if (code) asset.asset_code = code;
   return payload.id;
@@ -205,6 +150,37 @@ export const clearAllAssets = async (): Promise<void> => {
   }
 };
 
+/**
+ * Read the current Asset Code from the edit form when the caller did not pass it.
+ * This is intentionally resilient to different input markup used by the UI.
+ */
+const readEditedAssetCodeFromForm = (): string | undefined => {
+  if (typeof document === 'undefined') return undefined;
+
+  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('input'));
+  const assetCodeInput = inputs.find((input) => {
+    const metadata = [
+      input.name,
+      input.id,
+      input.placeholder,
+      input.getAttribute('aria-label'),
+      input.getAttribute('title'),
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    if (metadata.includes('asset code') || metadata.includes('asset_code')) return true;
+
+    let parent = input.parentElement;
+    for (let depth = 0; depth < 3 && parent; depth += 1) {
+      const text = (parent.textContent || '').toLowerCase();
+      if (text.includes('asset code')) return true;
+      parent = parent.parentElement;
+    }
+    return false;
+  });
+
+  return assetCodeInput?.value?.trim() || undefined;
+};
+
 export const updateAssetAssignment = async (
   assetId: string,
   assignedUser: string,
@@ -213,19 +189,15 @@ export const updateAssetAssignment = async (
   status: ITAsset["status"],
   additionalFields: Partial<ITAsset> = {}
 ): Promise<void> => {
-  const { data: existingData, error: fetchErr } = await supabase.from('assets').select('*').eq('id', assetId).single();
+  const { data: existingData, error: fetchErr } = await supabase
+    .from('assets')
+    .select('*')
+    .eq('id', assetId)
+    .single();
   if (fetchErr) throw fetchErr;
 
   const existingAsset = mapAssetFromDatabase(existingData);
-
-  // AssetsPage currently does not pass asset_code in additionalFields.
-  // Read the edited Asset Code field from the edit form so saving the form
-  // persists the code to public.assets.code instead of silently keeping the old code.
-  let editedAssetCode = additionalFields.asset_code;
-  if (!editedAssetCode && typeof document !== 'undefined') {
-    const codeInput = document.querySelector<HTMLInputElement>('input[placeholder="e.g., TG-PC-001"]');
-    editedAssetCode = codeInput?.value?.trim() || undefined;
-  }
+  const editedAssetCode = additionalFields.asset_code?.trim() || readEditedAssetCodeFromForm();
 
   const updatedAsset: Partial<ITAsset> = {
     ...existingAsset,
@@ -253,21 +225,10 @@ export const updateAssetAssignment = async (
   }
 };
 
-export const initializeAssetCodeCounters = async () => {
-  return { success: true };
-};
-
-export const importLegacyExcelData = async (_rows: any[]) => {
-  return { success: true, count: 0, assets: [] as any[], message: '' };
-};
-
-export const migrateAssetsToSequentialCodes = async (_dryRun = false) => {
-  return { success: true };
-};
-
-export const importKeyboardsMigration = async () => {
-  return { success: true };
-};
+export const initializeAssetCodeCounters = async () => ({ success: true });
+export const importLegacyExcelData = async (_rows: any[]) => ({ success: true, count: 0, assets: [] as any[], message: '' });
+export const migrateAssetsToSequentialCodes = async (_dryRun = false) => ({ success: true });
+export const importKeyboardsMigration = async () => ({ success: true });
 
 export const subscribeToAssets = (callback: (assets: ITAsset[]) => void) => {
   const channel = supabase
@@ -277,7 +238,7 @@ export const subscribeToAssets = (callback: (assets: ITAsset[]) => void) => {
         const assets = await fetchAssets();
         callback(assets);
       } catch (err) {
-        console.error("Failed to refresh assets on change", err);
+        console.error('Failed to refresh assets on change', err);
       }
     })
     .subscribe();
