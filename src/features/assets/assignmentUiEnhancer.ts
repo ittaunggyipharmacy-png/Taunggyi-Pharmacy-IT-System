@@ -1,7 +1,5 @@
 import { supabase } from '../../lib/supabase';
 
-const USER_DATALIST_ID = 'it-asset-assignee-users';
-
 type AssignmentUser = {
   name: string;
   employeeId?: string;
@@ -20,7 +18,9 @@ type AssignmentAsset = {
   branch?: string;
 };
 
+const USER_DATALIST_ID = 'it-asset-assignee-users';
 const normalize = (value: unknown) => String(value ?? '').trim().toLowerCase();
+const uniqueSorted = (values: Array<string | undefined>) => Array.from(new Set(values.map(v => String(v || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
 const getParentLabelText = (element: HTMLElement) => {
   let parent: HTMLElement | null = element.parentElement;
@@ -43,7 +43,6 @@ const loadAssignmentUsers = async (): Promise<AssignmentUser[]> => {
     supabase.from('app_users').select('uid,display_name,employee_id,department,branch,position').order('display_name'),
     supabase.from('asset_people').select('id,full_name,employee_id,department,branch,position').order('full_name'),
   ]);
-
   const values = new Map<string, AssignmentUser>();
   (users || []).forEach((user: any) => {
     const name = String(user.display_name || '').trim();
@@ -58,16 +57,13 @@ const loadAssignmentUsers = async (): Promise<AssignmentUser[]> => {
   return Array.from(values.values()).sort((a, b) => a.name.localeCompare(b.name));
 };
 
-const getUserDepartments = (users: AssignmentUser[]) => Array.from(new Set(users.map(user => String(user.department || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-const getUserOptionLabel = (user: AssignmentUser) => [user.employeeId, user.department, user.branch, user.position].filter(Boolean).join(' · ');
-
 const renderUserOptions = (datalist: HTMLDataListElement, users: AssignmentUser[], department = '') => {
   const selectedDepartment = normalize(department);
   const filtered = selectedDepartment ? users.filter(user => normalize(user.department) === selectedDepartment) : users;
   datalist.replaceChildren(...filtered.map(user => {
     const option = document.createElement('option');
     option.value = user.name;
-    const label = getUserOptionLabel(user);
+    const label = [user.employeeId, user.department, user.branch, user.position].filter(Boolean).join(' · ');
     if (label) option.label = label;
     return option;
   }));
@@ -77,7 +73,6 @@ const ensureUserSearch = async (input: HTMLInputElement) => {
   if (input.dataset.assignmentUserEnhanced === 'true') return;
   let datalist = document.getElementById(USER_DATALIST_ID) as HTMLDataListElement | null;
   if (!datalist) { datalist = document.createElement('datalist'); datalist.id = USER_DATALIST_ID; document.body.appendChild(datalist); }
-
   let users = (window as any).__assetAssignmentUsers as AssignmentUser[] | undefined;
   if (!users) { users = await loadAssignmentUsers(); (window as any).__assetAssignmentUsers = users; }
   renderUserOptions(datalist, users);
@@ -85,9 +80,10 @@ const ensureUserSearch = async (input: HTMLInputElement) => {
   const departmentSelect = document.createElement('select');
   departmentSelect.className = 'mb-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500';
   departmentSelect.setAttribute('aria-label', 'Search users by department');
-  departmentSelect.dataset.assetUserDepartmentFilter = 'true';
   const allOption = document.createElement('option'); allOption.value = ''; allOption.textContent = 'All Departments'; departmentSelect.appendChild(allOption);
-  getUserDepartments(users).forEach(department => { const option = document.createElement('option'); option.value = department; option.textContent = department; departmentSelect.appendChild(option); });
+  uniqueSorted(users.map(user => user.department)).forEach(department => {
+    const option = document.createElement('option'); option.value = department; option.textContent = department; departmentSelect.appendChild(option);
+  });
   departmentSelect.addEventListener('change', () => { renderUserOptions(datalist!, users!, departmentSelect.value); input.value = ''; });
 
   input.setAttribute('list', USER_DATALIST_ID);
@@ -111,7 +107,14 @@ const loadAssignmentAssets = async (): Promise<AssignmentAsset[]> => {
   }));
 };
 
-const assetOptionText = (option: HTMLOptionElement) => normalize(`${option.textContent} ${option.value}`);
+const createFilter = (label: string, values: string[]) => {
+  const select = document.createElement('select');
+  select.className = 'rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500';
+  select.setAttribute('aria-label', label);
+  const all = document.createElement('option'); all.value = ''; all.textContent = `All ${label}s`; select.appendChild(all);
+  values.forEach(value => { const option = document.createElement('option'); option.value = value; option.textContent = value; select.appendChild(option); });
+  return select;
+};
 
 const enhanceAssetAssignmentSelects = async () => {
   const selects = Array.from(document.querySelectorAll<HTMLSelectElement>('select'));
@@ -134,18 +137,45 @@ const enhanceAssetAssignmentSelects = async () => {
       if (extra && !normalize(option.textContent).includes(normalize(extra))) option.textContent = `${option.textContent} · ${extra}`;
     });
 
+    const filterRow = document.createElement('div');
+    filterRow.className = 'mb-2 grid grid-cols-1 gap-2 sm:grid-cols-3';
+    filterRow.dataset.assetAssignmentFilters = 'true';
+
+    const departments = createFilter('Department', uniqueSorted(assets.map(asset => asset.department)));
+    const categories = createFilter('Category', uniqueSorted(assets.map(asset => asset.category)));
+    const branches = createFilter('Branch', uniqueSorted(assets.map(asset => asset.branch)));
+    filterRow.append(departments, categories, branches);
+
     const search = document.createElement('input');
     search.type = 'search';
-    search.placeholder = 'Search asset code / name / category / serial / department...';
+    search.placeholder = 'Search asset code / name / serial / brand...';
     search.className = 'mb-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500';
-    search.setAttribute('aria-label', 'Search available assets by code, name, serial, or department');
-    search.addEventListener('input', () => {
+    search.setAttribute('aria-label', 'Search available assets');
+
+    const applyFilters = () => {
       const term = normalize(search.value);
+      const department = normalize(departments.value);
+      const category = normalize(categories.value);
+      const branch = normalize(branches.value);
       Array.from(select.options).forEach((option, index) => {
         if (index === 0) { option.hidden = false; return; }
-        option.hidden = Boolean(term) && !assetOptionText(option).includes(term);
+        const asset = byId.get(String(option.value));
+        if (!asset) { option.hidden = Boolean(term); return; }
+        const text = normalize(`${option.textContent} ${asset.code} ${asset.name} ${asset.category} ${asset.serialNumber} ${asset.department} ${asset.branch}`);
+        option.hidden = Boolean(department && normalize(asset.department) !== department)
+          || Boolean(category && normalize(asset.category) !== category)
+          || Boolean(branch && normalize(asset.branch) !== branch)
+          || Boolean(term && !text.includes(term));
       });
-    });
+      if (select.value && select.options[select.selectedIndex]?.hidden) select.value = '';
+    };
+
+    search.addEventListener('input', applyFilters);
+    departments.addEventListener('change', applyFilters);
+    categories.addEventListener('change', applyFilters);
+    branches.addEventListener('change', applyFilters);
+
+    wrapper.insertBefore(filterRow, select);
     wrapper.insertBefore(search, select);
     select.dataset.assetSearchEnhanced = 'true';
   }
