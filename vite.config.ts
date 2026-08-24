@@ -25,9 +25,13 @@ export default defineConfig(({mode}) => {
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     build: {
+      target: 'esnext',
       outDir: 'dist',
       emptyOutDir: false,
       sourcemap: true,
+    },
+    esbuild: {
+      target: 'esnext',
     },
   };
 });
