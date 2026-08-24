@@ -13,7 +13,7 @@ export const mapAssetFromDatabase = (dbAsset: any): ITAsset => {
         specsObj = parsed;
         specsStr = parsed.specs || '';
       }
-    } catch(e) {}
+    } catch (e) {}
   }
   return {
     id: dbAsset.id,
@@ -74,7 +74,6 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
   } = asset;
 
   const validPurchaseDate = sanitizeDateForDb(purchaseDate);
-
   const extraFields = {
     serialNumber,
     brand,
@@ -93,9 +92,8 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
     peripherals,
     rawPurchaseDate: purchaseDate || undefined,
   };
-  
-  // NOTE: For now, we stringify extraFields into specs to prevent data loss without altering schema.
-  // The UI expects 'specs' to be the original string, so we embed it inside the JSON.
+
+  // Preserve the current database shape so existing data and UI behavior are not changed.
   const specsPayload = JSON.stringify(cleanData(extraFields));
 
   return {
@@ -125,43 +123,33 @@ export const fetchAssets = async (): Promise<ITAsset[]> => {
   return (data || []).map(mapAssetFromDatabase);
 };
 
+/**
+ * Generate an asset code atomically in Postgres.
+ * This replaces the old read-then-upsert counter logic, which could issue
+ * duplicate codes when two users created assets at the same time.
+ */
 export const generateNextAssetCode = async (category: string, currentOffset: number = 0): Promise<string> => {
-  const catKey = (category || 'other').toLowerCase().replace(/\s+/g, '_');
-  const { data, error: fetchError } = await supabase
-    .from('asset_counters')
-    .select('count')
-    .eq('id', `assetCode_${catKey}`)
-    .single();
+  const calls = Math.max(1, Math.floor(currentOffset) + 1);
+  let code = '';
 
-  if (fetchError && fetchError.code !== 'PGRST116') {
-    throw fetchError;
+  for (let i = 0; i < calls; i += 1) {
+    const { data, error } = await supabase.rpc('next_asset_code', {
+      p_category: category || 'other'
+    });
+
+    if (error) {
+      console.error('Error generating asset code:', error);
+      throw error;
+    }
+
+    if (!data || typeof data !== 'string') {
+      throw new Error('Asset code generator returned an invalid value.');
+    }
+
+    code = data;
   }
 
-  const lastNum = data?.count || 0;
-  const nextNum = lastNum + 1 + currentOffset;
-
-  const { error: upsertError } = await supabase
-    .from('asset_counters')
-    .upsert({ id: `assetCode_${catKey}`, count: nextNum, updated_at: new Date().toISOString() });
-
-  if (upsertError) {
-    throw upsertError;
-  }
-
-  const getPrefix = (cat: string) => {
-    const c = (cat || '').toLowerCase();
-    if (c === 'computer') return 'TG-PC-';
-    if (c === 'keyboard') return 'TG-KB-';
-    if (c === 'mouse') return 'TG-MS-';
-    if (c === 'fan') return 'TG-FN-';
-    if (c === 'usb hub' || c === 'usb') return 'TG-UB-';
-    if (c === 'printer') return 'TG-PR-';
-    if (c === 'phone' || c === 'mobile') return 'TG-PH-';
-    if (c === 'scanner') return 'TG-SC-';
-    return 'TG-ACC-';
-  };
-
-  return `${getPrefix(category)}${String(nextNum).padStart(3, '0')}`;
+  return code;
 };
 
 export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undefined> => {
@@ -169,7 +157,7 @@ export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undef
   if (!asset.id && !code && asset.category) {
     code = await generateNextAssetCode(asset.category);
   }
-  
+
   const payload = mapAssetToDatabase({
     ...asset,
     id: asset.id || crypto.randomUUID(),
@@ -212,15 +200,17 @@ export const updateAssetAssignment = async (
   assignedUser: string,
   location: string,
   department: string,
-  status: ITAsset["status"],
+  status: ITAsset['status'],
   additionalFields: Partial<ITAsset> = {}
 ): Promise<void> => {
-  // First, fetch the existing asset so we can map it properly without losing extraFields
-  const { data: existingData, error: fetchErr } = await supabase.from('assets').select('*').eq('id', assetId).single();
+  const { data: existingData, error: fetchErr } = await supabase
+    .from('assets')
+    .select('*')
+    .eq('id', assetId)
+    .single();
   if (fetchErr) throw fetchErr;
 
   const existingAsset = mapAssetFromDatabase(existingData);
-  
   const updatedAsset = {
     ...existingAsset,
     assignedTo: assignedUser,
@@ -231,7 +221,6 @@ export const updateAssetAssignment = async (
   };
 
   const payload = mapAssetToDatabase(updatedAsset);
-
   const { error } = await supabase
     .from('assets')
     .update({
@@ -246,21 +235,26 @@ export const updateAssetAssignment = async (
   }
 };
 
-export const initializeAssetCodeCounters = async () => {
-  return { success: true };
-};
+// Kept as explicit no-op compatibility functions so existing imports do not break.
+// Actual migration/import workflows should be implemented only when their source data contract is defined.
+export const initializeAssetCodeCounters = async () => ({ success: true });
 
-export const importLegacyExcelData = async (_rows: any[]) => {
-  return { success: true, count: 0, assets: [] as any[], message: '' };
-};
+export const importLegacyExcelData = async (_rows: any[]) => ({
+  success: false,
+  count: 0,
+  assets: [] as any[],
+  message: 'Legacy Excel import is not implemented in this build.'
+});
 
-export const migrateAssetsToSequentialCodes = async (_dryRun = false) => {
-  return { success: true };
-};
+export const migrateAssetsToSequentialCodes = async (_dryRun = false) => ({
+  success: false,
+  message: 'Sequential asset-code migration is not implemented in this build.'
+});
 
-export const importKeyboardsMigration = async () => {
-  return { success: true };
-};
+export const importKeyboardsMigration = async () => ({
+  success: false,
+  message: 'Keyboard migration is not implemented in this build.'
+});
 
 export const subscribeToAssets = (callback: (assets: ITAsset[]) => void) => {
   const channel = supabase
@@ -270,11 +264,12 @@ export const subscribeToAssets = (callback: (assets: ITAsset[]) => void) => {
         const assets = await fetchAssets();
         callback(assets);
       } catch (err) {
-        console.error("Failed to refresh assets on change", err);
+        console.error('Failed to refresh assets on change', err);
       }
     })
     .subscribe();
+
   return () => {
-    supabase.removeChannel(channel);
+    void supabase.removeChannel(channel);
   };
 };
