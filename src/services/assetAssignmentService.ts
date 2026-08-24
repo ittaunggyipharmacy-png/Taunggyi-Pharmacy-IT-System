@@ -66,9 +66,11 @@ const mapAssignment = (row: any): AssetAssignmentRecord => ({
     : null,
 });
 
+// asset_assignments has two foreign keys to app_users (user_id and assigned_by).
+// The explicit FK name is required so PostgREST does not report an ambiguous relationship.
 const assignmentSelect = `
   *,
-  user:app_users(
+  user:app_users!asset_assignments_user_id_fkey(
     uid,
     employee_id,
     display_name,
@@ -79,7 +81,7 @@ const assignmentSelect = `
     branch,
     photo_url
   ),
-  asset_person:asset_people(
+  asset_person:asset_people!asset_assignments_asset_person_id_fkey(
     id,
     employee_id,
     full_name,
@@ -94,7 +96,7 @@ const assignmentSelect = `
     created_at,
     updated_at
   ),
-  asset:assets(
+  asset:assets!asset_assignments_asset_id_fkey(
     id,
     code,
     name,
