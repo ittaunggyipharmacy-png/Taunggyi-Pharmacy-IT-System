@@ -88,7 +88,7 @@ const INITIAL_SCHEDULE: BackupSchedule[] = [
 
 export default function App() {
   const { canAccess, loading: accessLoading } = useAccessControl();
-  const { currentUser, userProfile, isAdmin, authReady, login, logout } = useAuth();
+  const { currentUser, userProfile, isAdmin, authReady, login, loginWithCredentials, logout } = useAuth();
   
 
 
@@ -186,6 +186,7 @@ export default function App() {
       const unsubSync = subscribeToSync({
         onPurchases: (updatedPurchases) => setPurchases(updatedPurchases),
         onAssets: (updatedAssets) => setAssets(updatedAssets),
+        onAssetsError: (err: any) => { console.error('Asset load error:', err); toast.error('Unable to load assets'); },
         onBackups: (updatedBackups) => setBackups(updatedBackups),
         onCCTV: (updatedCCTV) => setCctvRequests(updatedCCTV),
         onPlans: (updatedPlans) => setContentPlans(updatedPlans),
@@ -312,7 +313,7 @@ export default function App() {
   }
 
   if (!currentUser) {
-    return <LoginScreen onLogin={login} />;
+    return <LoginScreen onLogin={login} onLoginWithCredentials={loginWithCredentials} />;
   }
 
   const allNavItems = [

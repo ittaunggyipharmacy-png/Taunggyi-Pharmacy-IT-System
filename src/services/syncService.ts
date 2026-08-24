@@ -11,7 +11,7 @@ export const subscribeToSync = (handlers?: any) => {
   
   if (handlers?.onAssets) {
     unsubs.push(subscribeToAssets(handlers.onAssets));
-    fetchAssets().then(handlers.onAssets);
+    fetchAssets().then(handlers.onAssets).catch(err => { console.error("Failed to load assets", err); if (handlers.onAssetsError) handlers.onAssetsError(err); });
   }
   if (handlers?.onPurchases) {
     unsubs.push(subscribeToPurchases(handlers.onPurchases));

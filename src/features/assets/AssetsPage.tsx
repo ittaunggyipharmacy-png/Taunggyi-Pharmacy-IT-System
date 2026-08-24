@@ -1,10 +1,12 @@
+import { AssetStatusBadge } from "./components/AssetStatusBadge";
+import { AssetEmptyState } from "./components/AssetEmptyState";
 import React, { useState, useEffect, useRef, useMemo, Fragment } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Monitor, Plus, Search, Filter, Trash2, Edit3, CheckCircle2, 
   AlertCircle, ChevronDown, ChevronUp, RefreshCw, Download, Upload, 
   FileSpreadsheet, Sparkles, Layers, Box, Cpu, HardDrive, Shield,
-  ExternalLink, UserCheck, Check, Clock, Laptop, ArrowUpDown, ChevronRight, X,
+  ExternalLink, UserCheck, UserX, Check, Clock, Laptop, ArrowUpDown, ChevronRight, X,
   Package, AlertTriangle, Database, Tag, Settings2, Usb, Link2, MinusSquare, 
   Printer, Keyboard, MousePointer2, Wind, ShieldCheck, Smartphone, Info
 } from 'lucide-react';
@@ -37,7 +39,15 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  const [selectedAsset, setSelectedAsset] = useState<ITAsset | null>(null);
  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
  const [newAsset, setNewAsset] = useState<Partial<ITAsset>>({ category: "Computer", status: "Active" });
- 
+  const [isLoading, setIsLoading] = useState(false);
+  const [isError, setIsError] = useState(false);
+
+  const handleRetry = () => {
+    setIsLoading(true);
+    setIsError(false);
+    setTimeout(() => setIsLoading(false), 600);
+  };
+
  // Hierarchical Filter State
  const [filterCategory, setFilterCategory] = useState<string[]>([]);
  const [selectedCategory, setSelectedCategory] = useState('All');
@@ -46,8 +56,11 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  const [filterSpec, setFilterSpec] = useState<string[]>([]);
  const [filterDept, setFilterDept] = useState<string[]>([]);
  const [filterUser, setFilterUser] = useState<string[]>([]);
- const [filterStatus, setFilterStatus] = useState<string[]>([]);
- const [assetSearch, setAssetSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string[]>([]);
+  const [filterLocation, setFilterLocation] = useState<string[]>([]);
+  const [assetSearch, setAssetSearch] = useState("");
+
+  const locations = useMemo(() => Array.from(new Set([...(settings.locations || []), ...assets.map(a => a.location).filter(Boolean)])).sort(), [assets, settings]);
 
  // Options memoized per level
  const categories = useMemo(() => {
@@ -194,6 +207,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  const matchesModel = filterModel.length === 0 || filterModel.includes(asset.model);
  const matchesSpec = filterSpec.length === 0 || filterSpec.includes(asset.specs || "");
  const matchesStatus = filterStatus.length === 0 || filterStatus.includes(asset.status);
+ const matchesLocation = filterLocation.length === 0 || filterLocation.includes(asset.location || "");
  
  const searchLower = (searchTerm || assetSearch).toLowerCase();
  const matchesSearch = searchLower === "" || 
@@ -204,7 +218,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  (asset.assignedTo?.toLowerCase() || "").includes(searchLower) ||
  (asset.specs?.toLowerCase() || "").includes(searchLower);
 
- return matchesDept && matchesUser && matchesCategory && matchesBrand && matchesModel && matchesSpec && matchesStatus && matchesSearch;
+ return matchesDept && matchesUser && matchesCategory && matchesBrand && matchesModel && matchesSpec && matchesStatus && matchesLocation && matchesSearch;
  });
 
  const currentAssets = filteredAssets.filter(a => !isHistorical(a.purchaseDate));
@@ -746,475 +760,346 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  };
 
  return (
- <div className="space-y-6">
- {/* Refined Analysis Bar */}
- <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
- {[
- { label: "Total Nodes", value: analysis.total, sub: "Registered", color: "text-indigo-600", icon: Package },
- { label: "Active Units", value: analysis.active, sub: "Operational", color: "text-emerald-600", icon: CheckCircle2 },
- { label: "Maintenance", value: analysis.maintenance, sub: "Action Required", color: "text-amber-600", icon: AlertTriangle },
- { label: "Est. Value", value: (analysis.totalValue / 1000000).toFixed(1) + "M", sub: "MMK Total", color: "text-indigo-600", icon: Search }
- ].map((item, idx) => (
- <div key={idx} className="enterprise-card p-5 group flex flex-col justify-between hover:border-indigo-200 transition-all">
- <div className="flex justify-between items-start">
- <span className="text-xs font-medium text-slate-400 ">{item.label}</span>
- <item.icon size={16} className={cn("opacity-40 group-hover:opacity-100 transition-opacity", item.color)} />
- </div>
- <div className="mt-3 flex items-end gap-2">
- <span className="text-2xl font-medium text-slate-800 dark:text-slate-100 leading-none">{item.value}</span>
- <span className="text-xs font-medium text-slate-400 pb-0.5">{item.sub}</span>
- </div>
- </div>
- ))}
- </div>
- 
- {/* Consolidated Breakdown Bar / Category Selector */}
- <div className="flex flex-wrap gap-2 items-center">
- <button 
- onClick={() => setSelectedCategory('All')}
- className={cn(
- "px-4 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 border transition-all shadow-sm",
- selectedCategory === 'All' 
- ? "bg-indigo-600 border-indigo-600 text-white" 
- : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 hover:border-indigo-300"
- )}
- >
- All Assets
- </button>
- 
- <button 
- onClick={() => setSelectedCategory('Peripherals')}
- className={cn(
- "px-4 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 border transition-all shadow-sm flex items-center gap-2",
- selectedCategory === 'Peripherals' 
- ? "bg-amber-600 border-amber-600 text-white" 
- : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 hover:border-amber-300"
- )}
- >
- <Layers size={12} />
- Peripherals
- </button>
+  <div className="space-y-6 bg-[#F8FAFC] min-h-screen p-4 sm:p-6 text-[#0F172A]" style={{ fontFamily: "Inter, sans-serif" }}>
+    {/* Page Header */}
+    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-[#E2E8F0] shadow-sm">
+      <div>
+        <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Asset Management</h1>
+        <p className="text-sm text-[#64748B] mt-1">Manage and track company assets, assignments, locations and equipment.</p>
+      </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="flex items-center gap-2 px-4 py-2 bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#0F172A] font-medium rounded-xl transition-all text-sm cursor-pointer shadow-sm">
+          <Upload size={16} className="text-[#64748B]" />
+          <span>Import</span>
+          <input type="file" accept=".xlsx, .xls" onChange={handleImportAssetsFromExcel} className="hidden" />
+        </label>
+        <button
+          onClick={handleExportAssets}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-[#E2E8F0] hover:bg-[#F8FAFC] text-[#0F172A] font-medium rounded-xl transition-all text-sm shadow-sm"
+        >
+          <Download size={16} className="text-[#64748B]" />
+          <span>Export</span>
+        </button>
+        <button
+          onClick={() => {
+            setNewAsset({ category: "Computer", status: "Active" });
+            setIsEditing(false);
+            setIsAdding(true);
+          }}
+          className="flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium rounded-xl transition-all text-sm shadow-sm shadow-blue-500/20"
+        >
+          <Plus size={16} />
+          <span>+ Add Asset</span>
+        </button>
+      </div>
+    </div>
 
- <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
+    {/* Summary Cards */}
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {[
+        { label: "Total Assets", value: assets.length, sub: "Registered", color: "text-[#2563EB]", bg: "bg-[#EFF6FF]", icon: Package },
+        { label: "Available", value: assets.filter(a => ["In Stock", "New", "Standalone / Spare"].includes(a.status) || (!a.assignedTo || a.assignedTo === "Unassigned")).length, sub: "In Inventory", color: "text-emerald-600", bg: "bg-emerald-50", icon: CheckCircle2 },
+        { label: "Assigned", value: assets.filter(a => a.assignedTo && a.assignedTo.trim() !== "" && a.assignedTo !== "Unassigned").length, sub: "In Service", color: "text-indigo-600", bg: "bg-indigo-50", icon: UserCheck },
+        { label: "Maintenance", value: assets.filter(a => ["Maintenance", "Under Repair"].includes(a.status)).length, sub: "Requires Action", color: "text-amber-600", bg: "bg-amber-50", icon: AlertTriangle }
+      ].map((card, idx) => (
+        <div key={idx} className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-[#64748B]">{card.label}</p>
+            <p className="text-2xl font-bold text-[#0F172A] mt-1">{card.value}</p>
+            <p className="text-xs text-[#64748B] mt-0.5">{card.sub}</p>
+          </div>
+          <div className={`w-12 h-12 rounded-xl ${card.bg} flex items-center justify-center ${card.color}`}>
+            <card.icon size={22} />
+          </div>
+        </div>
+      ))}
+    </div>
 
- {['Computer', 'Monitor', 'UPS', 'Mobile', 'Printer', 'Network'].map((cat) => (
- <button 
- key={cat}
- onClick={() => setSelectedCategory(cat)}
- className={cn(
- "px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 border transition-all shadow-sm",
- selectedCategory === cat 
- ? "bg-slate-800 border-slate-800 text-white" 
- : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 hover:border-indigo-300"
- )}
- >
- {cat}
- <span className={cn(
- "ml-2 text-xs font-medium",
- selectedCategory === cat ? "text-indigo-300" : "text-indigo-600"
- )}>
- {assets.filter(a => a.category === cat).length}
- </span>
- </button>
- ))}
- </div>
+    {/* Search / Filter Toolbar */}
+    <div className="bg-white p-6 rounded-2xl border border-[#E2E8F0] shadow-sm space-y-4">
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#64748B]" size={18} />
+          <input
+            type="text"
+            placeholder="Search asset, serial, employee..."
+            value={assetSearch}
+            onChange={e => setAssetSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl text-sm text-[#0F172A] placeholder-[#64748B] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-[#2563EB] transition-all"
+          />
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              setFilterCategory([]);
+              setFilterStatus([]);
+              setFilterDept([]);
+              setFilterLocation([]);
+              setFilterBrand([]);
+              setFilterModel([]);
+              setFilterSpec([]);
+              setFilterUser([]);
+              setAssetSearch("");
+            }}
+            className="px-4 py-3 bg-white border border-[#E2E8F0] text-[#64748B] hover:text-[#0F172A] hover:bg-[#F8FAFC] rounded-xl text-sm font-medium transition-colors"
+          >
+            Clear Filters
+          </button>
+        </div>
+      </div>
 
- <div className="flex flex-col gap-6 enterprise-card p-6">
- <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
- <div>
- <h2 className="text-xl font-medium text-slate-800 dark:text-slate-100 dark:text-white tracking-tight flex items-center gap-2">
- <Database size={20} className="text-indigo-600" />
- IT Asset Inventory
- </h2>
- <p className="text-xs text-slate-400 dark:text-slate-500 dark:text-slate-400 mt-1  font-medium tracking-[0.2em]">Enterprise Resource Management • SOP-001</p>
- </div>
- 
- <div className="flex items-center gap-4 my-4">
- {/* Export ခလုတ် */}
- <button
- onClick={handleExportAssets}
- className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition-all shadow-sm shadow-emerald-100 text-sm"
- >
- <Download size={16} />
- Excel Export ထုတ်ယူရန်
- </button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-[#E2E8F0]">
+        <MultiSelectDropdown
+          label="All Categories"
+          placeholder="All Categories"
+          options={categories}
+          selected={filterCategory}
+          onChange={setFilterCategory}
+          icon={Layers}
+        />
+        <MultiSelectDropdown
+          label="All Status"
+          placeholder="All Status"
+          options={statuses}
+          selected={filterStatus}
+          onChange={setFilterStatus}
+          icon={CheckCircle2}
+        />
+        <MultiSelectDropdown
+          label="All Departments"
+          placeholder="All Departments"
+          options={departments}
+          selected={filterDept}
+          onChange={setFilterDept}
+          icon={Database}
+        />
+        <MultiSelectDropdown
+          label="All Locations"
+          placeholder="All Locations"
+          options={locations}
+          selected={filterLocation}
+          onChange={setFilterLocation}
+          icon={Tag}
+        />
+      </div>
 
- {/* Import / Upload ခလုတ် */}
- <label className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl transition-all shadow-sm shadow-indigo-100 text-sm cursor-pointer">
- <Upload size={16} />
- Excel ဖိုင်တင်၍ Update/Insert လုပ်ရန်
- <input
- type="file"
- accept=".xlsx, .xls"
- onChange={handleImportAssetsFromExcel}
- className="hidden"
- />
- </label>
+      {/* Active Filters Display */}
+      {(filterCategory.length > 0 || filterBrand.length > 0 || filterModel.length > 0 || filterSpec.length > 0 || filterDept.length > 0 || filterLocation.length > 0 || filterUser.length > 0 || filterStatus.length > 0 || assetSearch) && (
+        <div className="flex flex-wrap gap-2 items-center text-xs pt-3 border-t border-[#E2E8F0]">
+          <span className="text-[#64748B] font-medium mr-1">Active Clusters:</span>
+          {filterCategory.map(cat => (
+            <span key={cat} className="bg-[#EFF6FF] text-[#2563EB] px-2.5 py-1 rounded-lg border border-blue-100 flex items-center gap-1.5 font-medium">
+              Category: {cat} <X size={12} className="cursor-pointer hover:text-rose-600" onClick={() => setFilterCategory(filterCategory.filter(c => c !== cat))} />
+            </span>
+          ))}
+          {filterStatus.map(st => (
+            <span key={st} className="bg-[#EFF6FF] text-[#2563EB] px-2.5 py-1 rounded-lg border border-blue-100 flex items-center gap-1.5 font-medium">
+              Status: {st} <X size={12} className="cursor-pointer hover:text-rose-600" onClick={() => setFilterStatus(filterStatus.filter(s => s !== st))} />
+            </span>
+          ))}
+          {filterDept.map(dp => (
+            <span key={dp} className="bg-[#EFF6FF] text-[#2563EB] px-2.5 py-1 rounded-lg border border-blue-100 flex items-center gap-1.5 font-medium">
+              Dept: {dp} <X size={12} className="cursor-pointer hover:text-rose-600" onClick={() => setFilterDept(filterDept.filter(d => d !== dp))} />
+            </span>
+          ))}
+          {filterLocation.map(loc => (
+            <span key={loc} className="bg-[#EFF6FF] text-[#2563EB] px-2.5 py-1 rounded-lg border border-blue-100 flex items-center gap-1.5 font-medium">
+              Location: {loc} <X size={12} className="cursor-pointer hover:text-rose-600" onClick={() => setFilterLocation(filterLocation.filter(l => l !== loc))} />
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
 
- {/* Manual Add ခလုတ် */}
- <button
- onClick={() => {
- setNewAsset({ category: "Computer", status: "Active" });
- setIsEditing(false);
- setIsAdding(true);
- }}
- className="flex items-center gap-2 px-5 py-2.5 bg-indigo-900 border border-slate-700 text-white font-medium rounded-xl transition-all shadow-lg hover:bg-black text-sm"
- >
- <Plus size={16} />
- Asset အသစ်ထည့်ရန် (Manual)
- </button>
-</div>
- </div>
-
- {/* Dynamic Multi-level Filter System */}
- <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
- <MultiSelectDropdown 
- label="Category"
- placeholder="All Categories"
- options={categories}
- selected={filterCategory}
- onChange={setFilterCategory}
- icon={Layers}
- />
- <MultiSelectDropdown 
- label="Brand"
- placeholder="Select Brands"
- options={brands}
- selected={filterBrand}
- onChange={setFilterBrand}
- icon={Tag}
- />
- <MultiSelectDropdown 
- label="Model"
- placeholder="Select Models"
- options={models}
- selected={filterModel}
- onChange={setFilterModel}
- icon={Cpu}
- />
- <MultiSelectDropdown 
- label="Specification"
- placeholder="Select Specs"
- options={specs}
- selected={filterSpec}
- onChange={setFilterSpec}
- icon={Settings2}
- />
- <MultiSelectDropdown 
- label="Status"
- placeholder="Select Status"
- options={statuses}
- selected={filterStatus}
- onChange={setFilterStatus}
- icon={CheckCircle2}
- />
- <div className="relative group">
- <label className="block text-xs font-medium text-slate-400 dark:text-slate-500 dark:text-slate-400 mb-1.5 ml-1">Universal Search</label>
- <div className="relative">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={14} />
- <input 
- type="text" 
- placeholder="ID, Serial, User..."
- value={assetSearch}
- onChange={e => setAssetSearch(e.target.value)}
- className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-400 transition-all placeholder:text-slate-400/50"
- />
- </div>
- </div>
- </div>
-
- {/* Active Filters Display */}
- {(filterCategory.length > 0 || filterBrand.length > 0 || filterModel.length > 0 || filterSpec.length > 0 || filterDept.length > 0 || filterUser.length > 0 || filterStatus.length > 0 || assetSearch) && (
- <div className="flex flex-wrap gap-2 items-center text-xs p-4 border-t border-slate-100 dark:border-slate-800">
- <span className="text-slate-400 font-medium  mr-1">Active Clusters:</span>
- {filterCategory.map(cat => (
- <span key={cat} className="bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 flex items-center gap-1">
- Category: {cat} <X size={10} className="cursor-pointer" onClick={() => setFilterCategory(filterCategory.filter(c => c !== cat))} />
- </span>
- ))}
- {filterBrand.map(brand => (
- <span key={brand} className="bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 flex items-center gap-1">
- Brand: {brand} <X size={10} className="cursor-pointer" onClick={() => setFilterBrand(filterBrand.filter(b => b !== brand))} />
- </span>
- ))}
- {filterModel.map(model => (
- <span key={model} className="bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 flex items-center gap-1">
- Model: {model} <X size={10} className="cursor-pointer" onClick={() => setFilterModel(filterModel.filter(m => m !== model))} />
- </span>
- ))}
- <button 
- onClick={() => { setFilterCategory([]); setFilterBrand([]); setFilterModel([]); setFilterSpec([]); setFilterStatus([]); setFilterDept([]); setFilterUser([]); setAssetSearch(""); }}
- className="text-slate-400 hover:text-rose-500 font-medium text-slate-500 dark:text-slate-400 transition-colors ml-2 underline decoration-dotted"
- >
- Clear All Segments
- </button>
- </div>
- )}
- </div>
-
- <div className="enterprise-card overflow-hidden">
- {/* Desktop Table View */}
- <div className="hidden lg:block overflow-x-auto">
- <table className="w-full text-left">
- <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
- <tr className=" text-[#475569] dark:text-slate-300 font-medium text-xs hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
- <th className="px-4 py-3.5 whitespace-nowrap">
- <input 
- type="checkbox" 
- checked={selectedAssetIds.length > 0 && selectedAssetIds.length === filteredAssets.length}
- onChange={toggleSelectAll}
- className="w-3 h-3 rounded border-slate-300 bg-white dark:bg-slate-900 accent-indigo-600 cursor-pointer"
- />
- </th>
- <th className="px-4 py-5">HARDWARE</th>
- <th className="px-4 py-3.5">ASSIGNED USER</th>
- <th className="px-4 py-3.5">LOCATION</th>
- <th className="px-4 py-3.5">STATUS</th>
- <th className="px-4 py-3.5 text-right">PURCHASE DATE</th>
- {isAdmin && <th className="px-4 py-3.5 text-center">ACTIONS</th>}
- </tr>
- </thead>
- <tbody className="divide-y divide-slate-100">
- {filteredAssets.length === 0 ? (
- <tr>
- <td colSpan={6} className="px-6 py-12 text-center">
- <div className="flex flex-col items-center gap-3">
- <HardDrive className="text-slate-300" size={32} />
- <p className="text-sm text-slate-400 font-medium text-slate-500 dark:text-slate-400">Inventory Tracker Empty</p>
- <p className="text-xs text-indigo-600 font-medium text-slate-500 dark:text-slate-400 leading-loose text-center px-4">
- Please upload data export or check SOP-001 Sync logs.<br/>
- (ဒေတာများထည့်သွင်းရန် လိုအပ်နေပါသည်။)
- </p>
- </div>
- </td>
- </tr>
- ) : [
- { label: "Current Assets", items: currentAssets },
- { label: "Historical Records (>30 days)", items: historicalAssets }
- ].map((group) => (
- <React.Fragment key={group.label}>
- {group.items.length > 0 && (
- <tr className="bg-slate-50/30 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
- <td colSpan={isAdmin ? 7 : 6} className="px-6 py-2 text-xs font-medium text-indigo-600 ">{group.label}</td>
- </tr>
- )}
- {group.items.map((asset) => (
- <tr 
- key={asset.id} 
- onClick={() => setSelectedAsset(asset)}
- className={cn(
- "hover:bg-slate-50 transition-colors group cursor-pointer text-slate-600 dark:text-slate-300",
- selectedAssetIds.includes(asset.id) && "bg-indigo-50/50"
- )}
- >
- <td className="px-4 py-3.5" onClick={(e) => toggleSelectAsset(asset.id, e)}>
- <input 
- type="checkbox" 
- checked={selectedAssetIds.includes(asset.id)}
- onChange={() => {}} 
- className="w-3 h-3 rounded border-slate-300 bg-white dark:bg-slate-900 accent-indigo-600 cursor-pointer"
- />
- </td>
- <td className="px-4 py-3.5">
- <div className="flex items-center gap-3 text-slate-700 dark:text-slate-200">
- <div className="p-1.5 bg-slate-100 rounded-lg text-slate-400">
- {asset.category === "Computer" && <Monitor size={14} />}
- {asset.category === "Software" ? <RefreshCw size={14} /> : <HardDrive size={14} />}
- </div>
- <div>
- <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">
- {asset.brand && <span className="text-indigo-600 font-medium mr-2">[{asset.brand}]</span>}
- {asset.model}
- </p>
- {asset.specs && <p className="text-xs text-slate-400 mt-0.5 line-clamp-1 italic">{asset.specs}</p>}
- {asset.category === "Computer" ? (
- <div className="flex flex-wrap gap-2 mt-1">
- <span className="text-xs bg-indigo-50 text-indigo-600 px-1 rounded border border-indigo-100 flex items-center gap-1 font-medium italic ">
- <Layers size={8} /> Worth: {calculateTotalWorkstationValue(asset).toLocaleString()} MMK
- </span>
- {assets.filter(a => a.parentId === asset.id).length > 0 && (
- <span className="text-xs bg-slate-50 text-slate-500 dark:text-slate-400 px-1 rounded border border-slate-200 dark:border-slate-800 flex items-center gap-1 font-medium italic ">
- <Usb size={8} /> {assets.filter(a => a.parentId === asset.id).length} Connected
- </span>
- )}
- </div>
- ) : asset.parentId ? (
- <div className="flex flex-wrap gap-2 mt-1">
- <span className="text-xs bg-emerald-50 text-emerald-600 px-1 rounded border border-emerald-100 flex items-center gap-1 font-medium italic ">
- <Link2 size={8} /> Linked to: {assets.find(parent => parent.id === asset.parentId)?.model || asset.parentId}
- </span>
- </div>
- ) : (
- <div className="flex flex-wrap gap-2 mt-1">
- <span className="text-xs bg-amber-50 text-amber-600 px-1 rounded border border-amber-100 flex items-center gap-1 font-medium italic ">
- <MinusSquare size={8} /> Unassigned / Spare
- </span>
- </div>
- )}
- <p className="text-xs text-indigo-600 font-mono font-medium tracking-wider">{asset.asset_code || asset.id}</p>
- </div>
- </div>
- </td>
- <td className="px-4 py-3.5 text-xs text-indigo-600 font-medium text-slate-500 dark:text-slate-400">{asset.assignedTo}</td>
- <td className="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-medium ">{(asset.department || asset.location) || "-"}</td>
- <td className="px-4 py-3.5">
- <span className={cn(
- "text-xs font-medium text-slate-500 dark:text-slate-400 px-2.5 py-1 rounded-full border",
- asset.status === "Active" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
- asset.status === "New" ? "bg-indigo-50 text-indigo-600 border-indigo-100" :
- "bg-rose-50 text-rose-600 border-rose-100"
- )}>
- {asset.status}
- </span>
- </td>
- <td className="px-4 py-3.5 text-right">
- <span className="text-xs font-mono text-slate-400 font-medium">{asset.purchaseDate || "N/A"}</span>
- </td>
- {isAdmin && (
- <td className="px-4 py-3.5 text-center">
- <div className="flex items-center justify-center gap-1">
- <button 
- onClick={(e) => {
- e.stopPropagation();
- handlePrintAsset(asset);
- }}
- className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
- title="Print A6 Tag"
- >
- <Printer size={14} />
- </button>
- <button 
- disabled={isDeleting}
- onClick={(e) => handleDeleteAsset(asset.id, e)}
- className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
- title="Delete Asset"
- >
- <Trash2 size={14} />
- </button>
- </div>
- </td>
- )}
- </tr>
- ))}
- </React.Fragment>
- ))}
- </tbody>
- </table>
- </div>
-
- {/* Mobile Card View */}
- <div className="lg:hidden divide-y divide-slate-100">
- {filteredAssets.map((asset) => (
- <div key={asset.id} className={cn("relative", selectedAssetIds.includes(asset.id) && "bg-indigo-50/50")}>
- <div className="absolute left-4 top-4">
- <input 
- type="checkbox" 
- checked={selectedAssetIds.includes(asset.id)}
- onChange={(e) => {
- e.stopPropagation();
- setSelectedAssetIds(prev => 
- prev.includes(asset.id) ? prev.filter(a => a !== asset.id) : [...prev, asset.id]
- );
- }}
- className="w-4 h-4 rounded border-slate-300 bg-white dark:bg-slate-900 accent-indigo-600 cursor-pointer"
- />
- </div>
- <div 
- onClick={() => setSelectedAsset(asset)}
- className="w-full text-left p-4 pl-12 hover:bg-slate-50 transition-colors active:bg-slate-100 cursor-pointer"
- >
- <div className="flex justify-between items-start mb-3">
- <div className="flex items-center gap-2">
- <span className="text-xs font-mono font-medium text-indigo-600 tracking-wider">[{asset.asset_code || asset.id}]</span>
- <span className="text-xs px-1.5 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded font-medium text-slate-500 dark:text-slate-400">
- {asset.category}
- </span>
- {(isMaintenanceNear(asset.maintenanceDueDate) || isMaintenanceOverdue(asset.maintenanceDueDate)) && (
- <AlertTriangle size={10} className={cn("animate-pulse", isMaintenanceOverdue(asset.maintenanceDueDate) ? "text-rose-600" : "text-amber-600")} />
- )}
- </div>
- <div className="flex items-center gap-1">
- <div className={cn(
- "px-2 py-0.5 rounded-full text-xs font-medium",
- asset.status === "Active" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
- )}>
- {asset.status}
- </div>
- <button 
- onClick={(e) => {
- e.stopPropagation();
- handlePrintAsset(asset);
- }}
- className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors"
- >
- <Printer size={12} />
- </button>
- {isAdmin && (
- <button 
- disabled={isDeleting}
- onClick={(e) => handleDeleteAsset(asset.id, e)}
- className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
- >
- <Trash2 size={12} />
- </button>
- )}
- </div>
- </div>
- 
- <div className="mb-4">
- <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">
- <span className="text-slate-400 mr-1 font-medium">{asset.brand}</span>
- {asset.model}
- </p>
- {asset.specs && <p className="text-xs text-slate-400 mt-1 italic leading-relaxed">{asset.specs}</p>}
- {asset.peripherals && (
- <div className="flex flex-wrap gap-1.5 mt-2">
- {asset.peripherals.keyboard && (
- <div className="flex items-center gap-1 bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded text-xs border border-amber-100 italic">
- <Keyboard size={8} /> {asset.peripherals.keyboard}
- </div>
- )}
- {asset.peripherals.mouse && (
- <div className="flex items-center gap-1 bg-slate-50 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded text-xs border border-slate-200 dark:border-slate-800 italic">
- <MousePointer2 size={8} /> {asset.peripherals.mouse}
- </div>
- )}
- {asset.peripherals.usb && (
- <div className="flex items-center gap-1 bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded text-xs border border-indigo-100 italic">
- <Usb size={8} /> {asset.peripherals.usb}
- </div>
- )}
- {asset.peripherals.fan && (
- <div className="flex items-center gap-1 bg-cyan-50 text-cyan-600 px-1.5 py-0.5 rounded text-xs border border-cyan-100 italic">
- <Wind size={8} /> {asset.peripherals.fan}
- </div>
- )}
- </div>
- )}
- </div>
-
- <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 rounded-lg">
- <div className="flex flex-col">
- <span className="text-xs text-slate-400  font-medium tracking-widest">Dept</span>
- <span className="text-xs text-slate-600 dark:text-slate-300 font-medium  truncate">{(asset.department || asset.location) || "-"}</span>
- </div>
- <div className="flex flex-col border-l border-slate-200 dark:border-slate-800 pl-2">
- <span className="text-xs text-slate-400  font-medium tracking-widest">User</span>
- <span className="text-xs text-indigo-600 font-medium  truncate">{asset.assignedTo || "Unassigned"}</span>
- </div>
- <div className="flex flex-col border-l border-slate-200 dark:border-slate-800 pl-2 text-right">
- <span className="text-xs text-slate-400  font-medium tracking-widest">Price</span>
- <span className="text-xs text-emerald-600 font-medium font-mono">
- {asset.purchasePrice ? Number(asset.purchasePrice).toLocaleString() : "0"} <span className="text-xs opacity-60">MMK</span>
- </span>
- </div>
- </div>
- </div>
- </div>
- ))}
- </div>
- </div>
-
+    {/* Table Container Start */}
+    <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
+      {isError ? (
+        <div className="p-12 text-center">
+          <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <AlertCircle size={24} />
+          </div>
+          <h3 className="text-base font-semibold text-[#0F172A] mb-1">Unable to load assets</h3>
+          <p className="text-sm text-[#64748B] mb-6 max-w-sm mx-auto">Please check your connection and try again.</p>
+          <button
+            onClick={handleRetry}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-medium rounded-xl transition-all text-sm shadow-sm"
+          >
+            <RefreshCw size={16} />
+            <span>Retry</span>
+          </button>
+        </div>
+      ) : isLoading ? (
+        <div className="p-8 space-y-4">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <div key={n} className="flex items-center justify-between gap-4 py-3 border-b border-slate-100 animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 bg-slate-200 rounded" />
+                <div className="w-32 h-4 bg-slate-200 rounded" />
+              </div>
+              <div className="w-24 h-4 bg-slate-200 rounded hidden sm:block" />
+              <div className="w-28 h-4 bg-slate-200 rounded hidden md:block" />
+              <div className="w-20 h-6 bg-slate-200 rounded-full" />
+            </div>
+          ))}
+        </div>
+      ) : assets.length === 0 ? (
+        <AssetEmptyState 
+          type="no-assets" 
+          onAddAsset={() => {
+            setNewAsset({ category: "Computer", status: "Active" });
+            setIsEditing(false);
+            setIsAdding(true);
+          }} 
+        />
+      ) : filteredAssets.length === 0 ? (
+        <AssetEmptyState 
+          type="no-results" 
+          onClearFilters={() => {
+            setFilterCategory([]);
+            setFilterStatus([]);
+            setFilterDept([]);
+            setFilterLocation([]);
+            setFilterBrand([]);
+            setFilterModel([]);
+            setFilterSpec([]);
+            setFilterUser([]);
+            setAssetSearch("");
+          }} 
+        />
+      ) : (
+        <div className="hidden lg:block overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
+              <tr className="text-[#64748B] font-semibold text-xs tracking-wider">
+                <th className="px-4 py-3.5 w-12 text-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedAssetIds.length > 0 && selectedAssetIds.length === filteredAssets.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-[#E2E8F0] bg-white text-[#2563EB] focus:ring-blue-500/20 cursor-pointer"
+                  />
+                </th>
+                <th className="px-4 py-3.5">ASSET</th>
+                <th className="px-4 py-3.5">CATEGORY</th>
+                <th className="px-4 py-3.5">ASSIGNED TO</th>
+                <th className="px-4 py-3.5">DEPARTMENT</th>
+                <th className="px-4 py-3.5">LOCATION</th>
+                <th className="px-4 py-3.5">STATUS</th>
+                <th className="px-4 py-3.5 text-right">PURCHASE DATE</th>
+                {isAdmin && <th className="px-4 py-3.5 text-center">ACTIONS</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E2E8F0] text-sm">
+              {[
+                { label: "Current Assets", items: currentAssets },
+                { label: "Historical Records (>30 days)", items: historicalAssets }
+              ].map((group) => (
+                <React.Fragment key={group.label}>
+                  {group.items.length > 0 && (
+                    <tr className="bg-[#F8FAFC]/60">
+                      <td colSpan={isAdmin ? 9 : 8} className="px-4 py-2 text-xs font-semibold text-[#64748B] tracking-wide uppercase">
+                        {group.label} ({group.items.length})
+                      </td>
+                    </tr>
+                  )}
+                  {group.items.map((asset) => (
+                    <tr
+                      key={asset.id}
+                      onClick={() => setSelectedAsset(asset)}
+                      className={cn(
+                        "hover:bg-[#F8FAFC] transition-colors cursor-pointer group text-[#0F172A]",
+                        selectedAssetIds.includes(asset.id) && "bg-blue-50/50"
+                      )}
+                    >
+                      <td className="px-4 py-3.5 text-center" onClick={(e) => toggleSelectAsset(asset.id, e)}>
+                        <input
+                          type="checkbox"
+                          checked={selectedAssetIds.includes(asset.id)}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded border-[#E2E8F0] bg-white text-[#2563EB] focus:ring-blue-500/20 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#2563EB] flex items-center justify-center shrink-0">
+                            {asset.category === "Computer" ? <Monitor size={16} /> : <HardDrive size={16} />}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-[#0F172A] flex items-center gap-2">
+                              <span>{asset.brand ? `[${asset.brand}]` : ""} {asset.model}</span>
+                            </div>
+                            <div className="text-xs font-mono text-[#64748B] mt-0.5 flex items-center gap-2 flex-wrap">
+                              <span>{asset.asset_code || asset.id}</span>
+                              {asset.parentId && (
+                                <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                                  └─ Child of {assets.find(p => p.id === asset.parentId)?.model || asset.parentId}
+                                </span>
+                              )}
+                              {assets.some(c => c.parentId === asset.id) && (
+                                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
+                                  {assets.filter(c => c.parentId === asset.id).length} Peripherals
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs font-medium text-[#64748B]">
+                        <span className="px-2 py-1 bg-slate-100 rounded-md text-slate-700">{asset.category}</span>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-[#0F172A] font-medium">
+                        {asset.assignedTo && asset.assignedTo !== "Unassigned" ? (
+                          <span className="flex items-center gap-1.5 text-[#0F172A]">
+                            <UserCheck size={14} className="text-[#2563EB]" />
+                            {asset.assignedTo}
+                          </span>
+                        ) : (
+                          <span className="text-[#64748B] italic">Unassigned</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-[#64748B]">
+                        {asset.department || "-"}
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-[#64748B]">
+                        {asset.location || "-"}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <AssetStatusBadge status={asset.status} />
+                      </td>
+                      <td className="px-4 py-3.5 text-xs font-mono text-[#64748B] text-right">
+                        {asset.purchaseDate || "N/A"}
+                      </td>
+                      {isAdmin && (
+                        <td className="px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => handlePrintAsset(asset)}
+                              className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Print Tag"
+                            >
+                              <Printer size={15} />
+                            </button>
+                            <button
+                              disabled={isDeleting}
+                              onClick={(e) => handleDeleteAsset(asset.id, e)}
+                              className="p-1.5 text-[#64748B] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Delete Asset"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+    
  {/* Bulk Action Bar */}
  <AnimatePresence>
  {selectedAssetIds.length > 0 && (
@@ -1276,608 +1161,556 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  </AnimatePresence>
 
  <AnimatePresence>
- {selectedAsset && (
- <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
- <motion.div 
- initial={{ scale: 0.95, opacity: 0 }}
- animate={{ scale: 1, opacity: 1 }}
- exit={{ scale: 0.95, opacity: 0 }}
- className="enterprise-modal p-8 w-full max-w-2xl"
- >
- <div className="flex justify-between items-start mb-8">
- <div>
- <h3 className="text-xl font-medium text-slate-800 dark:text-slate-100 tracking-tight flex items-center gap-2">
- <Monitor className="text-indigo-600" size={20} />
- Asset Details: {selectedAsset.asset_code || selectedAsset.id}
- </h3>
- <p className="text-xs text-slate-400  font-medium tracking-widest mt-1">Full hardware audit specification</p>
- </div>
- <button onClick={() => setSelectedAsset(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
- <X size={20} />
- </button>
- </div>
+    {selectedAsset && (
+    <div className="fixed inset-0 z-50 overflow-hidden">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedAsset(null)} />
+      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
+        <motion.div
+          initial={{ x: "100%" }}
+          animate={{ x: 0 }}
+          exit={{ x: "100%" }}
+          transition={{ type: "spring", damping: 25, stiffness: 200 }}
+          className="w-screen max-w-xl bg-white dark:bg-slate-900 shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800"
+        >
+          {/* Drawer Header */}
+          <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#2563EB] flex items-center justify-center font-bold">
+                <Monitor size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-[#0F172A] dark:text-slate-100">Asset Details</h3>
+                <p className="text-xs font-mono text-slate-500">{selectedAsset.asset_code || selectedAsset.id}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setSelectedAsset(null)}
+              className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
 
- <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
- <div className="space-y-6">
- <div>
- <h4 className="text-xs font-medium text-slate-400 mb-3">Core Configuration</h4>
- <div className="space-y-3">
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Asset Code</span>
- <span className="text-xs font-medium text-indigo-600">{selectedAsset.asset_code || "PENDING"}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Internal ID</span>
- <span className="text-xs font-mono text-slate-400">{selectedAsset.id}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Model</span>
- <span className="text-xs font-medium text-slate-800 dark:text-slate-100">{selectedAsset.model}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Serial</span>
- <span className="text-xs font-mono text-slate-600 dark:text-slate-300">{selectedAsset.serialNumber}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Specs</span>
- <span className="text-xs text-indigo-600 font-medium">{selectedAsset.specs || "Standard Build"}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Purchase Date</span>
- <span className="text-xs font-medium text-slate-800 dark:text-slate-100">{selectedAsset.purchaseDate}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Unit Price</span>
- <span className="text-xs text-emerald-600 font-medium font-mono">{(selectedAsset.itemPrice || Number(selectedAsset.purchasePrice) || 0).toLocaleString()} MMK</span>
- </div>
- {selectedAsset.category === "Computer" && (
- <div className="flex justify-between border-b-2 border-indigo-100 pb-2 bg-indigo-50/30 px-2 -mx-2 rounded-lg">
- <span className="text-xs text-indigo-600 font-medium flex items-center gap-1"><Layers size={10} /> Workstation Value</span>
- <span className="text-xs text-indigo-700 font-medium font-mono">{calculateTotalWorkstationValue(selectedAsset).toLocaleString()} MMK</span>
- </div>
- )}
- <div className="flex justify-between border-b border-slate-100 pb-2 items-center">
- <span className="text-xs text-slate-500 dark:text-slate-400">Maintenance Due</span>
- <div className="flex flex-col items-end">
- <span className={cn(
- "text-xs font-medium",
- isMaintenanceOverdue(selectedAsset.maintenanceDueDate) ? "text-rose-600" :
- isMaintenanceNear(selectedAsset.maintenanceDueDate) ? "text-amber-600" : "text-slate-800 dark:text-slate-100"
- )}>
- {selectedAsset.maintenanceDueDate || "Not set"}
- </span>
- {(isMaintenanceNear(selectedAsset.maintenanceDueDate) || isMaintenanceOverdue(selectedAsset.maintenanceDueDate)) && (
- <span className="text-xs font-medium  text-amber-500 animate-pulse">
- {isMaintenanceOverdue(selectedAsset.maintenanceDueDate) ? "Overdue" : "Due Soon"}
- </span>
- )}
- </div>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-400">UOM</span>
- <span className="text-xs font-medium text-slate-800 dark:text-slate-100">{selectedAsset.uom || "Unit"}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-400">Section</span>
- <span className="text-xs font-medium text-slate-800 dark:text-slate-100">{selectedAsset.remark2 || "-"}</span>
- </div>
- </div>
- </div>
+          {/* Action Toolbar */}
+          <div className="px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 flex-wrap">
+            {isAdmin && (
+              <button
+                onClick={() => {
+                  setNewAsset({ ...selectedAsset });
+                  setIsEditing(true);
+                  setIsAdding(true);
+                  setSelectedAsset(null);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-[#2563EB] rounded-xl text-xs font-medium transition-colors"
+              >
+                <Edit3 size={14} />
+                <span>Edit Asset</span>
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => {
+                  const nextUser = prompt("Enter employee/user name to assign:", selectedAsset.assignedTo || "");
+                  if (nextUser !== null) {
+                    handleBulkUpdate({ assignedTo: nextUser, status: "Active" });
+                    setSelectedAsset({ ...selectedAsset, assignedTo: nextUser, status: "Active" });
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-medium transition-colors"
+              >
+                <UserCheck size={14} />
+                <span>Assign</span>
+              </button>
+            )}
+            {isAdmin && selectedAsset.assignedTo && selectedAsset.assignedTo !== "Unassigned" && (
+              <button
+                onClick={() => {
+                  handleBulkUpdate({ assignedTo: "Unassigned", status: "In Stock" });
+                  setSelectedAsset({ ...selectedAsset, assignedTo: "Unassigned", status: "In Stock" });
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl text-xs font-medium transition-colors"
+              >
+                <UserX size={14} />
+                <span>Unassign</span>
+              </button>
+            )}
+            <button
+              onClick={() => handlePrintAsset(selectedAsset)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors"
+            >
+              <Printer size={14} />
+              <span>Print Tag</span>
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => {
+                  setDeleteTarget({ id: selectedAsset.id, type: "asset" });
+                  setSelectedAsset(null);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-medium transition-colors ml-auto"
+              >
+                <Trash2 size={14} />
+                <span>Delete</span>
+              </button>
+            )}
+          </div>
 
- <div>
- <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3">Assignment Data</h4>
- <div className="space-y-3">
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Assigned User</span>
- <span className="text-xs font-medium text-slate-800 dark:text-slate-100">{selectedAsset.assignedTo}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Department</span>
- <span className="text-xs font-medium text-slate-800 dark:text-slate-100">{selectedAsset.department || "-"}</span>
- </div>
- <div className="flex justify-between border-b border-slate-100 pb-2">
- <span className="text-xs text-slate-500 dark:text-slate-400">Location</span>
- <span className="text-xs font-medium text-slate-800 dark:text-slate-100">{selectedAsset.location}</span>
- </div>
- </div>
- </div>
- </div>
+          {/* Drawer Body - 5 Sections */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Section 1: Asset Details */}
+            <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Monitor size={14} className="text-[#2563EB]" />
+                Section 1: Basic Information
+              </h4>
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <span className="text-slate-400 block mb-1">Asset Code</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-100">{selectedAsset.asset_code || "PENDING"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Category</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{selectedAsset.category}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Brand</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{selectedAsset.brand || "-"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Model</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{selectedAsset.model}</span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-slate-400 block mb-1">Serial Number</span>
+                  <span className="font-mono text-slate-800 dark:text-slate-100">{selectedAsset.serialNumber || "No serial number recorded"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Status</span>
+                  <div><AssetStatusBadge status={selectedAsset.status} /></div>
+                </div>
+              </div>
+            </div>
 
- <div className="space-y-6">
- <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100">
- <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-4 flex items-center gap-2">
- {selectedAsset.category === "Mobile" ? (
- <>
- <Smartphone size={14} className="text-indigo-600" />
- Cellular Network & IMEI
- </>
- ) : ["Keyboard", "Mouse", "Monitor", "UPS", "USB Hub", "Fan", "Peripherals"].includes(selectedAsset.category) ? (
- <>
- <Usb size={14} className="text-indigo-600" />
- Linkage & Hierarchy
- </>
- ) : (
- <>
- <Package size={14} className="text-indigo-600" />
- Peripheral Bundle
- </>
- )}
- </h4>
- <div className="space-y-4">
- {selectedAsset.category === "Mobile" ? (
- <>
- <div className="flex items-start gap-3">
- <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
- <div>
- <p className="text-xs font-medium text-slate-500 dark:text-slate-400 ">SIM Card / Number</p>
- <p className="text-xs text-slate-800 dark:text-slate-100 font-medium">{selectedAsset.remarks || "No SIM Data"}</p>
- </div>
- </div>
- </>
- ) : ["Keyboard", "Mouse", "Monitor", "UPS", "USB Hub", "Fan", "Peripherals"].includes(selectedAsset.category) ? (
- <>
- <div className="flex items-start gap-3">
- <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
- <div>
- <p className="text-xs font-medium text-slate-500 dark:text-slate-400 ">Linkage Status</p>
- <p className={cn(
- "text-xs font-medium",
- selectedAsset.parentId ? "text-indigo-600" : "text-amber-600"
- )}>
- {selectedAsset.parentId 
- ? `Assigned to ${assets.find(a => a.id === selectedAsset.parentId)?.model || selectedAsset.parentId}`
- : "Standalone / Spare"}
- </p>
- </div>
- </div>
- <div className="flex items-start gap-3">
- <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
- <div>
- <p className="text-xs font-medium text-slate-500 dark:text-slate-400 ">Hardware Parent ID</p>
- <div className="flex items-center gap-2">
- <p className="text-xs text-slate-800 dark:text-slate-100 font-medium">{selectedAsset.parentId || "NO PARENT"}</p>
- {selectedAsset.parentId && isAdmin && (
- <button 
- onClick={() => handleUnlink(selectedAsset)}
- className="px-2 py-0.5 bg-rose-50 text-rose-600 rounded text-xs font-medium hover:bg-rose-100 transition-colors"
- >
- Unlink
- </button>
- )}
- </div>
- </div>
- </div>
- </>
- ) : selectedAsset.category === "Computer" ? (
- <>
- <div className="flex items-start gap-3">
- <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
- <div className="flex-1">
- <div className="flex justify-between items-center mb-2">
- <p className="text-xs font-medium text-slate-500 dark:text-slate-400 ">Connected Peripherals</p>
- {isAdmin && (
- <div className="w-48 scale-90 origin-right">
- <SearchableSelect 
- label=""
- placeholder="Link accessory..."
- value=""
- onChange={(childId) => handleLink(childId, selectedAsset.id)}
- options={assets.filter(a => !a.parentId && ["Keyboard", "Mouse", "Monitor", "UPS", "USB Hub", "Fan", "Peripherals"].includes(a.category)).map(a => ({
- id: a.id,
- label: `${a.category}: ${a.model}`
- }))}
- />
- </div>
- )}
- </div>
- <div className="space-y-2">
- {assets.filter(a => a.parentId === selectedAsset.id).length === 0 ? (
- <p className="text-xs text-slate-400 font-medium  italic p-2 bg-slate-50 rounded-lg">No active linkages</p>
- ) : assets.filter(a => a.parentId === selectedAsset.id).map(p => (
- <div key={p.id} className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm group">
- <div className="flex flex-col">
- <span className="text-xs font-medium text-slate-400  leading-none mb-1">{p.category}</span>
- <span className="text-xs font-medium text-slate-700 dark:text-slate-200">{p.model}</span>
- </div>
- <div className="flex items-center gap-3">
- <span className="text-xs font-medium font-mono text-emerald-600">{(p.itemPrice || Number(p.purchasePrice) || 0).toLocaleString()} MMK</span>
- {isAdmin && (
- <button 
- onClick={() => handleUnlink(p)}
- className="text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"
- >
- <X size={12} />
- </button>
- )}
- </div>
- </div>
- ))}
- </div>
- </div>
- </div>
- <div className="flex items-start gap-3 mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
- <div className="w-1 h-1 bg-indigo-600 rounded-full mt-2" />
- <div>
- <p className="text-xs font-medium text-slate-500 dark:text-slate-400 ">Inventory Quick-Details</p>
- <div className="grid grid-cols-2 gap-2 mt-2">
- <div className="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-800">
- <p className="text-xs font-medium text-slate-400 ">KB</p>
- <p className="text-xs font-medium truncate">{selectedAsset.peripherals?.keyboard || "-"}</p>
- </div>
- <div className="p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-800">
- <p className="text-xs font-medium text-slate-400 ">Mouse</p>
- <p className="text-xs font-medium truncate">{selectedAsset.peripherals?.mouse || "-"}</p>
- </div>
- </div>
- </div>
- </div>
- </>
- ) : (
- <div className="flex items-center justify-center py-8">
- <p className="text-xs text-slate-400 font-medium  italic tracking-widest text-center">No specialized data for this category</p>
- </div>
- )}
- </div>
- </div>
- </div>
- </div>
- 
- <div className="mt-8 pt-6 border-t border-white/10 flex justify-end gap-3">
- <button 
- onClick={() => handlePrintAsset(selectedAsset)}
- className="px-6 py-2 bg-slate-100 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium  hover:bg-slate-200 transition-all flex items-center gap-2"
- >
- <Printer size={14} /> Print A6 Tag
- </button>
- <button 
- onClick={() => {
- setNewAsset({ ...selectedAsset });
- setIsEditing(true);
- setIsAdding(true);
- setSelectedAsset(null);
- }}
- className="px-6 py-2 bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 rounded-xl text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-cyan-600 hover:text-white transition-all"
- >
- Edit Asset
- </button>
- <button 
- onClick={() => setSelectedAsset(null)}
- className="px-6 py-2 bg-white dark:bg-slate-900/10 text-white rounded-xl text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-white dark:bg-slate-900/20 transition-all"
- >
- Close Specification
- </button>
- </div>
- </motion.div>
- </div>
- )}
+            {/* Section 2: Assignment */}
+            <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <UserCheck size={14} className="text-[#2563EB]" />
+                Section 2: Assignment
+              </h4>
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div className="col-span-2">
+                  <span className="text-slate-400 block mb-1">Assigned To</span>
+                  <span className="font-medium text-[#2563EB] text-sm">{selectedAsset.assignedTo || "Unassigned"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Department</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{selectedAsset.department || "-"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Location</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{selectedAsset.location || "-"}</span>
+                </div>
+              </div>
+            </div>
 
- {isAdding && (
- <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4">
- <motion.div 
- initial={{ y: 20, opacity: 0 }}
- animate={{ y: 0, opacity: 1 }}
- exit={{ y: 20, opacity: 0 }}
- className="enterprise-modal w-full h-full sm:h-auto sm:max-w-lg rounded-none sm:rounded-3xl overflow-hidden flex flex-col sm:max-h-[90vh]"
- >
- <div className="p-6 sm:p-8 border-b border-slate-100 shrink-0 bg-white dark:bg-slate-900">
- <h3 className="text-lg sm:text-xl font-medium text-slate-800 dark:text-slate-100 tracking-tight">
- {isEditing ? `Edit Asset: ${newAsset.id}` : "Infrastructure Node Registration"}
- </h3>
- </div>
- 
- <div className="p-6 sm:p-8 overflow-y-auto custom-scrollbar space-y-6 flex-1 bg-white dark:bg-slate-900">
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Category</label>
- <select 
- value={newAsset.category}
- onChange={e => setNewAsset({...newAsset, category: e.target.value as any})}
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- >
- <option value="Computer">Computer</option>
- <option value="Monitor">Monitor</option>
- <option value="UPS">UPS</option>
- <option value="Keyboard">Keyboard</option>
- <option value="Mouse">Mouse</option>
- <option value="Printer">Printer</option>
- <option value="Scanner">Scanner</option>
- <option value="Network">Network</option>
- <option value="Mobile">Mobile</option>
- <option value="USB Hub">USB Hub</option>
- <option value="Fan">Cooling Fan</option>
- <option value="Peripherals">General Peripherals</option>
- <option value="Other">Other</option>
- </select>
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">UOM</label>
- <input 
- type="text" 
- value={newAsset.uom || ""}
- onChange={e => setNewAsset({...newAsset, uom: e.target.value})}
- placeholder="e.g., Unit, Set" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- </div>
- 
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Brand</label>
- <input 
- type="text" 
- value={newAsset.brand || ""}
- onChange={e => setNewAsset({...newAsset, brand: e.target.value})}
- placeholder="e.g., HP, Dell, Huawei" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Model</label>
- <input 
- type="text" 
- value={newAsset.model || ""}
- onChange={e => setNewAsset({...newAsset, model: e.target.value})}
- placeholder="e.g., Latitude 5420" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- </div>
+            {/* Section 3: Purchase */}
+            <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Package size={14} className="text-[#2563EB]" />
+                Section 3: Purchase & Procurement
+              </h4>
+              <div className="grid grid-cols-2 gap-4 text-xs">
+                <div>
+                  <span className="text-slate-400 block mb-1">Supplier</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{selectedAsset.supplier || "-"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Purchase Date</span>
+                  <span className="font-mono text-slate-800 dark:text-slate-100">{selectedAsset.purchaseDate || "N/A"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Purchase Price</span>
+                  <span className="font-mono font-semibold text-emerald-600">
+                    {(selectedAsset.itemPrice || Number(selectedAsset.purchasePrice) || 0).toLocaleString()} MMK
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Purchase Record / Invoice</span>
+                  <span className="font-mono text-slate-800 dark:text-slate-100">{selectedAsset.purchaseRecord || "-"}</span>
+                </div>
+              </div>
+            </div>
 
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Specs (CPU/RAM/SSD)</label>
- <input 
- type="text" 
- value={newAsset.specs || ""}
- onChange={e => setNewAsset({...newAsset, specs: e.target.value})}
- placeholder="e.g., i5/8GB/256GB" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Serial Number</label>
- <input 
- type="text" 
- value={newAsset.serialNumber || ""}
- onChange={e => setNewAsset({...newAsset, serialNumber: e.target.value})}
- placeholder="Unique identifier" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- </div>
+            {/* Section 4: Maintenance */}
+            <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <AlertTriangle size={14} className="text-[#2563EB]" />
+                Section 4: Maintenance & Compliance
+              </h4>
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Maintenance Due Date</span>
+                  <span className="font-mono font-medium text-slate-800 dark:text-slate-100">{selectedAsset.maintenanceDueDate || "Not scheduled"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1">Remarks & SOP Notes</span>
+                  <p className="text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    {selectedAsset.remarks || selectedAsset.remark2 || "No remarks recorded."}
+                  </p>
+                </div>
+              </div>
+            </div>
 
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-6">
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Item Price (MMK)</label>
- <input 
- type="number" 
- value={newAsset.itemPrice || newAsset.purchasePrice || ""}
- onChange={e => setNewAsset({...newAsset, itemPrice: Number(e.target.value), purchasePrice: e.target.value})}
- placeholder="e.g., 400000" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Procure Date</label>
- <input 
- type="date"
- value={newAsset.purchaseDate || ""}
- onChange={e => setNewAsset({...newAsset, purchaseDate: e.target.value})}
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- <div>
- <label className="block text-xs font-medium text-amber-600 mb-2">Maintenance Due</label>
- <input 
- type="date"
- value={newAsset.maintenanceDueDate || ""}
- onChange={e => setNewAsset({...newAsset, maintenanceDueDate: e.target.value})}
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-amber-200 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- </div>
+            {/* Section 5: Related Assets */}
+            <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Layers size={14} className="text-[#2563EB]" />
+                5. Relationships & Peripherals
+              </h4>
+              <div className="space-y-3 text-xs">
+                <div>
+                  <span className="text-slate-400 block mb-1">Parent Asset / Host</span>
+                  <span className="font-medium text-indigo-600">
+                    {selectedAsset.parentId ? (assets.find(a => a.id === selectedAsset.parentId)?.model || selectedAsset.parentId) : "Standalone / Direct Unit"}
+                  </span>
+                </div>
+                {selectedAsset.category === "Computer" && (
+                  <div>
+                    <span className="text-slate-400 block mb-2">Linked Child Peripherals</span>
+                    <div className="space-y-2">
+                      {assets.filter(a => a.parentId === selectedAsset.id).length === 0 ? (
+                        <p className="text-slate-400 italic">No peripherals linked.</p>
+                      ) : (
+                        assets.filter(a => a.parentId === selectedAsset.id).map(child => (
+                          <div key={child.id} className="flex justify-between items-center bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div>
+                              <span className="font-semibold text-slate-800 dark:text-slate-100 block">{child.category}: {child.model}</span>
+                              <span className="text-[10px] font-mono text-slate-400">{child.asset_code || child.id}</span>
+                            </div>
+                            <span className="font-mono text-emerald-600">{(child.itemPrice || Number(child.purchasePrice) || 0).toLocaleString()} MMK</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  )}
+  </AnimatePresence>
 
- {newAsset.category !== "Computer" && (
- <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-4">
- <div className="flex items-center justify-between mb-2">
- <h4 className="text-xs font-medium text-indigo-600 flex items-center gap-2">
- <Usb size={12} /> Hardware Linkage System
- </h4>
- <button 
- onClick={() => setNewAsset({...newAsset, parentId: newAsset.parentId ? null : ""})}
- className={cn(
- "px-3 py-1 rounded-full text-xs font-medium text-slate-500 dark:text-slate-400 border transition-all",
- newAsset.parentId === null 
- ? "bg-amber-100/50 text-amber-700 border-amber-200" 
- : "bg-indigo-100/50 text-indigo-700 border-indigo-200"
- )}
- >
- {newAsset.parentId === null ? "Standalone Mode" : "Assign Mode"}
- </button>
- </div>
+  <AnimatePresence>
+    {isAdding && (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4">
+      <motion.div 
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 20, opacity: 0 }}
+        className="bg-white dark:bg-slate-900 w-full h-full sm:h-auto sm:max-w-2xl rounded-none sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col sm:max-h-[90vh] border border-slate-200 dark:border-slate-800"
+      >
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+          <div>
+            <h3 className="text-base font-semibold text-[#0F172A] dark:text-slate-100">
+              {isEditing ? `Edit Asset: ${newAsset.asset_code || newAsset.id}` : "Register New IT Asset"}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">Fill in the hardware specification and procurement records.</p>
+          </div>
+          <button 
+            onClick={() => {
+              setIsAdding(false);
+              setIsEditing(false);
+              setNewAsset({ category: "Computer", status: "Active" });
+            }}
+            className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
 
- {newAsset.parentId !== null && (
- <SearchableSelect 
- label="Parent Workstation"
- placeholder="Search Active PCs..."
- value={newAsset.parentId || ""}
- onChange={(val) => setNewAsset({...newAsset, parentId: val})}
- options={assets.filter(a => a.category === "Computer" && a.id !== newAsset.id).map(a => ({
- id: a.id,
- label: `${a.brand || ""} ${a.model}`.trim()
- }))}
- />
- )}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
+          {/* SECTION 1: Basic Information */}
+          <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800 space-y-4">
+            <h4 className="font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <Monitor size={14} className="text-[#2563EB]" />
+              Section 1: Basic Information
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Asset Code</label>
+                <input 
+                  type="text" 
+                  value={newAsset.asset_code || ""} 
+                  onChange={e => setNewAsset({...newAsset, asset_code: e.target.value})} 
+                  placeholder="e.g., TG-PC-001" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Category</label>
+                <select 
+                  value={newAsset.category || "Computer"} 
+                  onChange={e => setNewAsset({...newAsset, category: e.target.value as any})}
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                >
+                  <option value="Computer">Computer</option>
+                  <option value="Monitor">Monitor</option>
+                  <option value="UPS">UPS</option>
+                  <option value="Keyboard">Keyboard</option>
+                  <option value="Mouse">Mouse</option>
+                  <option value="Printer">Printer</option>
+                  <option value="Scanner">Scanner</option>
+                  <option value="Network">Network</option>
+                  <option value="Mobile">Mobile</option>
+                  <option value="USB Hub">USB Hub</option>
+                  <option value="Fan">Cooling Fan</option>
+                  <option value="Peripherals">General Peripherals</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Brand</label>
+                <input 
+                  type="text" 
+                  value={newAsset.brand || ""} 
+                  onChange={e => setNewAsset({...newAsset, brand: e.target.value})} 
+                  placeholder="e.g., Dell, HP, Lenovo" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Model</label>
+                <input 
+                  type="text" 
+                  value={newAsset.model || ""} 
+                  onChange={e => setNewAsset({...newAsset, model: e.target.value})} 
+                  placeholder="e.g., OptiPlex 7090" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-slate-500 font-medium mb-1.5">Serial Number</label>
+                <input 
+                  type="text" 
+                  value={newAsset.serialNumber || ""} 
+                  onChange={e => setNewAsset({...newAsset, serialNumber: e.target.value})} 
+                  placeholder="e.g., SN-9843271092" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                />
+              </div>
+            </div>
+          </div>
 
- <div className="flex items-start gap-3 p-3 bg-white dark:bg-slate-900/60 rounded-xl border border-indigo-100/50">
- <Info size={14} className="text-indigo-400 shrink-0 mt-0.5" />
- <p className="text-xs text-indigo-700/70 font-semibold leading-relaxed">
- {newAsset.parentId 
- ? `This ${newAsset.model || "item"} will be linked to the selected Workstation's total value & audit logs.`
- : "This item will be marked as 'Standalone / Spare' and stored in central inventory."}
- </p>
- </div>
- </div>
- )}
+          {/* SECTION 2: Assignment */}
+          <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800 space-y-4">
+            <h4 className="font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <UserCheck size={14} className="text-[#2563EB]" />
+              Section 2: Assignment
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Assigned To</label>
+                <input 
+                  type="text" 
+                  value={newAsset.assignedTo || ""} 
+                  onChange={e => setNewAsset({...newAsset, assignedTo: e.target.value})} 
+                  placeholder="e.g., Mg Mg" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Department</label>
+                <input 
+                  type="text" 
+                  value={newAsset.department || ""} 
+                  onChange={e => setNewAsset({...newAsset, department: e.target.value})} 
+                  placeholder="e.g., IT, Pharmacy" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Location</label>
+                <input 
+                  type="text" 
+                  value={newAsset.location || ""} 
+                  onChange={e => setNewAsset({...newAsset, location: e.target.value})} 
+                  placeholder="e.g., Counter 1" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+            </div>
+          </div>
 
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Status</label>
- <select 
- value={newAsset.status || "Active"}
- onChange={e => setNewAsset({...newAsset, status: e.target.value as any})}
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- >
- <option value="Active">Active</option>
- <option value="In Stock">In Stock</option>
- <option value="New">New</option>
- <option value="Maintenance">Maintenance</option>
- <option value="Under Repair">Under Repair</option>
- <option value="Pending / New Arrival">Pending / New Arrival</option>
- <option value="Standalone / Spare">Standalone / Spare</option>
- <option value="Retired">Retired</option>
- <option value="Disposed">Disposed</option>
- </select>
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Assigned To</label>
- <input 
- type="text" 
- value={newAsset.assignedTo || ""}
- onChange={e => setNewAsset({...newAsset, assignedTo: e.target.value})}
- placeholder="Staff Name" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- </div>
+          {/* SECTION 3: Purchase */}
+          <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800 space-y-4">
+            <h4 className="font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <Package size={14} className="text-[#2563EB]" />
+              Section 3: Purchase & Procurement
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Supplier</label>
+                <input 
+                  type="text" 
+                  value={newAsset.supplier || ""} 
+                  onChange={e => setNewAsset({...newAsset, supplier: e.target.value})} 
+                  placeholder="e.g., Apex Tech" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Purchase Date</label>
+                <input 
+                  type="text" 
+                  value={newAsset.purchaseDate || ""} 
+                  onChange={e => setNewAsset({...newAsset, purchaseDate: e.target.value})} 
+                  placeholder="e.g., 2026-01-15" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Purchase Price (MMK)</label>
+                <input 
+                  type="number" 
+                  value={newAsset.purchasePrice || newAsset.itemPrice || ""} 
+                  onChange={e => setNewAsset({...newAsset, purchasePrice: Number(e.target.value), itemPrice: Number(e.target.value)})} 
+                  placeholder="e.g., 1500000" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Purchase Record / Invoice</label>
+                <input 
+                  type="text" 
+                  value={newAsset.purchaseRecord || ""} 
+                  onChange={e => setNewAsset({...newAsset, purchaseRecord: e.target.value})} 
+                  placeholder="e.g., INV-2026-0042" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                />
+              </div>
+            </div>
+          </div>
 
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Department</label>
- <select 
- value={newAsset.department || ""}
- onChange={e => setNewAsset({...newAsset, department: e.target.value})}
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- >
- <option value="">Select Department</option>
- {settings.departments.map(dept => (
- <option key={dept} value={dept}>{dept}</option>
- ))}
- </select>
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Location</label>
- <select 
- value={newAsset.location || ""}
- onChange={e => setNewAsset({...newAsset, location: e.target.value})}
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- >
- <option value="">Select Location</option>
- {settings.locations.map(loc => (
- <option key={loc} value={loc}>{loc}</option>
- ))}
- </select>
- </div>
- </div>
+          {/* SECTION 4: Maintenance */}
+          <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800 space-y-4">
+            <h4 className="font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <AlertTriangle size={14} className="text-[#2563EB]" />
+              Section 4: Maintenance & Status
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Status</label>
+                <select 
+                  value={newAsset.status || "Active"} 
+                  onChange={e => setNewAsset({...newAsset, status: e.target.value})}
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                >
+                  <option value="Active">Active</option>
+                  <option value="In Stock">Available</option>
+                  <option value="Maintenance">Maintenance</option>
+                  <option value="Damaged">Damaged</option>
+                  <option value="Retired">Retired</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-500 font-medium mb-1.5">Maintenance Due Date</label>
+                <input 
+                  type="text" 
+                  value={newAsset.maintenanceDueDate || ""} 
+                  onChange={e => setNewAsset({...newAsset, maintenanceDueDate: e.target.value})} 
+                  placeholder="e.g., 2026-12-31" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-slate-500 font-medium mb-1.5">Remarks / SOP Notes</label>
+                <textarea 
+                  rows={2}
+                  value={newAsset.remarks || ""} 
+                  onChange={e => setNewAsset({...newAsset, remarks: e.target.value})} 
+                  placeholder="e.g., Annual preventive maintenance required" 
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+            </div>
+          </div>
 
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Remark2 (Section)</label>
- <input 
- type="text" 
- value={newAsset.remark2 || ""}
- onChange={e => setNewAsset({...newAsset, remark2: e.target.value})}
- placeholder="Additional notes" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
+          {/* SECTION 5: Relationships */}
+          <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800 space-y-4">
+            <h4 className="font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <Layers size={14} className="text-[#2563EB]" />
+              Section 5: Relationships & Hierarchy
+            </h4>
+            <div>
+              <label className="block text-slate-500 font-medium mb-1.5">Parent Asset / Host (if accessory)</label>
+              <select
+                value={newAsset.parentId || ""}
+                onChange={e => setNewAsset({...newAsset, parentId: e.target.value || undefined})}
+                className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              >
+                <option value="">None (Standalone / Host Node)</option>
+                {assets.filter(a => a.category === "Computer" && a.id !== newAsset.id).map(comp => (
+                  <option key={comp.id} value={comp.id}>
+                    {comp.asset_code || comp.id} - {comp.brand} {comp.model}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
 
- <div className="pt-4 border-t border-slate-100">
- <h4 className="text-xs font-medium text-indigo-600 mb-4 flex items-center gap-2">
- <Package size={14} />
- Peripheral Details (Optional)
- </h4>
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Keyboard</label>
- <input 
- type="text" 
- value={newAsset.peripherals?.keyboard || ""}
- onChange={e => setNewAsset({...newAsset, peripherals: { ...newAsset.peripherals, keyboard: e.target.value }})}
- placeholder="Model / Serial" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Mouse</label>
- <input 
- type="text" 
- value={newAsset.peripherals?.mouse || ""}
- onChange={e => setNewAsset({...newAsset, peripherals: { ...newAsset.peripherals, mouse: e.target.value }})}
- placeholder="Model / Serial" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">USB Ports</label>
- <input 
- type="text" 
- value={newAsset.peripherals?.usb || ""}
- onChange={e => setNewAsset({...newAsset, peripherals: { ...newAsset.peripherals, usb: e.target.value }})}
- placeholder="e.g., 4 Ports, USB-C Hub" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- <div>
- <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Cooling Fan</label>
- <input 
- type="text" 
- value={newAsset.peripherals?.fan || ""}
- onChange={e => setNewAsset({...newAsset, peripherals: { ...newAsset.peripherals, fan: e.target.value }})}
- placeholder="Model / Quantity" 
- className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 focus:bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
- />
- </div>
- </div>
- </div>
- </div>
+        <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 bg-slate-50/50 dark:bg-slate-800/50">
+          <button 
+            onClick={() => {
+              setIsAdding(false);
+              setIsEditing(false);
+              setNewAsset({ category: "Computer", status: "Active" });
+            }}
+            className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 rounded-xl font-medium hover:bg-slate-100 transition-colors"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={handleAddAsset}
+            className="px-6 py-2.5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl font-medium shadow-sm shadow-blue-500/20 transition-all"
+          >
+            {isEditing ? "Save Changes" : "Register Node"}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )}
+  </AnimatePresence>
 
- <div className="p-6 sm:p-8 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row gap-3 sm:gap-4 shrink-0">
- <button 
- onClick={() => {
- setIsAdding(false);
- setIsEditing(false);
- setNewAsset({ category: "Computer", status: "Active" });
- }}
- className="w-full sm:flex-1 py-4 sm:py-3 px-4 bg-slate-200 text-slate-600 dark:text-slate-300 rounded-xl font-medium text-xs hover:bg-slate-300 transition-colors order-2 sm:order-1"
- >
- Terminate
- </button>
- <button 
- onClick={handleAddAsset}
- className="w-full sm:flex-1 py-4 sm:py-3 px-4 bg-indigo-600 text-white rounded-xl font-medium text-xs shadow-lg shadow-indigo-900/40 hover:bg-indigo-700 transition-colors order-1 sm:order-2"
- >
- {isEditing ? "Save Changes" : "Register Node"}
- </button>
- </div>
- </motion.div>
- </div>
- )}
- </AnimatePresence>
+  <ConfirmationModal 
+    isOpen={deleteTarget !== null}
+    onClose={() => setDeleteTarget(null)}
+    onConfirm={executeDelete}
+    isLoading={isDeleting}
+    title="Delete Asset?"
+    message={
+      deleteTarget?.type === 'bulk-asset' && Array.isArray(deleteTarget.id)
+        ? `You are about to delete ${deleteTarget.id.length} selected assets.
 
- <ConfirmationModal 
- isOpen={deleteTarget !== null}
- onClose={() => setDeleteTarget(null)}
- onConfirm={executeDelete}
- isLoading={isDeleting}
- title="Hardware Purge Confirmation"
- message={
- deleteTarget?.type === 'bulk-asset' && Array.isArray(deleteTarget.id)
- ? `SOP-001 Risk Alert: Bulk delete ${deleteTarget.id.length} assets permanently? This cannot be undone.`
- : `SOP-001 Security Alert: Are you sure you want to purge asset ${deleteTarget?.id} from the active inventory? This operation is irreversible and will unlink any connected peripherals.`
- }
- confirmText="Confirm Purge"
- />
- </div>
- );
+This action cannot be undone.`
+        : (() => {
+            const target = assets.find(a => a.id === deleteTarget?.id);
+            const code = target?.asset_code || deleteTarget?.id;
+            const modelName = target ? (target.brand ? target.brand + " " : "") + target.model : "";
+            return `You are about to delete:
+
+${code}
+${modelName}
+
+This action cannot be undone.`;
+          })()
+    }
+    confirmText="Delete Asset"
+    confirmColor="bg-rose-600"
+  />
+  </div>
+  );
 }

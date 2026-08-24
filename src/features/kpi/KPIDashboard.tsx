@@ -49,7 +49,7 @@ const KPIDashboard: React.FC = () => {
  </tr>
  </thead>
  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
- {kpis.map(k => (
+ {calculatedKpis.map(k => (
  <tr key={k.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
  <td className="px-4 py-3.5 text-sm font-medium text-slate-700 dark:text-slate-300">{k.title} ({k.unit})</td>
  <td className="px-4 py-3.5 text-right">

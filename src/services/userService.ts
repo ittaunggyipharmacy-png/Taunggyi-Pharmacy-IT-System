@@ -108,10 +108,13 @@ export const checkAdminStatus = async (uid: string): Promise<boolean> => {
 export const fetchEmployees = async (): Promise<Employee[]> => {
   try {
     const { data, error } = await supabase.from('employees').select('*');
-    if (error) throw error;
+    if (error) {
+      console.warn('Employees table not available or error:', error.message);
+      return [];
+    }
     return (data || []) as unknown as Employee[];
   } catch (error) {
-    console.error('Failed to load employees:', error);
+    console.warn('Failed to load employees:', error);
     return [];
   }
 };

@@ -167,6 +167,68 @@ CREATE TABLE IF NOT EXISTS meeting_minutes (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 14. Daily Logs
+CREATE TABLE IF NOT EXISTS daily_logs (
+  id TEXT PRIMARY KEY,
+  date DATE,
+  user_id TEXT,
+  tasks JSONB DEFAULT '{}',
+  custom_tasks JSONB DEFAULT '[]',
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 15. Weekly Logs
+CREATE TABLE IF NOT EXISTS weekly_logs (
+  id TEXT PRIMARY KEY,
+  week TEXT,
+  user_id TEXT,
+  tasks JSONB DEFAULT '{}',
+  custom_tasks JSONB DEFAULT '[]',
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 16. Monthly Logs
+CREATE TABLE IF NOT EXISTS monthly_logs (
+  id TEXT PRIMARY KEY,
+  month TEXT,
+  user_id TEXT,
+  tasks JSONB DEFAULT '{}',
+  custom_tasks JSONB DEFAULT '[]',
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 17. Activities
+CREATE TABLE IF NOT EXISTS activities (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  user_id TEXT,
+  user_name TEXT,
+  action TEXT,
+  department TEXT,
+  details TEXT
+);
+
+-- 18. Task Evidence
+CREATE TABLE IF NOT EXISTS task_evidence (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id TEXT,
+  log_id TEXT,
+  image_url TEXT,
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  user_id TEXT,
+  user_name TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 19. Employees
+CREATE TABLE IF NOT EXISTS employees (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  skills JSONB DEFAULT '[]',
+  department TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Enable Realtime for all tables
 alter publication supabase_realtime add table app_users;
 alter publication supabase_realtime add table system_config;
@@ -180,3 +242,9 @@ alter publication supabase_realtime add table content_plans;
 alter publication supabase_realtime add table renewals;
 alter publication supabase_realtime add table purchases;
 alter publication supabase_realtime add table meeting_minutes;
+alter publication supabase_realtime add table daily_logs;
+alter publication supabase_realtime add table weekly_logs;
+alter publication supabase_realtime add table monthly_logs;
+alter publication supabase_realtime add table activities;
+alter publication supabase_realtime add table task_evidence;
+alter publication supabase_realtime add table employees;

@@ -30,10 +30,13 @@ export const getDailyLog = async (id: string): Promise<DailyLog | null> => {
 export const fetchAllDailyLogs = async (): Promise<DailyLog[]> => {
   try {
     const { data, error } = await supabase.from('daily_logs').select('*');
-    if (error) throw error;
+    if (error) {
+      console.warn('Daily logs table not available or error:', error.message);
+      return [];
+    }
     return (data || []) as unknown as DailyLog[];
   } catch (error) {
-    console.error('Error fetching all daily logs:', error);
+    console.warn('Error fetching all daily logs:', error);
     return [];
   }
 };
@@ -108,10 +111,13 @@ export const fetchActivities = async (): Promise<ActivityEntry[]> => {
       .from('activities')
       .select('*')
       .order('timestamp', { ascending: false });
-    if (error) throw error;
+    if (error) {
+      console.warn('Activities table not available or error:', error.message);
+      return [];
+    }
     return (data || []) as unknown as ActivityEntry[];
   } catch (error) {
-    console.error('Error fetching activities:', error);
+    console.warn('Error fetching activities:', error);
     return [];
   }
 };
@@ -136,10 +142,13 @@ export const fetchEvidence = async (): Promise<TaskEvidence[]> => {
       .from('task_evidence')
       .select('*')
       .order('timestamp', { ascending: false });
-    if (error) throw error;
+    if (error) {
+      console.warn('Task evidence table not available or error:', error.message);
+      return [];
+    }
     return (data || []) as unknown as TaskEvidence[];
   } catch (error) {
-    console.error('Error fetching evidence:', error);
+    console.warn('Error fetching evidence:', error);
     return [];
   }
 };

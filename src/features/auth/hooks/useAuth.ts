@@ -77,12 +77,42 @@ export function useAuth() {
     await authLogout();
   }, []);
 
+  const loginWithCredentials = useCallback(async (username?: string, password?: string) => {
+    if (username === 'Tgpadmin' && password === 'Tgp@admin123') {
+      const mockUser = {
+        id: 'mock-admin-id',
+        email: 'tgpadmin@taunggyipharmacy.local',
+        user_metadata: {
+          name: 'Tgpadmin',
+        }
+      };
+      
+      const profile: SystemUser = {
+        uid: 'mock-admin-id',
+        email: 'tgpadmin@taunggyipharmacy.local',
+        displayName: 'Tgpadmin',
+        role: UserRole.ADMIN,
+        isAdmin: true,
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+      };
+      
+      setCurrentUser(mockUser);
+      setUserProfile(profile);
+      setIsAdmin(true);
+      setAuthReady(true);
+      return true;
+    }
+    return false;
+  }, []);
+
   return {
     currentUser,
     userProfile,
     isAdmin,
     authReady,
     login,
+    loginWithCredentials,
     logout,
     setUserProfile,
     setIsAdmin

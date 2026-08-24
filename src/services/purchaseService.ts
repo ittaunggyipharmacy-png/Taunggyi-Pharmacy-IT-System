@@ -7,11 +7,28 @@ export const fetchPurchases = async (): Promise<PurchaseRecord[]> => {
     const { data, error } = await supabase
       .from('purchases')
       .select('*')
-      .order('date', { ascending: false });
-    if (error) throw error;
-    return (data || []) as unknown as PurchaseRecord[];
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('Error fetching purchases from Supabase:', error.message);
+      return [];
+    }
+    return (data || []).map((p: any) => ({
+      id: p.id,
+      item: p.item || '',
+      category: p.category || 'General',
+      price: Number(p.price ?? p.estimated_cost ?? 0),
+      currency: p.currency || 'MMK',
+      quantity: Number(p.quantity ?? 1),
+      date: p.date || p.request_date || (p.created_at ? p.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+      supplier: p.supplier || p.requester || '',
+      supplierContact: p.supplierContact || p.supplier_contact || '',
+      status: p.status || 'Ordered',
+      remarks: p.remarks || p.reason || '',
+      serialNumber: p.serialNumber || p.serial_number || '',
+      syncToInventory: !!p.syncToInventory
+    })) as PurchaseRecord[];
   } catch (error) {
-    console.error('Error fetching purchases:', error);
+    console.warn('Error fetching purchases:', error);
     return [];
   }
 };
