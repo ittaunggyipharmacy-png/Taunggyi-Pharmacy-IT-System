@@ -26,6 +26,7 @@ import {
 import { saveActivity } from '../../services/kpiService';
 import { isHistorical } from '../../utils/file';
 import { SearchableSelect } from '../../components/common/SearchableSelect';
+import { SearchableDropdown } from '../../components/SearchableDropdown';
 import { MultiSelectDropdown } from '../../components/MultiSelectDropdown';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { ResetAssetsButton } from '../../components/ResetAssetsButton';
@@ -1522,23 +1523,21 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                 />
               </div>
               <div>
-                <label className="block text-slate-500 font-medium mb-1.5">Department</label>
-                <input 
-                  type="text" 
-                  value={newAsset.department || ""} 
-                  onChange={e => setNewAsset({...newAsset, department: e.target.value})} 
-                  placeholder="e.g., IT, Pharmacy" 
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                <SearchableDropdown
+                  label="Department"
+                  options={settings.departments || []}
+                  value={newAsset.department || ""}
+                  onChange={val => setNewAsset({...newAsset, department: val})}
+                  placeholder="e.g., IT, Pharmacy"
                 />
               </div>
               <div>
-                <label className="block text-slate-500 font-medium mb-1.5">Location</label>
-                <input 
-                  type="text" 
-                  value={newAsset.location || ""} 
-                  onChange={e => setNewAsset({...newAsset, location: e.target.value})} 
-                  placeholder="e.g., Counter 1" 
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                <SearchableDropdown
+                  label="Location"
+                  options={settings.locations || []}
+                  value={newAsset.location || ""}
+                  onChange={val => setNewAsset({...newAsset, location: val})}
+                  placeholder="e.g., Counter 1"
                 />
               </div>
             </div>
