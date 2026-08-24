@@ -39,7 +39,7 @@ const mapAssignment = (row: any): AssetAssignmentRecord => ({
         assignedTo: row.asset.assignee || 'Unassigned',
         purchaseDate: row.asset.purchase_date || '',
         parentId: row.asset.parent_id || null,
-        serialNumber: row.asset.serial_number || '',
+        serialNumber: '',
       }
     : null,
 });
