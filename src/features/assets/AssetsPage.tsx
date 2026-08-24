@@ -1564,10 +1564,9 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
               <div>
                 <label className="block text-slate-500 font-medium mb-1.5">Purchase Date</label>
                 <input 
-                  type="text" 
+                  type="date" 
                   value={newAsset.purchaseDate || ""} 
                   onChange={e => setNewAsset({...newAsset, purchaseDate: e.target.value})} 
-                  placeholder="e.g., 2026-01-15" 
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
                 />
               </div>
@@ -1618,10 +1617,9 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
               <div>
                 <label className="block text-slate-500 font-medium mb-1.5">Maintenance Due Date</label>
                 <input 
-                  type="text" 
+                  type="date" 
                   value={newAsset.maintenanceDueDate || ""} 
                   onChange={e => setNewAsset({...newAsset, maintenanceDueDate: e.target.value})} 
-                  placeholder="e.g., 2026-12-31" 
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
                 />
               </div>

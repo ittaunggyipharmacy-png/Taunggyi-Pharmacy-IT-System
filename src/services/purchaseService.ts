@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { PurchaseRecord } from '../types';
 import { cleanData } from '../utils/cleanData';
+import { sanitizeDateForDb } from '../utils/date';
 
 export const fetchPurchases = async (): Promise<PurchaseRecord[]> => {
   try {
@@ -35,9 +36,12 @@ export const fetchPurchases = async (): Promise<PurchaseRecord[]> => {
 
 export const savePurchaseRecord = async (record: Partial<PurchaseRecord>): Promise<string | undefined> => {
   try {
+    const validDate = sanitizeDateForDb(record.date) || new Date().toISOString().split('T')[0];
     const rec = {
       id: record.id || crypto.randomUUID(),
       ...cleanData(record),
+      date: validDate,
+      request_date: validDate,
       updated_at: new Date().toISOString()
     };
     const { error } = await supabase.from('purchases').upsert(rec);

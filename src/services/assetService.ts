@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { ITAsset } from '../types';
 import { cleanData } from '../utils/cleanData';
+import { sanitizeDateForDb } from '../utils/date';
 
 export const mapAssetFromDatabase = (dbAsset: any): ITAsset => {
   let specsObj = {};
@@ -20,7 +21,7 @@ export const mapAssetFromDatabase = (dbAsset: any): ITAsset => {
     category: dbAsset.category as any || 'Other',
     model: dbAsset.name || 'Unknown',
     serialNumber: (specsObj as any).serialNumber || '',
-    purchaseDate: dbAsset.purchase_date || '',
+    purchaseDate: dbAsset.purchase_date || (specsObj as any).rawPurchaseDate || '',
     location: dbAsset.location || '',
     assignedTo: dbAsset.assignee || 'Unassigned',
     status: dbAsset.status as any || 'Active',
@@ -72,6 +73,8 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
     peripherals,
   } = asset;
 
+  const validPurchaseDate = sanitizeDateForDb(purchaseDate);
+
   const extraFields = {
     serialNumber,
     brand,
@@ -88,6 +91,7 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
     addedBy,
     supplier,
     peripherals,
+    rawPurchaseDate: purchaseDate || undefined,
   };
   
   // NOTE: For now, we stringify extraFields into specs to prevent data loss without altering schema.
@@ -103,7 +107,7 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
     department,
     location,
     assignee: assignedTo,
-    purchase_date: purchaseDate || null,
+    purchase_date: validPurchaseDate,
     specs: specsPayload,
     parent_id: parentId || null,
   };

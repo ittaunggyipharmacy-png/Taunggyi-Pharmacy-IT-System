@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { RenewalRecord } from '../types';
 import { cleanData } from '../utils/cleanData';
+import { sanitizeDateForDb } from '../utils/date';
 
 export const fetchRenewals = async (): Promise<RenewalRecord[]> => {
   try {
@@ -18,9 +19,13 @@ export const fetchRenewals = async (): Promise<RenewalRecord[]> => {
 
 export const saveRenewal = async (renewal: Partial<RenewalRecord>): Promise<string | undefined> => {
   try {
+    const rawDate = renewal.expireDate || (renewal as any).expiry_date;
+    const validExpiry = sanitizeDateForDb(rawDate);
     const rec = {
       id: renewal.id || crypto.randomUUID(),
       ...cleanData(renewal),
+      expiry_date: validExpiry,
+      expireDate: rawDate || undefined,
       updated_at: new Date().toISOString()
     };
     const { error } = await supabase.from('renewals').upsert(rec);
