@@ -66,8 +66,8 @@ const mapAssignment = (row: any): AssetAssignmentRecord => ({
     : null,
 });
 
-// asset_assignments has two foreign keys to app_users (user_id and assigned_by).
-// The explicit FK name is required so PostgREST does not report an ambiguous relationship.
+// General assignment queries. app_users is explicitly linked through user_id
+// because asset_assignments also has assigned_by -> app_users.
 const assignmentSelect = `
   *,
   user:app_users!asset_assignments_user_id_fkey(
@@ -81,6 +81,40 @@ const assignmentSelect = `
     branch,
     photo_url
   ),
+  asset_person:asset_people!asset_assignments_asset_person_id_fkey(
+    id,
+    employee_id,
+    full_name,
+    position,
+    department,
+    branch,
+    phone,
+    email,
+    status,
+    notes,
+    linked_user_id,
+    created_at,
+    updated_at
+  ),
+  asset:assets!asset_assignments_asset_id_fkey(
+    id,
+    code,
+    name,
+    category,
+    status,
+    department,
+    location,
+    assignee,
+    purchase_date,
+    specs,
+    parent_id
+  )
+`;
+
+// Asset Users do not need a login account. Keep this query independent from
+// app_users so a null user_id can never break the Asset User detail page.
+const assetPersonAssignmentSelect = `
+  *,
   asset_person:asset_people!asset_assignments_asset_person_id_fkey(
     id,
     employee_id,
@@ -181,7 +215,7 @@ export const updateAssetPerson = async (person: AssetPerson): Promise<void> => {
 };
 
 export const getAssetPersonAssignments = async (assetPersonId: string, includeHistory = false): Promise<AssetAssignmentRecord[]> => {
-  let query = supabase.from('asset_assignments').select(assignmentSelect).eq('asset_person_id', assetPersonId).order('assigned_date', { ascending: false });
+  let query = supabase.from('asset_assignments').select(assetPersonAssignmentSelect).eq('asset_person_id', assetPersonId).order('assigned_date', { ascending: false });
   if (!includeHistory) query = query.eq('status', 'Active');
   const { data, error } = await query;
   if (error) throw error;
