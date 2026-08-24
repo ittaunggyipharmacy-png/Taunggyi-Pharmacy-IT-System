@@ -32,6 +32,10 @@ export interface SystemUser {
   createdAt: any;
   lastLogin: any;
   isAdmin?: boolean;
+  employeeId?: string | null;
+  position?: string | null;
+  department?: string | null;
+  branch?: string | null;
 }
 
 // Re-export domain-specific types for convenience and backwards compatibility
