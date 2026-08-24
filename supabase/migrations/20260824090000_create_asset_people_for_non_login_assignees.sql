@@ -42,3 +42,25 @@ drop trigger if exists asset_people_updated_at on public.asset_people;
 create trigger asset_people_updated_at
 before update on public.asset_people
 for each row execute function public.set_asset_people_updated_at();
+
+alter table public.asset_people enable row level security;
+
+drop policy if exists "Authenticated users can view asset people" on public.asset_people;
+create policy "Authenticated users can view asset people"
+on public.asset_people for select to authenticated using (true);
+
+drop policy if exists "Elevated users can insert asset people" on public.asset_people;
+create policy "Elevated users can insert asset people"
+on public.asset_people for insert to authenticated
+with check (exists (select 1 from public.app_users u where u.uid = auth.uid() and coalesce(u.is_admin, false) = true));
+
+drop policy if exists "Elevated users can update asset people" on public.asset_people;
+create policy "Elevated users can update asset people"
+on public.asset_people for update to authenticated
+using (exists (select 1 from public.app_users u where u.uid = auth.uid() and coalesce(u.is_admin, false) = true))
+with check (exists (select 1 from public.app_users u where u.uid = auth.uid() and coalesce(u.is_admin, false) = true));
+
+drop policy if exists "Elevated users can delete asset people" on public.asset_people;
+create policy "Elevated users can delete asset people"
+on public.asset_people for delete to authenticated
+using (exists (select 1 from public.app_users u where u.uid = auth.uid() and coalesce(u.is_admin, false) = true));
