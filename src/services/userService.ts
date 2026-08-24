@@ -11,10 +11,25 @@ const ELEVATED_ROLES = [
   UserRole.IT_DIGITAL_MARKETING
 ];
 
+const mapSystemUser = (data: any): SystemUser => ({
+  uid: data.uid,
+  email: data.email || '',
+  displayName: data.display_name || data.email?.split('@')[0] || 'User',
+  role: data.role as UserRole,
+  photoURL: data.photo_url || undefined,
+  createdAt: data.created_at,
+  lastLogin: data.last_login,
+  isAdmin: !!data.is_admin,
+  employeeId: data.employee_id || null,
+  position: data.position || null,
+  department: data.department || null,
+  branch: data.branch || null,
+});
+
 export const getSystemUser = async (uid: string): Promise<SystemUser | null> => {
   try {
     const { data } = await supabase.from('app_users').select('*').eq('uid', uid).single();
-    return data ? ({ ...data, isAdmin: data.is_admin } as SystemUser) : null;
+    return data ? mapSystemUser(data) : null;
   } catch (error) {
     return null;
   }
@@ -48,7 +63,7 @@ export const syncSystemUser = async (supabaseUser: any): Promise<SystemUser | nu
         last_login: new Date().toISOString()
       };
       await supabase.from('app_users').insert(newUser);
-      return { ...newUser, isAdmin: is_admin } as unknown as SystemUser;
+      return mapSystemUser(newUser);
     } else {
       let updatedRole = existing.role;
       if (isSuperAdminEmail && !ELEVATED_ROLES.includes(updatedRole)) {
@@ -67,7 +82,7 @@ export const syncSystemUser = async (supabaseUser: any): Promise<SystemUser | nu
         .eq('uid', uid);
 
       const { data: refreshed } = await supabase.from('app_users').select('*').eq('uid', uid).single();
-      return refreshed ? ({ ...refreshed, isAdmin: refreshed.is_admin } as unknown as SystemUser) : null;
+      return refreshed ? mapSystemUser(refreshed) : null;
     }
   } catch (error) {
     console.error('Error syncing system user:', error);
@@ -85,11 +100,28 @@ export const updateSystemUserRole = async (uid: string, role: UserRole): Promise
   }
 };
 
+export const updateSystemUserProfile = async (
+  uid: string,
+  profile: Partial<Pick<SystemUser, 'employeeId' | 'position' | 'department' | 'branch'>>
+): Promise<void> => {
+  const { error } = await supabase
+    .from('app_users')
+    .update({
+      employee_id: profile.employeeId || null,
+      position: profile.position || null,
+      department: profile.department || null,
+      branch: profile.branch || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('uid', uid);
+  if (error) throw error;
+};
+
 export const getAllSystemUsers = async (): Promise<SystemUser[]> => {
   try {
     const { data, error } = await supabase.from('app_users').select('*');
     if (error) throw error;
-    return (data || []).map((u) => ({ ...u, isAdmin: u.is_admin }));
+    return (data || []).map(mapSystemUser);
   } catch (error) {
     console.error('Error fetching all system users:', error);
     return [];
