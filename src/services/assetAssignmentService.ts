@@ -131,15 +131,16 @@ export const updateAssetPerson = async (person: AssetPerson): Promise<void> => {
   if (error) throw error;
 };
 
-/** Update the name shown by Asset by User. For a linked login user, app_users is the source of truth.
- * The existing Supabase trigger sync_user_name_to_asset_records then propagates the new name to asset_people/assets.
- */
+/** Update the name shown by Asset by User. Linked login users are updated through the admin RPC. */
 export const updateAssetHolderName = async (holder: { kind: 'person'; id: string } | { kind: 'login'; uid: string }, displayName: string): Promise<void> => {
   const name = displayName.trim();
   if (!name) throw new Error('User name cannot be empty.');
 
   if (holder.kind === 'login') {
-    const { error } = await supabase.from('app_users').update({ display_name: name }).eq('uid', holder.uid);
+    const { error } = await supabase.rpc('admin_update_user_display_name', {
+      target_uid: holder.uid,
+      new_display_name: name,
+    });
     if (error) throw error;
     return;
   }
@@ -148,7 +149,10 @@ export const updateAssetHolderName = async (holder: { kind: 'person'; id: string
   if (personError) throw personError;
 
   if (person.linked_user_id) {
-    const { error } = await supabase.from('app_users').update({ display_name: name }).eq('uid', person.linked_user_id);
+    const { error } = await supabase.rpc('admin_update_user_display_name', {
+      target_uid: person.linked_user_id,
+      new_display_name: name,
+    });
     if (error) throw error;
     return;
   }
