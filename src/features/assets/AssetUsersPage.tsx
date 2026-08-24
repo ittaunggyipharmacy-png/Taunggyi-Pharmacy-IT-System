@@ -4,11 +4,7 @@ import { toast } from 'react-hot-toast';
 import { SystemUser, ITAsset, AssetPerson } from '../../types';
 import { getAllSystemUsers } from '../../services/userService';
 import { fetchAssets } from '../../services/assetService';
-import {
-  assignAssetToPerson, createAssetPerson, getAssetPeople, getAssetPersonAssignments,
-  getUserAssetAssignments, getUserAssignmentHistory, returnAsset, updateAssetHolderName,
-  AssetAssignmentRecord,
-} from '../../services/assetAssignmentService';
+import { assignAssetToPerson, createAssetPerson, getAssetPeople, getAssetPersonAssignments, getUserAssetAssignments, getUserAssignmentHistory, returnAsset, updateAssetHolderName, AssetAssignmentRecord } from '../../services/assetAssignmentService';
 
 type AssetHolder =
   | { kind: 'person'; person: AssetPerson }
@@ -27,7 +23,11 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
-  const [assetToAssign, setAssetToAssign] = useState('');
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [assetSearch, setAssetSearch] = useState('');
+  const [assetDepartment, setAssetDepartment] = useState('');
+  const [assetCategory, setAssetCategory] = useState('');
+  const [assetBranch, setAssetBranch] = useState('');
   const [assignNotes, setAssignNotes] = useState('');
   const [returningId, setReturningId] = useState<string | null>(null);
   const [returnReason, setReturnReason] = useState('');
@@ -48,7 +48,7 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
   }, []);
 
   const loadHolderDetail = useCallback(async (holder: AssetHolder) => {
-    setSelectedHolder(holder); setDetailLoading(true);
+    setSelectedHolder(holder); setDetailLoading(true); setSelectedAssetIds([]); setAssetSearch(''); setAssetDepartment(''); setAssetCategory(''); setAssetBranch('');
     try {
       const result = holder.kind === 'person'
         ? await getAssetPersonAssignments(holder.person.id, true)
@@ -88,6 +88,31 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
     return !assignedAssetIds.has(asset.id) && ['active', 'in stock', 'new'].includes(status) && asset.assignedTo === 'Unassigned';
   }), [assets, assignedAssetIds]);
 
+  const assetDepartments = useMemo(() => Array.from(new Set(availableAssets.map(a => a.department).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))), [availableAssets]);
+  const assetCategories = useMemo(() => Array.from(new Set(availableAssets.map(a => a.category).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))), [availableAssets]);
+  const assetBranches = useMemo(() => Array.from(new Set(availableAssets.map(a => a.branch).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))), [availableAssets]);
+
+  const filteredAvailableAssets = useMemo(() => {
+    const term = assetSearch.trim().toLowerCase();
+    return availableAssets.filter(asset => {
+      const matchesDepartment = !assetDepartment || String(asset.department || '') === assetDepartment;
+      const matchesCategory = !assetCategory || String(asset.category || '') === assetCategory;
+      const matchesBranch = !assetBranch || String(asset.branch || '') === assetBranch;
+      const searchValues = [asset.asset_code, asset.name, asset.model, asset.category, asset.serialNumber, asset.brand, asset.department, asset.branch];
+      const matchesSearch = !term || searchValues.some(value => String(value || '').toLowerCase().includes(term));
+      return matchesDepartment && matchesCategory && matchesBranch && matchesSearch;
+    });
+  }, [availableAssets, assetSearch, assetDepartment, assetCategory, assetBranch]);
+
+  const toggleAsset = (assetId: string) => setSelectedAssetIds(prev => prev.includes(assetId) ? prev.filter(id => id !== assetId) : [...prev, assetId]);
+  const toggleVisibleAssets = () => {
+    const visibleIds = filteredAvailableAssets.map(a => a.id);
+    setSelectedAssetIds(prev => {
+      const allSelected = visibleIds.length > 0 && visibleIds.every(id => prev.includes(id));
+      return allSelected ? prev.filter(id => !visibleIds.includes(id)) : Array.from(new Set([...prev, ...visibleIds]));
+    });
+  };
+
   const handleCreatePerson = async () => {
     if (!personForm.fullName.trim()) { toast.error('Name ဖြည့်ပေးပါ။'); return; }
     setSavingPerson(true);
@@ -125,14 +150,15 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
   };
 
   const handleAssign = async () => {
-    if (!selectedHolder || !assetToAssign || selectedHolder.kind !== 'person') {
-      if (selectedHolder?.kind === 'login' && assetToAssign) toast.error('Login User ကို Asset User record နဲ့ link လုပ်ထားတဲ့ workflow ကို သုံးပါ။');
+    if (!selectedHolder || selectedHolder.kind !== 'person' || selectedAssetIds.length === 0) {
+      if (selectedHolder?.kind === 'login' && selectedAssetIds.length) toast.error('Login User ကို Asset User record နဲ့ link လုပ်ထားတဲ့ workflow ကို သုံးပါ။');
       return;
     }
     setAssigning(true);
     try {
-      await assignAssetToPerson({ assetId: assetToAssign, assetPersonId: selectedHolder.person.id, assignedBy: currentUserId, notes: assignNotes.trim() || undefined });
-      toast.success(`${selectedHolder.person.fullName} ဆီ Asset assign လုပ်ပြီးပါပြီ။`); setAssetToAssign(''); setAssignNotes('');
+      await Promise.all(selectedAssetIds.map(assetId => assignAssetToPerson({ assetId, assetPersonId: selectedHolder.person.id, assignedBy: currentUserId, notes: assignNotes.trim() || undefined })));
+      toast.success(`${selectedAssetIds.length} Asset ကို ${selectedHolder.person.fullName} ဆီ assign လုပ်ပြီးပါပြီ။`);
+      setSelectedAssetIds([]); setAssignNotes('');
       await Promise.all([loadUsersAndAssets(), loadHolderDetail(selectedHolder)]);
     } catch (error: any) { console.error(error); toast.error(error?.message || 'Asset assign မအောင်မြင်ပါ။'); }
     finally { setAssigning(false); }
@@ -158,6 +184,7 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
     const department = selectedHolder.kind === 'person' ? selectedHolder.person.department : selectedHolder.user.department;
     const branch = selectedHolder.kind === 'person' ? selectedHolder.person.branch : selectedHolder.user.branch;
     const isAssetPerson = selectedHolder.kind === 'person';
+    const visibleSelectedCount = filteredAvailableAssets.filter(a => selectedAssetIds.includes(a.id)).length;
 
     return <section className="space-y-5">
       <button type="button" onClick={() => { setSelectedHolder(null); setEditingName(false); }} className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-blue-600"><ArrowLeft size={17} /> Back to Asset Users</button>
@@ -171,9 +198,26 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
         </div>
       </div>
 
-      {isAdmin && isAssetPerson && <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center gap-2"><Plus size={18} className="text-blue-600" /><h2 className="font-semibold text-slate-900">Assign Asset</h2></div><div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]"><select value={assetToAssign} onChange={e => setAssetToAssign(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"><option value="">Select available asset...</option>{availableAssets.map(asset => <option key={asset.id} value={asset.id}>{asset.asset_code || asset.id} · {asset.category} · {asset.model}</option>)}</select><input value={assignNotes} onChange={e => setAssignNotes(e.target.value)} placeholder="Notes (optional)" className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500" /><button disabled={!assetToAssign || assigning} onClick={handleAssign} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign'}</button></div>{availableAssets.length === 0 && <p className="mt-3 text-xs text-amber-600">Assign လုပ်နိုင်တဲ့ unassigned Asset မရှိသေးပါ။</p>}</div>}
+      {isAdmin && isAssetPerson && <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center gap-2"><Plus size={18} className="text-blue-600" /><h2 className="font-semibold text-slate-900">Assign Assets</h2></div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <select value={assetDepartment} onChange={e => setAssetDepartment(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"><option value="">All Departments</option>{assetDepartments.map(value => <option key={String(value)} value={String(value)}>{String(value)}</option>)}</select>
+          <select value={assetCategory} onChange={e => setAssetCategory(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"><option value="">All Categories</option>{assetCategories.map(value => <option key={String(value)} value={String(value)}>{String(value)}</option>)}</select>
+          <select value={assetBranch} onChange={e => setAssetBranch(e.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"><option value="">All Branches</option>{assetBranches.map(value => <option key={String(value)} value={String(value)}>{String(value)}</option>)}</select>
+        </div>
+        <div className="relative mt-3"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} /><input value={assetSearch} onChange={e => setAssetSearch(e.target.value)} placeholder="Search asset code / name / serial / brand..." className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-500" /></div>
+        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200">
+          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2.5 text-xs"><label className="flex cursor-pointer items-center gap-2 font-semibold text-slate-700"><input type="checkbox" checked={filteredAvailableAssets.length > 0 && filteredAvailableAssets.every(a => selectedAssetIds.includes(a.id))} onChange={toggleVisibleAssets} /> Select visible ({filteredAvailableAssets.length})</label><span className="font-semibold text-blue-600">Selected: {selectedAssetIds.length}</span></div>
+          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+            {filteredAvailableAssets.map(asset => <label key={asset.id} className="flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-blue-50"><input type="checkbox" checked={selectedAssetIds.includes(asset.id)} onChange={() => toggleAsset(asset.id)} className="mt-1" /><div className="min-w-0"><div className="font-semibold text-slate-900">{asset.asset_code || asset.id}</div><div className="text-sm text-slate-600">{asset.name || asset.model || '-'} · {asset.category || '-'}</div><div className="mt-1 text-xs text-slate-400">{asset.serialNumber || 'No serial'} · {asset.department || '-'} · {asset.branch || '-'}</div></div></label>)}
+            {filteredAvailableAssets.length === 0 && <div className="p-8 text-center text-sm text-slate-500">ဒီ filter/search နဲ့ ကိုက်တဲ့ Available Asset မရှိပါ။</div>}
+          </div>
+        </div>
+        <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center"><input value={assignNotes} onChange={e => setAssignNotes(e.target.value)} placeholder="Notes (optional)" className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500" /><button disabled={selectedAssetIds.length === 0 || assigning} onClick={handleAssign} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{assigning ? 'Assigning...' : `Assign Selected (${selectedAssetIds.length})`}</button></div>
+        {visibleSelectedCount > 0 && visibleSelectedCount !== selectedAssetIds.length && <p className="mt-2 text-xs text-slate-400">Current filter ထဲမှာ selected {visibleSelectedCount} ခု ပြနေပါတယ်။ Total selected {selectedAssetIds.length} ခုပါ။</p>}
+        {availableAssets.length === 0 && <p className="mt-3 text-xs text-amber-600">Assign လုပ်နိုင်တဲ့ unassigned Asset မရှိသေးပါ။</p>}
+      </div>}
 
-      {!isAssetPerson && <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">ဒီ Login User ကို Asset User အဖြစ် automatically link လုပ်နိုင်တဲ့ architecture ပါပြီးသားပါ။ User name ကို ဒီနေရာက edit လုပ်ရင် login account name နဲ့ assigned asset records တွေပါ sync ဖြစ်ပါတယ်။</div>}
+      {!isAssetPerson && <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">ဒီ Login User ကို Asset User အဖြစ် automatically link လုပ်နိုင်တဲ့ workflow ပါပြီးသားပါ။ User name ကို ဒီနေရာက edit လုပ်ရင် login account name နဲ့ assigned asset records တွေပါ sync ဖြစ်ပါတယ်။</div>}
 
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">Assigned Assets</h2></div>{detailLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading assignments...</div> : assignments.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">ဒီ User ဆီမှာ Active Asset မရှိသေးပါ။</div> : <div className="divide-y divide-slate-100">{assignments.map(assignment => <div key={assignment.id} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2"><Package size={17} className="text-blue-600" /><span className="font-semibold text-slate-900">{assignment.asset?.asset_code || assignment.assetId}</span><span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Active</span></div><p className="mt-1 text-sm text-slate-600">{assignment.asset?.category || '-'} · {assignment.asset?.model || '-'}</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-400"><CalendarDays size={13} /> Assigned {assignment.assignedDate}</p></div>{isAdmin && <div className="flex items-center gap-2">{returningId === assignment.id && <input autoFocus value={returnReason} onChange={e => setReturnReason(e.target.value)} placeholder="Return reason" className="w-40 rounded-xl border border-slate-200 px-3 py-2 text-xs" />}<button type="button" onClick={() => handleReturn(assignment)} className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50">{returningId === assignment.id ? 'Confirm Return' : 'Return'}</button>{returningId === assignment.id && <button type="button" onClick={() => setReturningId(null)} className="rounded-xl border border-slate-200 p-2 text-slate-500"><X size={15} /></button>}</div>}</div>)}</div>}</div>
 
