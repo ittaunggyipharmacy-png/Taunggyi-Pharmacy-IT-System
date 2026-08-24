@@ -13,7 +13,9 @@ export const mapAssetFromDatabase = (dbAsset: any): ITAsset => {
         specsObj = parsed;
         specsStr = parsed.specs || '';
       }
-    } catch(e) {}
+    } catch (e) {
+      // Keep the original specs string when legacy JSON cannot be parsed.
+    }
   }
   return {
     id: dbAsset.id,
@@ -46,56 +48,21 @@ export const mapAssetFromDatabase = (dbAsset: any): ITAsset => {
 
 export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
   const {
-    id,
-    asset_code,
-    category,
-    model,
-    serialNumber,
-    purchaseDate,
-    location,
-    assignedTo,
-    status,
-    brand,
-    specs,
-    remarks,
-    remark2,
-    department,
-    uom,
-    purchasePrice,
-    itemPrice,
-    parentId,
-    assignedToAssetId,
-    currency,
-    purchaseRecordId,
-    maintenanceDueDate,
-    addedBy,
-    supplier,
-    peripherals,
+    id, asset_code, category, model, serialNumber, purchaseDate, location,
+    assignedTo, status, brand, specs, remarks, remark2, department, uom,
+    purchasePrice, itemPrice, parentId, assignedToAssetId, currency,
+    purchaseRecordId, maintenanceDueDate, addedBy, supplier, peripherals,
   } = asset;
 
   const validPurchaseDate = sanitizeDateForDb(purchaseDate);
-
   const extraFields = {
-    serialNumber,
-    brand,
-    specs,
-    remarks,
-    remark2,
-    uom,
-    purchasePrice,
-    itemPrice,
-    assignedToAssetId,
-    currency,
-    purchaseRecordId,
-    maintenanceDueDate,
-    addedBy,
-    supplier,
-    peripherals,
-    rawPurchaseDate: purchaseDate || undefined,
+    serialNumber, brand, specs, remarks, remark2, uom, purchasePrice, itemPrice,
+    assignedToAssetId, currency, purchaseRecordId, maintenanceDueDate, addedBy,
+    supplier, peripherals, rawPurchaseDate: purchaseDate || undefined,
   };
-  
-  // NOTE: For now, we stringify extraFields into specs to prevent data loss without altering schema.
-  // The UI expects 'specs' to be the original string, so we embed it inside the JSON.
+
+  // Preserve the existing schema and legacy data format. Extra UI fields remain
+  // embedded in specs until the database schema is intentionally migrated.
   const specsPayload = JSON.stringify(cleanData(extraFields));
 
   return {
@@ -125,43 +92,60 @@ export const fetchAssets = async (): Promise<ITAsset[]> => {
   return (data || []).map(mapAssetFromDatabase);
 };
 
-export const generateNextAssetCode = async (category: string, currentOffset: number = 0): Promise<string> => {
+const getAssetPrefix = (category: string) => {
+  const c = (category || '').toLowerCase();
+  if (c === 'computer') return 'TG-PC-';
+  if (c === 'keyboard') return 'TG-KB-';
+  if (c === 'mouse') return 'TG-MS-';
+  if (c === 'fan') return 'TG-FN-';
+  if (c === 'usb hub' || c === 'usb') return 'TG-UB-';
+  if (c === 'printer') return 'TG-PR-';
+  if (c === 'phone' || c === 'mobile') return 'TG-PH-';
+  if (c === 'scanner') return 'TG-SC-';
+  return 'TG-ACC-';
+};
+
+export const generateNextAssetCode = async (category: string, currentOffset = 0): Promise<string> => {
   const catKey = (category || 'other').toLowerCase().replace(/\s+/g, '_');
+  const prefix = getAssetPrefix(category);
+
+  // Preferred path: atomic Postgres function. This prevents two users creating
+  // the same asset number at the same time.
+  const { data: rpcData, error: rpcError } = await supabase.rpc('next_asset_counter', {
+    p_counter_id: `assetCode_${catKey}`,
+    p_offset: currentOffset,
+  });
+
+  if (!rpcError && typeof rpcData === 'number') {
+    return `${prefix}${String(rpcData).padStart(3, '0')}`;
+  }
+
+  // Backward-compatible fallback for environments where the migration has not
+  // been applied yet. Existing installations continue to work while the SQL
+  // migration is deployed.
+  if (rpcError) {
+    console.warn('[Assets] Atomic counter RPC unavailable; using legacy counter fallback.', rpcError.message);
+  }
+
   const { data, error: fetchError } = await supabase
     .from('asset_counters')
     .select('count')
     .eq('id', `assetCode_${catKey}`)
     .single();
 
-  if (fetchError && fetchError.code !== 'PGRST116') {
-    throw fetchError;
-  }
+  if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
 
-  const lastNum = data?.count || 0;
-  const nextNum = lastNum + 1 + currentOffset;
-
+  const nextNum = (data?.count || 0) + 1 + currentOffset;
   const { error: upsertError } = await supabase
     .from('asset_counters')
-    .upsert({ id: `assetCode_${catKey}`, count: nextNum, updated_at: new Date().toISOString() });
+    .upsert({
+      id: `assetCode_${catKey}`,
+      count: nextNum,
+      updated_at: new Date().toISOString(),
+    });
 
-  if (upsertError) {
-    throw upsertError;
-  }
-
-  const getPrefix = (cat: string) => {
-    const c = (cat || '').toLowerCase();
-    if (c === 'computer') return 'TG-PC-';
-    if (c === 'keyboard') return 'TG-KB-';
-    if (c === 'mouse') return 'TG-MS-';
-    if (c === 'fan') return 'TG-FN-';
-    if (c === 'usb hub' || c === 'usb') return 'TG-UB-';
-    if (c === 'printer') return 'TG-PR-';
-    if (c === 'phone' || c === 'mobile') return 'TG-PH-';
-    if (c === 'scanner') return 'TG-SC-';
-    return 'TG-ACC-';
-  };
-
-  return `${getPrefix(category)}${String(nextNum).padStart(3, '0')}`;
+  if (upsertError) throw upsertError;
+  return `${prefix}${String(nextNum).padStart(3, '0')}`;
 };
 
 export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undefined> => {
@@ -169,16 +153,16 @@ export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undef
   if (!asset.id && !code && asset.category) {
     code = await generateNextAssetCode(asset.category);
   }
-  
+
   const payload = mapAssetToDatabase({
     ...asset,
     id: asset.id || crypto.randomUUID(),
-    asset_code: code
+    asset_code: code,
   });
 
   const { error } = await supabase.from('assets').upsert({
     ...cleanData(payload),
-    updated_at: new Date().toISOString()
+    updated_at: new Date().toISOString(),
   });
 
   if (error) {
@@ -212,32 +196,30 @@ export const updateAssetAssignment = async (
   assignedUser: string,
   location: string,
   department: string,
-  status: ITAsset["status"],
+  status: ITAsset['status'],
   additionalFields: Partial<ITAsset> = {}
 ): Promise<void> => {
-  // First, fetch the existing asset so we can map it properly without losing extraFields
-  const { data: existingData, error: fetchErr } = await supabase.from('assets').select('*').eq('id', assetId).single();
+  const { data: existingData, error: fetchErr } = await supabase
+    .from('assets')
+    .select('*')
+    .eq('id', assetId)
+    .single();
   if (fetchErr) throw fetchErr;
 
   const existingAsset = mapAssetFromDatabase(existingData);
-  
   const updatedAsset = {
     ...existingAsset,
     assignedTo: assignedUser,
     location,
     department,
     status,
-    ...additionalFields
+    ...additionalFields,
   };
-
   const payload = mapAssetToDatabase(updatedAsset);
 
   const { error } = await supabase
     .from('assets')
-    .update({
-      ...cleanData(payload),
-      updated_at: new Date().toISOString()
-    })
+    .update({ ...cleanData(payload), updated_at: new Date().toISOString() })
     .eq('id', assetId);
 
   if (error) {
@@ -246,20 +228,23 @@ export const updateAssetAssignment = async (
   }
 };
 
+// These migration hooks are intentionally explicit instead of silently claiming
+// success. The UI can surface the error and prevent operators from believing a
+// migration completed when no migration actually ran.
 export const initializeAssetCodeCounters = async () => {
-  return { success: true };
+  throw new Error('Asset counter initialization is managed by the Supabase migration.');
 };
 
 export const importLegacyExcelData = async (_rows: any[]) => {
-  return { success: true, count: 0, assets: [] as any[], message: '' };
+  throw new Error('Legacy Excel import is not implemented in the current Supabase-only build.');
 };
 
 export const migrateAssetsToSequentialCodes = async (_dryRun = false) => {
-  return { success: true };
+  throw new Error('Asset code migration is managed by the Supabase migration.');
 };
 
 export const importKeyboardsMigration = async () => {
-  return { success: true };
+  throw new Error('Keyboard migration is not implemented in the current Supabase-only build.');
 };
 
 export const subscribeToAssets = (callback: (assets: ITAsset[]) => void) => {
@@ -267,13 +252,13 @@ export const subscribeToAssets = (callback: (assets: ITAsset[]) => void) => {
     .channel('assets_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'assets' }, async () => {
       try {
-        const assets = await fetchAssets();
-        callback(assets);
+        callback(await fetchAssets());
       } catch (err) {
-        console.error("Failed to refresh assets on change", err);
+        console.error('Failed to refresh assets on change', err);
       }
     })
     .subscribe();
+
   return () => {
     supabase.removeChannel(channel);
   };
