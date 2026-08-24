@@ -111,7 +111,6 @@ export const updateSystemUserProfile = async (
       position: profile.position || null,
       department: profile.department || null,
       branch: profile.branch || null,
-      updated_at: new Date().toISOString(),
     })
     .eq('uid', uid);
   if (error) throw error;
