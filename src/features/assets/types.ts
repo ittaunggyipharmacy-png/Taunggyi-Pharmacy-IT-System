@@ -1,3 +1,31 @@
+export type AssetAssignmentStatus = "Active" | "Returned" | "Cancelled";
+
+export interface AssetAssignment {
+  id: string;
+  assetId: string;
+  userId: string;
+  assignedDate: string;
+  assignedBy?: string | null;
+  returnDate?: string | null;
+  returnReason?: string | null;
+  status: AssetAssignmentStatus;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AssetAssignedUser {
+  uid: string;
+  employeeId?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+  position?: string | null;
+  role?: string | null;
+  department?: string | null;
+  branch?: string | null;
+  photoURL?: string | null;
+}
+
 export interface ITAsset {
   id: string;
   asset_code?: string;
@@ -17,7 +45,7 @@ export interface ITAsset {
   purchasePrice?: string;
   itemPrice?: number;
   parentId?: string | null;
-  assignedToAssetId?: string | null; // Keep for legacy migration if needed
+  assignedToAssetId?: string | null;
   currency?: string;
   purchaseRecordId?: string;
   maintenanceDueDate?: string;
