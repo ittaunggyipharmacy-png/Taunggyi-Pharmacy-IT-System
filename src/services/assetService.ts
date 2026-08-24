@@ -94,8 +94,6 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
     rawPurchaseDate: purchaseDate || undefined,
   };
   
-  // NOTE: For now, we stringify extraFields into specs to prevent data loss without altering schema.
-  // The UI expects 'specs' to be the original string, so we embed it inside the JSON.
   const specsPayload = JSON.stringify(cleanData(extraFields));
 
   return {
@@ -215,19 +213,28 @@ export const updateAssetAssignment = async (
   status: ITAsset["status"],
   additionalFields: Partial<ITAsset> = {}
 ): Promise<void> => {
-  // First, fetch the existing asset so we can map it properly without losing extraFields
   const { data: existingData, error: fetchErr } = await supabase.from('assets').select('*').eq('id', assetId).single();
   if (fetchErr) throw fetchErr;
 
   const existingAsset = mapAssetFromDatabase(existingData);
-  
-  const updatedAsset = {
+
+  // AssetsPage currently does not pass asset_code in additionalFields.
+  // Read the edited Asset Code field from the edit form so saving the form
+  // persists the code to public.assets.code instead of silently keeping the old code.
+  let editedAssetCode = additionalFields.asset_code;
+  if (!editedAssetCode && typeof document !== 'undefined') {
+    const codeInput = document.querySelector<HTMLInputElement>('input[placeholder="e.g., TG-PC-001"]');
+    editedAssetCode = codeInput?.value?.trim() || undefined;
+  }
+
+  const updatedAsset: Partial<ITAsset> = {
     ...existingAsset,
     assignedTo: assignedUser,
     location,
     department,
     status,
-    ...additionalFields
+    ...additionalFields,
+    ...(editedAssetCode ? { asset_code: editedAssetCode } : {}),
   };
 
   const payload = mapAssetToDatabase(updatedAsset);
