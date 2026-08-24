@@ -1,9 +1,26 @@
 export type AssetAssignmentStatus = "Active" | "Returned" | "Cancelled";
 
+export interface AssetPerson {
+  id: string;
+  employeeId?: string | null;
+  fullName: string;
+  position?: string | null;
+  department?: string | null;
+  branch?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  status: string;
+  notes?: string | null;
+  linkedUserId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface AssetAssignment {
   id: string;
   assetId: string;
-  userId: string;
+  userId?: string | null;
+  assetPersonId?: string | null;
   assignedDate: string;
   assignedBy?: string | null;
   returnDate?: string | null;
