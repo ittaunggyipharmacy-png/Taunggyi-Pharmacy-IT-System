@@ -66,11 +66,22 @@ export const updateSystemUserRole = async (uid: string, role: UserRole): Promise
   if (error) throw error;
 };
 
+/**
+ * Update a login user's display name from the app.
+ * The database RPC enforces administrator permission and updates app_users.
+ * The Supabase trigger then synchronizes linked asset_people/assets records.
+ */
 export const updateSystemUserDisplayName = async (uid: string, displayName: string): Promise<void> => {
   const name = displayName.trim();
   if (!name) throw new Error('User name cannot be empty.');
-  const { error } = await supabase.from('app_users').update({ display_name: name }).eq('uid', uid);
+
+  const { data, error } = await supabase.rpc('admin_update_user_display_name', {
+    target_uid: uid,
+    new_display_name: name,
+  });
+
   if (error) throw error;
+  if (!data?.uid) throw new Error('User name update did not return an updated user.');
 };
 
 export const updateSystemUserProfile = async (uid: string, profile: Partial<Pick<SystemUser, 'employeeId' | 'position' | 'department' | 'branch'>>): Promise<void> => {
