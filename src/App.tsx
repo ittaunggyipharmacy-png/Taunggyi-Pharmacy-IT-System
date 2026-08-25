@@ -271,7 +271,7 @@ export default function App() {
             {activeTab === 'dashboard' && canAccess(userProfile?.role as UserRole, 'dashboard') && <ReportsModule activities={activities} evidence={evidence} allDailyLogs={allDailyLogs} tickets={tickets} employees={employees} />}
             {activeTab === 'tickets' && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} userProfile={userProfile} />}
             {activeTab === 'assets' && canAccess(userProfile?.role as UserRole, 'assets') && <AssetsModule assets={assets} setAssets={setAssets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} />}
-            {activeTab === 'asset-users' && (isAdmin || canAccess(userProfile?.role as UserRole, 'assets')) && <AssetUsersPage currentUserId={currentUser.id} isAdmin={isAdmin} />}
+            {activeTab === 'asset-users' && (isAdmin || canAccess(userProfile?.role as UserRole, 'assets')) && <AssetUsersPage currentUserId={currentUser.id} isAdmin={isAdmin} settings={settings} />}
             {activeTab === 'security' && canAccess(userProfile?.role as UserRole, 'security') && <SecurityModule backups={backups} setBackups={setBackups} requests={cctvRequests} setRequests={setCctvRequests} searchTerm={searchTerm} isAdmin={isAdmin} />}
             {activeTab === 'renewals' && canAccess(userProfile?.role as UserRole, 'renewals') && <RenewalsModule renewals={renewals} setRenewals={setRenewals} isAdmin={isAdmin} />}
             {activeTab === 'purchases' && canAccess(userProfile?.role as UserRole, 'purchases') && <PurchasesModule purchases={purchases} setPurchases={setPurchases} assets={assets} setAssets={setAssets} isAdmin={isAdmin} />}

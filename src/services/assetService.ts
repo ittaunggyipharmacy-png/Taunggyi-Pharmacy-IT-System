@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { ITAsset } from '../types';
 import { cleanData } from '../utils/cleanData';
 import { sanitizeDateForDb } from '../utils/date';
+import { syncAssetAssignmentByName } from './assetAssignmentService';
 
 export const mapAssetFromDatabase = (dbAsset: any): ITAsset => {
   let specsObj = {};
@@ -41,6 +42,11 @@ export const mapAssetFromDatabase = (dbAsset: any): ITAsset => {
     addedBy: (specsObj as any).addedBy || '',
     supplier: (specsObj as any).supplier || '',
     peripherals: (specsObj as any).peripherals || undefined,
+    isPurged: (specsObj as any).isPurged === true || dbAsset.status === 'Purged',
+    purgedAt: (specsObj as any).purgedAt || undefined,
+    purgedBy: (specsObj as any).purgedBy || undefined,
+    purgeReason: (specsObj as any).purgeReason || undefined,
+    previousStatus: (specsObj as any).previousStatus || undefined,
   };
 };
 
@@ -50,6 +56,7 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
     assignedTo, status, brand, specs, remarks, remark2, department, uom,
     purchasePrice, itemPrice, parentId, assignedToAssetId, currency,
     purchaseRecordId, maintenanceDueDate, addedBy, supplier, peripherals,
+    isPurged, purgedAt, purgedBy, purgeReason, previousStatus,
   } = asset;
 
   const validPurchaseDate = sanitizeDateForDb(purchaseDate);
@@ -57,6 +64,11 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
     serialNumber, brand, specs, remarks, remark2, uom, purchasePrice,
     itemPrice, assignedToAssetId, currency, purchaseRecordId,
     maintenanceDueDate, addedBy, supplier, peripherals,
+    isPurged: isPurged ?? undefined,
+    purgedAt: purgedAt ?? undefined,
+    purgedBy: purgedBy ?? undefined,
+    purgeReason: purgeReason ?? undefined,
+    previousStatus: previousStatus ?? undefined,
     rawPurchaseDate: purchaseDate || undefined,
   };
   const specsPayload = JSON.stringify(cleanData(extraFields));
@@ -131,10 +143,68 @@ export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undef
   }
   asset.id = payload.id;
   if (code) asset.asset_code = code;
+
+  // Synchronize assignment with Asset by User
+  if (payload.id && asset.assignedTo !== undefined) {
+    try {
+      await syncAssetAssignmentByName({
+        assetId: payload.id,
+        assignedTo: asset.assignedTo,
+        department: asset.department,
+        branch: asset.location,
+        assignedDate: asset.purchaseDate,
+      });
+    } catch (assignErr) {
+      console.warn('Could not sync assignment on saveAsset:', assignErr);
+    }
+  }
+
   return payload.id;
 };
 
+export const purgeAsset = async (
+  asset: ITAsset,
+  options?: { purgedBy?: string; reason?: string }
+): Promise<ITAsset> => {
+  const previousStatus = asset.status !== 'Purged' && asset.status !== 'Disposed' ? asset.status : (asset.previousStatus || 'Active');
+  const purgedAsset: ITAsset = {
+    ...asset,
+    isPurged: true,
+    purgedAt: new Date().toISOString(),
+    purgedBy: options?.purgedBy || 'System Admin',
+    purgeReason: options?.reason || 'Hardware purge',
+    previousStatus,
+    status: 'Disposed',
+  };
+  await saveAsset(purgedAsset);
+  return purgedAsset;
+};
+
+export const unpurgeAsset = async (asset: ITAsset): Promise<ITAsset> => {
+  const restoredStatus = (asset.previousStatus as any) || (asset.assignedTo && asset.assignedTo !== 'Unassigned' ? 'Active' : 'In Stock');
+  const restoredAsset: ITAsset = {
+    ...asset,
+    isPurged: false,
+    purgedAt: undefined,
+    purgedBy: undefined,
+    purgeReason: undefined,
+    previousStatus: undefined,
+    status: restoredStatus,
+  };
+  await saveAsset(restoredAsset);
+  return restoredAsset;
+};
+
+export const deleteAssetPermanently = async (assetId: string): Promise<void> => {
+  return deleteAsset(assetId);
+};
+
 export const deleteAsset = async (assetId: string): Promise<void> => {
+  try {
+    await supabase.from('asset_assignments').delete().eq('asset_id', assetId);
+  } catch (e) {
+    console.warn('Could not delete assignment on asset delete:', e);
+  }
   const { error } = await supabase.from('assets').delete().eq('id', assetId);
   if (error) {
     console.error('Error deleting asset:', error);
@@ -222,6 +292,19 @@ export const updateAssetAssignment = async (
   if (error) {
     console.error('Error updating asset assignment:', error);
     throw error;
+  }
+
+  // Synchronize assignment with Asset by User
+  try {
+    await syncAssetAssignmentByName({
+      assetId,
+      assignedTo: assignedUser,
+      department: department || additionalFields.department,
+      branch: location || additionalFields.location,
+      assignedDate: additionalFields.purchaseDate,
+    });
+  } catch (assignErr) {
+    console.warn('Could not sync assignment on updateAssetAssignment:', assignErr);
   }
 };
 

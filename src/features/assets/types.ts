@@ -46,13 +46,15 @@ export interface AssetAssignedUser {
 export interface ITAsset {
   id: string;
   asset_code?: string;
+  name?: string;
+  branch?: string;
   category: "Computer" | "Printer" | "Network" | "Software" | "Mobile" | "Scanner" | "Keyboard" | "Mouse" | "Monitor" | "UPS" | "USB Hub" | "Fan" | "Peripherals" | "Other";
   model: string;
   serialNumber: string;
   purchaseDate: string;
   location: string;
   assignedTo: string;
-  status: "Active" | "Maintenance" | "Under Repair" | "Retired" | "New" | "In Stock" | "Disposed" | "Pending / New Arrival" | "Standalone / Spare";
+  status: "Active" | "Maintenance" | "Under Repair" | "Retired" | "New" | "In Stock" | "Disposed" | "Pending / New Arrival" | "Standalone / Spare" | "Purged";
   brand?: string;
   specs?: string;
   remarks?: string;
@@ -74,4 +76,9 @@ export interface ITAsset {
     usb?: string;
     fan?: string;
   };
+  isPurged?: boolean;
+  purgedAt?: string;
+  purgedBy?: string;
+  purgeReason?: string;
+  previousStatus?: string;
 }

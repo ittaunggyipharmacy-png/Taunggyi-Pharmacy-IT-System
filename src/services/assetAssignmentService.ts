@@ -220,6 +220,149 @@ export const returnAsset = async ({ assignmentId, returnDate, returnReason, note
   if (assetError) throw assetError;
 };
 
+/**
+ * Automatically synchronize an asset assignment when set in Asset Inventory
+ */
+export const syncAssetAssignmentByName = async ({
+  assetId,
+  assignedTo,
+  department,
+  branch,
+  assignedDate,
+  assignedBy,
+}: {
+  assetId: string;
+  assignedTo?: string | null;
+  department?: string | null;
+  branch?: string | null;
+  assignedDate?: string | null;
+  assignedBy?: string | null;
+}): Promise<void> => {
+  if (!assetId) return;
+  const targetName = (assignedTo || '').trim();
+
+  // 1. If assignedTo is empty or "Unassigned", close any active assignment for this asset
+  if (!targetName || targetName.toLowerCase() === 'unassigned') {
+    const { data: activeAssignments } = await supabase
+      .from('asset_assignments')
+      .select('id')
+      .eq('asset_id', assetId)
+      .eq('status', 'Active');
+
+    if (activeAssignments && activeAssignments.length > 0) {
+      for (const a of activeAssignments) {
+        await supabase
+          .from('asset_assignments')
+          .update({
+            status: 'Returned',
+            return_date: new Date().toISOString().slice(0, 10),
+            return_reason: 'Unassigned from Asset Inventory',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', a.id);
+      }
+    }
+    return;
+  }
+
+  // 2. Find matching app_users or asset_people
+  const { data: matchedUsers } = await supabase
+    .from('app_users')
+    .select('uid, display_name, department, branch')
+    .ilike('display_name', targetName);
+
+  const matchedUser = matchedUsers && matchedUsers.length > 0 ? matchedUsers[0] : null;
+
+  const { data: matchedPeople } = await supabase
+    .from('asset_people')
+    .select('*')
+    .ilike('full_name', targetName);
+
+  let targetPerson: AssetPerson | null = (matchedPeople && matchedPeople.length > 0 ? mapAssetPerson(matchedPeople[0]) : null);
+
+  // If user found but no person, find or create asset_people linked to that user
+  if (matchedUser && !targetPerson) {
+    const { data: linkedPerson } = await supabase
+      .from('asset_people')
+      .select('*')
+      .eq('linked_user_id', matchedUser.uid)
+      .maybeSingle();
+
+    if (linkedPerson) {
+      targetPerson = mapAssetPerson(linkedPerson);
+    } else {
+      const { data: createdPerson } = await supabase
+        .from('asset_people')
+        .insert({
+          full_name: matchedUser.display_name || targetName,
+          department: matchedUser.department || department || null,
+          branch: matchedUser.branch || branch || null,
+          linked_user_id: matchedUser.uid,
+          status: 'Active',
+        })
+        .select('*')
+        .single();
+      targetPerson = mapAssetPerson(createdPerson);
+    }
+  }
+
+  // If no user and no person found, create a new asset_people record with this name
+  if (!targetPerson) {
+    const { data: createdPerson } = await supabase
+      .from('asset_people')
+      .insert({
+        full_name: targetName,
+        department: department || null,
+        branch: branch || null,
+        status: 'Active',
+      })
+      .select('*')
+      .single();
+    targetPerson = mapAssetPerson(createdPerson);
+  }
+
+  if (!targetPerson) return;
+
+  // Check active assignment for this asset
+  const { data: currentActive } = await supabase
+    .from('asset_assignments')
+    .select('*')
+    .eq('asset_id', assetId)
+    .eq('status', 'Active');
+
+  // If already actively assigned to this person/user, do nothing
+  const alreadyAssigned = currentActive?.some(
+    a => a.asset_person_id === targetPerson!.id || (matchedUser && a.user_id === matchedUser.uid)
+  );
+
+  if (alreadyAssigned) return;
+
+  // Close previous active assignments
+  if (currentActive && currentActive.length > 0) {
+    for (const a of currentActive) {
+      await supabase
+        .from('asset_assignments')
+        .update({
+          status: 'Returned',
+          return_date: new Date().toISOString().slice(0, 10),
+          return_reason: `Reassigned to ${targetName}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', a.id);
+    }
+  }
+
+  // Create new active assignment
+  await supabase.from('asset_assignments').insert({
+    asset_id: assetId,
+    asset_person_id: targetPerson.id,
+    user_id: targetPerson.linkedUserId || matchedUser?.uid || null,
+    assigned_date: assignedDate || new Date().toISOString().slice(0, 10),
+    assigned_by: assignedBy || 'Asset Inventory',
+    status: 'Active',
+  });
+};
+
 export const subscribeToAssetAssignments = (callback: () => void) => {
   const channel = supabase.channel('asset_assignments_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'asset_assignments' }, callback).subscribe();
   return () => { supabase.removeChannel(channel); };

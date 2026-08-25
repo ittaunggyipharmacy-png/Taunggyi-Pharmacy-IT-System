@@ -1,18 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Building2, CalendarDays, ChevronRight, Package, Plus, Search, UserRound, X, UserPlus, Pencil } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, ChevronRight, Package, Plus, Search, UserRound, X, UserPlus, Pencil, RefreshCw, Users, UserCheck, MapPin } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { SystemUser, ITAsset, AssetPerson } from '../../types';
+import { SystemUser, ITAsset, AssetPerson, SystemSettings } from '../../types';
 import { getAllSystemUsers } from '../../services/userService';
-import { fetchAssets } from '../../services/assetService';
-import { assignAssetToPerson, createAssetPerson, getAssetPeople, getAssetPersonAssignments, getUserAssetAssignments, getUserAssignmentHistory, returnAsset, updateAssetHolderName, AssetAssignmentRecord } from '../../services/assetAssignmentService';
+import { fetchAssets, updateAssetAssignment } from '../../services/assetService';
+import { getSettings } from '../../services/settingsService';
+import { SearchableDropdown } from '../../components/SearchableDropdown';
+import { assignAssetToPerson, createAssetPerson, getAssetPeople, getAssetPersonAssignments, getUserAssetAssignments, getUserAssignmentHistory, returnAsset, syncAssetAssignmentByName, updateAssetHolderName, AssetAssignmentRecord } from '../../services/assetAssignmentService';
+import { AssetCategoryIcon, AssetCategoryBadge } from './components/AssetCategoryIcon';
 
 type AssetHolder =
   | { kind: 'person'; person: AssetPerson }
   | { kind: 'login'; user: SystemUser };
 
-interface AssetUsersPageProps { currentUserId?: string; isAdmin: boolean; }
+interface AssetUsersPageProps {
+  currentUserId?: string;
+  isAdmin: boolean;
+  settings?: SystemSettings;
+}
 
-export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) {
+export function AssetUsersPage({ currentUserId, isAdmin, settings: propSettings }: AssetUsersPageProps) {
+  const [systemSettings, setSystemSettings] = useState<SystemSettings | null>(propSettings || null);
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [people, setPeople] = useState<AssetPerson[]>([]);
   const [assets, setAssets] = useState<ITAsset[]>([]);
@@ -20,6 +28,7 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
   const [assignments, setAssignments] = useState<AssetAssignmentRecord[]>([]);
   const [history, setHistory] = useState<AssetAssignmentRecord[]>([]);
   const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'people' | 'login'>('all');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
@@ -38,54 +47,198 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
   const [nameDraft, setNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
 
+  useEffect(() => {
+    if (propSettings) {
+      setSystemSettings(propSettings);
+    } else {
+      getSettings().then(res => {
+        if (res) setSystemSettings(res);
+      });
+    }
+  }, [propSettings]);
+
   const loadUsersAndAssets = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextUsers, nextPeople, nextAssets] = await Promise.all([getAllSystemUsers(), getAssetPeople(), fetchAssets()]);
-      setUsers(nextUsers); setPeople(nextPeople); setAssets(nextAssets);
-    } catch (error) { console.error(error); toast.error('Asset Users / Assets များကို load မလုပ်နိုင်ပါ။'); }
-    finally { setLoading(false); }
-  }, []);
+      const [nextUsers, nextPeople, nextAssets, nextSettings] = await Promise.all([
+        getAllSystemUsers(),
+        getAssetPeople(),
+        fetchAssets(),
+        !propSettings ? getSettings() : Promise.resolve(null),
+      ]);
+      setUsers(nextUsers);
+      setPeople(nextPeople);
+      setAssets(nextAssets);
+      if (nextSettings) setSystemSettings(nextSettings);
+    } catch (error) {
+      console.error(error);
+      toast.error('Asset Users / Assets များကို load မလုပ်နိုင်ပါ။');
+    } finally {
+      setLoading(false);
+    }
+  }, [propSettings]);
 
   const loadHolderDetail = useCallback(async (holder: AssetHolder) => {
     setSelectedHolder(holder); setDetailLoading(true); setSelectedAssetIds([]); setAssetSearch(''); setAssetDepartment(''); setAssetCategory(''); setAssetBranch('');
     try {
-      const result = holder.kind === 'person'
-        ? await getAssetPersonAssignments(holder.person.id, true)
-        : await Promise.all([getUserAssetAssignments(holder.user.uid), getUserAssignmentHistory(holder.user.uid)]).then(([active, allHistory]) => ({ active, allHistory }));
-      if (holder.kind === 'person') {
-        const all = result as AssetAssignmentRecord[]; setAssignments(all.filter(a => a.status === 'Active')); setHistory(all);
-      } else {
-        const { active, allHistory } = result as { active: AssetAssignmentRecord[]; allHistory: AssetAssignmentRecord[] };
-        setAssignments(active); setHistory(allHistory);
+      const holderName = (holder.kind === 'person' ? holder.person.fullName : holder.user.displayName || '').trim().toLowerCase();
+      const isSyntheticPerson = holder.kind === 'person' && holder.person.id.startsWith('auto-');
+
+      let activeRecords: AssetAssignmentRecord[] = [];
+      let allHistoryRecords: AssetAssignmentRecord[] = [];
+
+      if (holder.kind === 'person' && !isSyntheticPerson) {
+        const result = await getAssetPersonAssignments(holder.person.id, true);
+        const all = result as AssetAssignmentRecord[];
+        activeRecords = all.filter(a => a.status === 'Active');
+        allHistoryRecords = all;
+      } else if (holder.kind === 'login') {
+        const [active, allHistory] = await Promise.all([
+          getUserAssetAssignments(holder.user.uid),
+          getUserAssignmentHistory(holder.user.uid),
+        ]);
+        activeRecords = active;
+        allHistoryRecords = allHistory;
       }
-    } catch (error) { console.error(error); toast.error('Assignment information load မအောင်မြင်ပါ။'); setAssignments([]); setHistory([]); }
-    finally { setDetailLoading(false); }
-  }, []);
+
+      // Check if any asset in `assets` has `assignedTo` matching this holder, but missing from activeRecords
+      const existingAssetIds = new Set(activeRecords.map(r => r.assetId));
+      const matchingAssets = assets.filter(a => {
+        const aName = (a.assignedTo || '').trim().toLowerCase();
+        return aName && aName !== 'unassigned' && aName === holderName && !existingAssetIds.has(a.id);
+      });
+
+      if (matchingAssets.length > 0) {
+        for (const a of matchingAssets) {
+          const syntheticRecord: AssetAssignmentRecord = {
+            id: `sync-${a.id}`,
+            assetId: a.id,
+            userId: holder.kind === 'login' ? holder.user.uid : holder.person.linkedUserId || null,
+            assetPersonId: holder.kind === 'person' && !isSyntheticPerson ? holder.person.id : null,
+            assignedDate: a.purchaseDate || new Date().toISOString().slice(0, 10),
+            assignedBy: 'Asset Inventory',
+            status: 'Active',
+            user: holder.kind === 'login' ? {
+              uid: holder.user.uid,
+              employeeId: holder.user.employeeId,
+              displayName: holder.user.displayName,
+              email: holder.user.email,
+              position: holder.user.position,
+              role: holder.user.role,
+              department: holder.user.department,
+              branch: holder.user.branch,
+              photoURL: holder.user.photoURL,
+            } : null,
+            assetPerson: holder.kind === 'person' ? holder.person : null,
+            asset: a,
+          };
+          activeRecords.push(syntheticRecord);
+          allHistoryRecords.push(syntheticRecord);
+
+          // Synchronize in database so it is saved permanently
+          syncAssetAssignmentByName({
+            assetId: a.id,
+            assignedTo: holder.kind === 'person' ? holder.person.fullName : holder.user.displayName,
+            department: a.department,
+            branch: a.branch || a.location,
+            assignedDate: a.purchaseDate,
+          }).catch(console.error);
+        }
+      }
+
+      setAssignments(activeRecords);
+      setHistory(allHistoryRecords);
+    } catch (error) {
+      console.error(error);
+      toast.error('Assignment information load မအောင်မြင်ပါ။');
+      setAssignments([]);
+      setHistory([]);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [assets]);
 
   useEffect(() => { loadUsersAndAssets(); }, [loadUsersAndAssets]);
 
   const holders = useMemo<AssetHolder[]>(() => {
-    const loginHolders: AssetHolder[] = users.map(user => ({ kind: 'login', user }));
-    const loginIds = new Set(users.map(u => u.uid));
-    const peopleHolders: AssetHolder[] = people.filter(person => !person.linkedUserId || !loginIds.has(person.linkedUserId)).map(person => ({ kind: 'person', person }));
-    return [...peopleHolders, ...loginHolders];
-  }, [users, people]);
+    const peopleHolders: AssetHolder[] = people.map(person => ({ kind: 'person', person }));
+    const loginHolders = users.map(user => ({ kind: 'login' as const, user }));
+
+    // Also include any assignees present on assets who aren't yet in people or users
+    const knownNames = new Set([
+      ...people.map(p => p.fullName.trim().toLowerCase()),
+      ...users.map(u => (u.displayName || '').trim().toLowerCase()),
+    ]);
+
+    const virtualPeople: AssetPerson[] = [];
+    assets.forEach(a => {
+      const raw = (a.assignedTo || '').trim();
+      if (raw && raw.toLowerCase() !== 'unassigned' && !knownNames.has(raw.toLowerCase())) {
+        knownNames.add(raw.toLowerCase());
+        virtualPeople.push({
+          id: `auto-${raw}`,
+          fullName: raw,
+          employeeId: undefined,
+          position: undefined,
+          department: a.department || undefined,
+          branch: a.branch || a.location || undefined,
+          status: 'Active',
+        });
+      }
+    });
+
+    const allPeopleHolders: AssetHolder[] = [
+      ...peopleHolders,
+      ...virtualPeople.map(person => ({ kind: 'person' as const, person })),
+    ];
+
+    if (filterType === 'people') {
+      return allPeopleHolders;
+    }
+    if (filterType === 'login') {
+      return loginHolders;
+    }
+    // 'all' -> show ALL people + all login users (ensuring every single asset person is visible)
+    const linkedUids = new Set(people.map(p => p.linkedUserId).filter(Boolean));
+    const unlinkedLoginHolders: AssetHolder[] = loginHolders.filter(u => !linkedUids.has(u.user.uid));
+    return [...allPeopleHolders, ...unlinkedLoginHolders];
+  }, [users, people, assets, filterType]);
 
   const visibleHolders = useMemo(() => {
     const term = search.trim().toLowerCase(); if (!term) return holders;
     return holders.filter(holder => {
       const values = holder.kind === 'person'
-        ? [holder.person.fullName, holder.person.employeeId, holder.person.position, holder.person.department, holder.person.branch, 'asset user']
+        ? [holder.person.fullName, holder.person.employeeId, holder.person.position, holder.person.department, holder.person.branch, 'asset user', 'asset person']
         : [holder.user.displayName, holder.user.email, holder.user.employeeId, holder.user.position, holder.user.department, holder.user.branch, holder.user.role, 'login user'];
       return values.some(value => value?.toLowerCase().includes(term));
     });
   }, [holders, search]);
 
+  const departmentOptions = useMemo(() => {
+    const settingsDepts = systemSettings?.departments || [];
+    const fromPeople = people.map(p => p.department).filter(Boolean);
+    const fromUsers = users.map(u => u.department).filter(Boolean);
+    const fromAssets = assets.map(a => a.department).filter(Boolean);
+    const all = Array.from(new Set([...settingsDepts, ...fromPeople, ...fromUsers, ...fromAssets].map(s => String(s).trim()).filter(Boolean)));
+    return all.sort((a, b) => a.localeCompare(b));
+  }, [systemSettings, people, users, assets]);
+
+  const branchOptions = useMemo(() => {
+    const settingsLocs = systemSettings?.locations || [];
+    const settingsBranches = systemSettings?.branchNotes?.map(b => b.name) || [];
+    const fromPeople = people.map(p => p.branch).filter(Boolean);
+    const fromUsers = users.map(u => u.branch).filter(Boolean);
+    const fromAssets = assets.map(a => a.branch || a.location).filter(Boolean);
+    const all = Array.from(new Set([...settingsLocs, ...settingsBranches, ...fromPeople, ...fromUsers, ...fromAssets].map(s => String(s).trim()).filter(Boolean)));
+    return all.sort((a, b) => a.localeCompare(b));
+  }, [systemSettings, people, users, assets]);
+
   const assignedAssetIds = useMemo(() => new Set(assignments.map(item => item.assetId)), [assignments]);
   const availableAssets = useMemo(() => assets.filter(asset => {
+    if (asset.isPurged) return false;
     const status = String(asset.status || '').toLowerCase();
-    return !assignedAssetIds.has(asset.id) && ['active', 'in stock', 'new'].includes(status) && asset.assignedTo === 'Unassigned';
+    const isUnassigned = !asset.assignedTo || asset.assignedTo === 'Unassigned';
+    return !assignedAssetIds.has(asset.id) && ['active', 'in stock', 'new'].includes(status) && isUnassigned;
   }), [assets, assignedAssetIds]);
 
   const assetDepartments = useMemo(() => Array.from(new Set(availableAssets.map(a => a.department).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b))), [availableAssets]);
@@ -150,14 +303,40 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
   };
 
   const handleAssign = async () => {
-    if (!selectedHolder || selectedHolder.kind !== 'person' || selectedAssetIds.length === 0) {
-      if (selectedHolder?.kind === 'login' && selectedAssetIds.length) toast.error('Login User ကို Asset User record နဲ့ link လုပ်ထားတဲ့ workflow ကို သုံးပါ။');
-      return;
-    }
+    if (!selectedHolder || selectedAssetIds.length === 0) return;
     setAssigning(true);
     try {
-      await Promise.all(selectedAssetIds.map(assetId => assignAssetToPerson({ assetId, assetPersonId: selectedHolder.person.id, assignedBy: currentUserId, notes: assignNotes.trim() || undefined })));
-      toast.success(`${selectedAssetIds.length} Asset ကို ${selectedHolder.person.fullName} ဆီ assign လုပ်ပြီးပါပြီ။`);
+      let targetPersonId = selectedHolder.kind === 'person' ? selectedHolder.person.id : '';
+
+      // If synthetic person or login user, ensure asset_person exists in DB
+      if (selectedHolder.kind === 'person' && selectedHolder.person.id.startsWith('auto-')) {
+        const created = await createAssetPerson({
+          fullName: selectedHolder.person.fullName,
+          department: selectedHolder.person.department || null,
+          branch: selectedHolder.person.branch || null,
+          status: 'Active',
+          linkedUserId: null,
+        });
+        targetPersonId = created.id;
+      }
+
+      if (selectedHolder.kind === 'person') {
+        const effectiveId = targetPersonId || selectedHolder.person.id;
+        await Promise.all(selectedAssetIds.map(assetId => assignAssetToPerson({ assetId, assetPersonId: effectiveId, assignedBy: currentUserId, notes: assignNotes.trim() || undefined })));
+        toast.success(`${selectedAssetIds.length} Asset ကို ${selectedHolder.person.fullName} ဆီ assign လုပ်ပြီးပါပြီ။`);
+      } else {
+        // Login user
+        const currentName = selectedHolder.user.displayName || 'Unknown';
+        await Promise.all(selectedAssetIds.map(assetId => syncAssetAssignmentByName({
+          assetId,
+          assignedTo: currentName,
+          department: selectedHolder.user.department,
+          branch: selectedHolder.user.branch,
+          assignedBy: currentUserId,
+        })));
+        toast.success(`${selectedAssetIds.length} Asset ကို ${currentName} ဆီ assign လုပ်ပြီးပါပြီ။`);
+      }
+
       setSelectedAssetIds([]); setAssignNotes('');
       await Promise.all([loadUsersAndAssets(), loadHolderDetail(selectedHolder)]);
     } catch (error: any) { console.error(error); toast.error(error?.message || 'Asset assign မအောင်မြင်ပါ။'); }
@@ -168,10 +347,31 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
     if (!returningId) { setReturningId(assignment.id); setReturnReason(''); return; }
     if (returningId !== assignment.id) return;
     try {
-      await returnAsset({ assignmentId: assignment.id, returnReason: returnReason.trim() || undefined });
-      toast.success('Asset return လုပ်ပြီးပါပြီ။'); setReturningId(null); setReturnReason('');
-      if (selectedHolder) await Promise.all([loadUsersAndAssets(), loadHolderDetail(selectedHolder)]);
-    } catch (error: any) { console.error(error); toast.error(error?.message || 'Asset return မအောင်မြင်ပါ။'); }
+      if (assignment.id.startsWith('sync-')) {
+        await updateAssetAssignment(
+          assignment.assetId,
+          'Unassigned',
+          assignment.asset?.location || 'Central Storage',
+          assignment.asset?.department || '',
+          assignment.asset?.status || 'Active'
+        );
+        await syncAssetAssignmentByName({
+          assetId: assignment.assetId,
+          assignedTo: 'Unassigned',
+        });
+      } else {
+        await returnAsset({ assignmentId: assignment.id, returnReason: returnReason.trim() || undefined });
+      }
+      toast.success('Asset return လုပ်ပြီးပါပြီ။');
+      setReturningId(null);
+      setReturnReason('');
+      if (selectedHolder) {
+        await Promise.all([loadUsersAndAssets(), loadHolderDetail(selectedHolder)]);
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error?.message || 'Asset return မအောင်မြင်ပါ။');
+    }
   };
 
   const holderName = selectedHolder?.kind === 'person' ? selectedHolder.person.fullName : selectedHolder?.user.displayName || '';
@@ -208,7 +408,40 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
         <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200">
           <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2.5 text-xs"><label className="flex cursor-pointer items-center gap-2 font-semibold text-slate-700"><input type="checkbox" checked={filteredAvailableAssets.length > 0 && filteredAvailableAssets.every(a => selectedAssetIds.includes(a.id))} onChange={toggleVisibleAssets} /> Select visible ({filteredAvailableAssets.length})</label><span className="font-semibold text-blue-600">Selected: {selectedAssetIds.length}</span></div>
           <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
-            {filteredAvailableAssets.map(asset => <label key={asset.id} className="flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-blue-50"><input type="checkbox" checked={selectedAssetIds.includes(asset.id)} onChange={() => toggleAsset(asset.id)} className="mt-1" /><div className="min-w-0"><div className="font-semibold text-slate-900">{asset.asset_code || asset.id}</div><div className="text-sm text-slate-600">{asset.name || asset.model || '-'} · {asset.category || '-'}</div><div className="mt-1 text-xs text-slate-400">{asset.serialNumber || 'No serial'} · {asset.department || '-'} · {asset.branch || '-'}</div></div></label>)}
+            {filteredAvailableAssets.map(asset => (
+              <label key={asset.id} className="flex cursor-pointer items-start gap-3 px-3.5 py-3 hover:bg-blue-50/70 dark:hover:bg-slate-800/60 transition">
+                <input
+                  type="checkbox"
+                  checked={selectedAssetIds.includes(asset.id)}
+                  onChange={() => toggleAsset(asset.id)}
+                  className="mt-2 w-4 h-4 rounded text-blue-600 focus:ring-blue-500/20 cursor-pointer"
+                />
+                <div className="min-w-0 flex items-start gap-3 flex-1">
+                  <AssetCategoryIcon
+                    category={asset.category}
+                    model={asset.model}
+                    name={asset.name}
+                    size={16}
+                    withContainer
+                    containerSize="sm"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>{asset.asset_code || asset.id}</span>
+                      {asset.category && (
+                        <AssetCategoryBadge category={asset.category} model={asset.model} size="sm" />
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                      {asset.name || asset.model || '-'}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400">
+                      {asset.serialNumber || 'No serial'} · {asset.department || '-'} · {asset.branch || '-'}
+                    </div>
+                  </div>
+                </div>
+              </label>
+            ))}
             {filteredAvailableAssets.length === 0 && <div className="p-8 text-center text-sm text-slate-500">ဒီ filter/search နဲ့ ကိုက်တဲ့ Available Asset မရှိပါ။</div>}
           </div>
         </div>
@@ -219,18 +452,368 @@ export function AssetUsersPage({ currentUserId, isAdmin }: AssetUsersPageProps) 
 
       {!isAssetPerson && <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">ဒီ Login User ကို Asset User အဖြစ် automatically link လုပ်နိုင်တဲ့ workflow ပါပြီးသားပါ။ User name ကို ဒီနေရာက edit လုပ်ရင် login account name နဲ့ assigned asset records တွေပါ sync ဖြစ်ပါတယ်။</div>}
 
-      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">Assigned Assets</h2></div>{detailLoading ? <div className="p-10 text-center text-sm text-slate-500">Loading assignments...</div> : assignments.length === 0 ? <div className="p-10 text-center text-sm text-slate-500">ဒီ User ဆီမှာ Active Asset မရှိသေးပါ။</div> : <div className="divide-y divide-slate-100">{assignments.map(assignment => <div key={assignment.id} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between"><div><div className="flex items-center gap-2"><Package size={17} className="text-blue-600" /><span className="font-semibold text-slate-900">{assignment.asset?.asset_code || assignment.assetId}</span><span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Active</span></div><p className="mt-1 text-sm text-slate-600">{assignment.asset?.category || '-'} · {assignment.asset?.model || '-'}</p><p className="mt-1 flex items-center gap-1 text-xs text-slate-400"><CalendarDays size={13} /> Assigned {assignment.assignedDate}</p></div>{isAdmin && <div className="flex items-center gap-2">{returningId === assignment.id && <input autoFocus value={returnReason} onChange={e => setReturnReason(e.target.value)} placeholder="Return reason" className="w-40 rounded-xl border border-slate-200 px-3 py-2 text-xs" />}<button type="button" onClick={() => handleReturn(assignment)} className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50">{returningId === assignment.id ? 'Confirm Return' : 'Return'}</button>{returningId === assignment.id && <button type="button" onClick={() => setReturningId(null)} className="rounded-xl border border-slate-200 p-2 text-slate-500"><X size={15} /></button>}</div>}</div>)}</div>}</div>
+      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h2 className="font-semibold text-slate-900">Assigned Assets</h2>
+        </div>
+        {detailLoading ? (
+          <div className="p-10 text-center text-sm text-slate-500">Loading assignments...</div>
+        ) : assignments.length === 0 ? (
+          <div className="p-10 text-center text-sm text-slate-500">ဒီ User ဆီမှာ Active Asset မရှိသေးပါ။</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {assignments.map(assignment => (
+              <div key={assignment.id} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-3">
+                  <AssetCategoryIcon
+                    category={assignment.asset?.category}
+                    model={assignment.asset?.model}
+                    name={assignment.asset?.name}
+                    size={18}
+                    withContainer
+                    containerSize="md"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-slate-900 dark:text-white">{assignment.asset?.asset_code || assignment.assetId}</span>
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200">Active</span>
+                      {assignment.asset?.category && (
+                        <AssetCategoryBadge category={assignment.asset.category} model={assignment.asset.model} size="sm" />
+                      )}
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 font-medium">
+                      {assignment.asset?.model || assignment.asset?.name || '-'}
+                    </p>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
+                      <CalendarDays size={13} /> Assigned {assignment.assignedDate}
+                    </p>
+                  </div>
+                </div>
+                {isAdmin && (
+                  <div className="flex items-center gap-2">
+                    {returningId === assignment.id && (
+                      <input
+                        autoFocus
+                        value={returnReason}
+                        onChange={e => setReturnReason(e.target.value)}
+                        placeholder="Return reason"
+                        className="w-40 rounded-xl border border-slate-200 px-3 py-2 text-xs"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleReturn(assignment)}
+                      className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition"
+                    >
+                      {returningId === assignment.id ? 'Confirm Return' : 'Return'}
+                    </button>
+                    {returningId === assignment.id && (
+                      <button
+                        type="button"
+                        onClick={() => setReturningId(null)}
+                        className="rounded-xl border border-slate-200 p-2 text-slate-500"
+                      >
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 px-5 py-4"><h2 className="font-semibold text-slate-900">Assignment History</h2></div>{history.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">History မရှိသေးပါ။</div> : <div className="divide-y divide-slate-100">{history.map(item => <div key={item.id} className="flex items-center justify-between gap-4 px-5 py-3 text-sm"><div><span className="font-medium text-slate-800">{item.asset?.asset_code || item.assetId}</span><span className="ml-2 text-slate-500">{item.asset?.model || '-'}</span></div><div className="text-right text-xs text-slate-400"><div>{item.assignedDate} → {item.returnDate || 'Current'}</div><div className="font-medium">{item.status}</div></div></div>)}</div>}</div>
+      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h2 className="font-semibold text-slate-900">Assignment History</h2>
+        </div>
+        {history.length === 0 ? (
+          <div className="p-8 text-center text-sm text-slate-500">History မရှိသေးပါ။</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {history.map(item => (
+              <div key={item.id} className="flex items-center justify-between gap-4 px-5 py-3 text-sm">
+                <div className="flex items-center gap-3">
+                  <AssetCategoryIcon
+                    category={item.asset?.category}
+                    model={item.asset?.model}
+                    name={item.asset?.name}
+                    size={15}
+                    withContainer
+                    containerSize="sm"
+                  />
+                  <div>
+                    <span className="font-medium text-slate-800 dark:text-slate-200">{item.asset?.asset_code || item.assetId}</span>
+                    <span className="ml-2 text-slate-500">{item.asset?.model || '-'}</span>
+                  </div>
+                </div>
+                <div className="text-right text-xs text-slate-400">
+                  <div>{item.assignedDate} → {item.returnDate || 'Current'}</div>
+                  <div className="font-medium">{item.status}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </section>;
   }
 
-  return <section className="space-y-5">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-bold text-slate-900">Assets by User</h1><p className="text-sm text-slate-500">Login မဝင်နိုင်တဲ့ ဝန်ထမ်းတွေကိုပါ Asset User အဖြစ် မှတ်ထားပြီး Asset Assign / Return လုပ်နိုင်ပါတယ်။</p></div><div className="flex gap-2 w-full sm:w-auto"><div className="relative w-full sm:w-80"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, employee ID, branch..." className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-500" /></div>{isAdmin && <button type="button" onClick={() => setShowPersonForm(v => !v)} className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"><UserPlus size={16} /> Add Asset User</button>}</div></div>
+  const totalPeopleCount = people.length;
+  const totalLoginCount = users.length;
+  const totalDisplayCount = holders.length;
 
-    {isAdmin && showPersonForm && <div className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm"><h2 className="mb-4 font-semibold text-slate-900">Add Asset User (Login မလို)</h2><div className="grid gap-3 md:grid-cols-3"><input placeholder="Full Name *" value={personForm.fullName} onChange={e => setPersonForm(p => ({ ...p, fullName: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /><input placeholder="Employee ID" value={personForm.employeeId} onChange={e => setPersonForm(p => ({ ...p, employeeId: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /><input placeholder="Position" value={personForm.position} onChange={e => setPersonForm(p => ({ ...p, position: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /><input placeholder="Department" value={personForm.department} onChange={e => setPersonForm(p => ({ ...p, department: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /><input placeholder="Branch" value={personForm.branch} onChange={e => setPersonForm(p => ({ ...p, branch: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /><input placeholder="Notes" value={personForm.notes} onChange={e => setPersonForm(p => ({ ...p, notes: e.target.value }))} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /></div><div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setShowPersonForm(false)} className="rounded-xl border border-slate-200 px-4 py-2 text-sm">Cancel</button><button type="button" disabled={savingPerson} onClick={handleCreatePerson} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingPerson ? 'Saving...' : 'Save Asset User'}</button></div></div>}
+  return (
+    <section className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Users className="text-blue-600" size={26} />
+            Assets by User
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Login User များနှင့် Asset People ဝန်ထမ်းအားလုံးကို ကြည့်ရှုပြီး Asset Assign / Return လုပ်ဆောင်နိုင်ပါသည်။
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => loadUsersAndAssets()}
+            disabled={loading}
+            title="Refresh list"
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-sm"
+          >
+            <RefreshCw size={16} className={loading ? "animate-spin text-blue-600" : ""} />
+          </button>
+          <div className="relative flex-1 sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search name, employee ID, branch..."
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2.5 pl-9 pr-3 text-sm text-slate-900 dark:text-white outline-none focus:border-blue-500 shadow-sm"
+            />
+          </div>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowPersonForm(v => !v)}
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition shadow-sm"
+            >
+              <UserPlus size={16} /> Add Asset User
+            </button>
+          )}
+        </div>
+      </div>
 
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">{visibleHolders.map(holder => { const name = holder.kind === 'person' ? holder.person.fullName : holder.user.displayName; const employeeId = holder.kind === 'person' ? holder.person.employeeId : holder.user.employeeId; const department = holder.kind === 'person' ? holder.person.department : holder.user.department; const branch = holder.kind === 'person' ? holder.person.branch : holder.user.branch; return <button key={`${holder.kind}-${holder.kind === 'person' ? holder.person.id : holder.user.uid}`} type="button" onClick={() => loadHolderDetail(holder)} className="group rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md"><div className="flex items-start gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><UserRound size={20} /></div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><h3 className="truncate font-semibold text-slate-900">{name}</h3><ChevronRight size={16} className="text-slate-300 group-hover:text-blue-500" /></div><div className="flex items-center gap-2"><p className="truncate text-xs text-slate-500">{employeeId || '-'}</p><span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-semibold text-slate-500">{holder.kind === 'person' ? 'ASSET USER' : 'LOGIN USER'}</span></div></div></div><div className="mt-4 grid grid-cols-2 gap-2 text-xs"><div className="rounded-xl bg-slate-50 p-2.5"><div className="mb-1 flex items-center gap-1 text-slate-400"><Building2 size={13} /> Department</div><div className="truncate font-medium text-slate-700">{department || '-'}</div></div><div className="rounded-xl bg-slate-50 p-2.5"><div className="mb-1 text-slate-400">Branch</div><div className="truncate font-medium text-slate-700">{branch || '-'}</div></div></div></button>; })}</div>
-    {visibleHolders.length === 0 && <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-12 text-center text-sm text-slate-500">No Asset Users found.</div>}
-  </section>;
+      {/* Filter Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-200/80 dark:border-slate-800">
+        <button
+          type="button"
+          onClick={() => setFilterType('all')}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+            filterType === 'all'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+          }`}
+        >
+          All Users ({totalDisplayCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterType('people')}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            filterType === 'people'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          Asset People ({totalPeopleCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterType('login')}
+          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            filterType === 'login'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+          Login Accounts ({totalLoginCount})
+        </button>
+      </div>
+
+      {isAdmin && showPersonForm && (
+        <div className="rounded-3xl border border-blue-100 dark:border-blue-900/40 bg-white dark:bg-slate-900 p-5 shadow-sm space-y-4">
+          <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+            <UserPlus size={18} className="text-blue-600" />
+            Add Asset User (Login အကောင့်မလိုဘဲ ဝန်ထမ်းအမည် ထည့်ရန်)
+          </h2>
+          <div className="grid gap-3.5 md:grid-cols-3 items-end">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 ml-1">Full Name *</label>
+              <input
+                placeholder="e.g. U Ba"
+                value={personForm.fullName}
+                onChange={e => setPersonForm(p => ({ ...p, fullName: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 px-3 py-2.5 text-xs text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 ml-1">Employee ID</label>
+              <input
+                placeholder="e.g. EMP-001"
+                value={personForm.employeeId}
+                onChange={e => setPersonForm(p => ({ ...p, employeeId: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 px-3 py-2.5 text-xs text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 ml-1">Position</label>
+              <input
+                placeholder="e.g. Pharmacist / IT Officer"
+                value={personForm.position}
+                onChange={e => setPersonForm(p => ({ ...p, position: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 px-3 py-2.5 text-xs text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <SearchableDropdown
+                label="Department"
+                icon={Building2}
+                options={departmentOptions}
+                value={personForm.department}
+                onChange={val => setPersonForm(p => ({ ...p, department: val }))}
+                placeholder="Select or enter Department"
+              />
+            </div>
+            <div>
+              <SearchableDropdown
+                label="Branch / Location"
+                icon={MapPin}
+                options={branchOptions}
+                value={personForm.branch}
+                onChange={val => setPersonForm(p => ({ ...p, branch: val }))}
+                placeholder="Select or enter Branch"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 ml-1">Notes</label>
+              <input
+                placeholder="Notes (optional)"
+                value={personForm.notes}
+                onChange={e => setPersonForm(p => ({ ...p, notes: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 px-3 py-2.5 text-xs text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowPersonForm(false)}
+              className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={savingPerson}
+              onClick={handleCreatePerson}
+              className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition"
+            >
+              {savingPerson ? 'Saving...' : 'Save Asset User'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {visibleHolders.map(holder => {
+          const name = holder.kind === 'person' ? holder.person.fullName : holder.user.displayName;
+          const employeeId = holder.kind === 'person' ? holder.person.employeeId : holder.user.employeeId;
+          const position = holder.kind === 'person' ? holder.person.position : (holder.user.position || holder.user.role);
+          const department = holder.kind === 'person' ? holder.person.department : holder.user.department;
+          const branch = holder.kind === 'person' ? holder.person.branch : holder.user.branch;
+          const isPerson = holder.kind === 'person';
+
+          return (
+            <button
+              key={`${holder.kind}-${holder.kind === 'person' ? holder.person.id : holder.user.uid}`}
+              type="button"
+              onClick={() => loadHolderDetail(holder)}
+              className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 text-left shadow-sm transition-all hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md"
+            >
+              <div className="flex items-start gap-3">
+                <div className={`flex h-11 w-11 items-center justify-center rounded-xl shrink-0 ${isPerson ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'}`}>
+                  <UserRound size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="truncate font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 transition-colors">
+                      {name || 'Unnamed'}
+                    </h3>
+                    <ChevronRight size={16} className="text-slate-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all shrink-0" />
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="truncate text-xs text-slate-500 dark:text-slate-400">{position || employeeId || '-'}</p>
+                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase shrink-0 ${
+                      isPerson
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+                        : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
+                    }`}>
+                      {isPerson ? 'ASSET PERSON' : 'LOGIN USER'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 p-2.5">
+                  <div className="mb-1 flex items-center gap-1 text-slate-400">
+                    <Building2 size={13} /> Department
+                  </div>
+                  <div className="truncate font-medium text-slate-700 dark:text-slate-200">{department || '-'}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 p-2.5">
+                  <div className="mb-1 text-slate-400">Branch</div>
+                  <div className="truncate font-medium text-slate-700 dark:text-slate-200">{branch || '-'}</div>
+                </div>
+              </div>
+
+              {(() => {
+                const assignedCount = assets.filter(a => {
+                  const aName = (a.assignedTo || '').trim().toLowerCase();
+                  return aName && aName !== 'unassigned' && aName === (name || '').trim().toLowerCase();
+                }).length;
+
+                return (
+                  <div className="mt-3 flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <Package size={13} /> Assigned Assets
+                    </span>
+                    <span className={`font-semibold px-2 py-0.5 rounded-full text-[11px] ${
+                      assignedCount > 0
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 font-bold'
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                    }`}>
+                      {assignedCount > 0 ? `${assignedCount} Asset${assignedCount > 1 ? 's' : ''}` : '0 Assets'}
+                    </span>
+                  </div>
+                );
+              })()}
+            </button>
+          );
+        })}
+      </div>
+
+      {visibleHolders.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+          {search ? 'ရှာဖွေထားသော အမည်/အချက်အလက်နှင့် ကိုက်ညီသည့် User မရှိပါ။' : 'Asset Users များ မရှိသေးပါ။'}
+        </div>
+      )}
+    </section>
+  );
 }

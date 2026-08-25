@@ -1,5 +1,6 @@
 import { AssetStatusBadge } from "./components/AssetStatusBadge";
 import { AssetEmptyState } from "./components/AssetEmptyState";
+import { AssetCategoryIcon, AssetCategoryBadge } from "./components/AssetCategoryIcon";
 import React, { useState, useEffect, useRef, useMemo, Fragment } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -8,12 +9,13 @@ import {
   FileSpreadsheet, Sparkles, Layers, Box, Cpu, HardDrive, Shield,
   ExternalLink, UserCheck, UserX, Check, Clock, Laptop, ArrowUpDown, ChevronRight, X,
   Package, AlertTriangle, Database, Tag, Settings2, Usb, Link2, MinusSquare, 
-  Printer, Keyboard, MousePointer2, Wind, ShieldCheck, Smartphone, Info
+  Printer, Keyboard, MousePointer2, Wind, ShieldCheck, Smartphone, Info,
+  RotateCcw, Undo2, Archive
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { utils, writeFile, read } from 'xlsx';
 import { toast } from 'react-hot-toast';
-import { ITAsset, SystemSettings } from '../../types';
+import { ITAsset, SystemSettings, SystemUser, AssetPerson } from '../../types';
 import { 
   saveAsset, 
   deleteAsset, 
@@ -21,8 +23,13 @@ import {
   generateNextAssetCode, 
   updateAssetAssignment, 
   importLegacyExcelData, 
-  migrateAssetsToSequentialCodes 
+  migrateAssetsToSequentialCodes,
+  purgeAsset,
+  unpurgeAsset,
+  deleteAssetPermanently
 } from '../../services/assetService';
+import { getAllSystemUsers } from '../../services/userService';
+import { getAssetPeople } from '../../services/assetAssignmentService';
 import { saveActivity } from '../../services/kpiService';
 import { isHistorical } from '../../utils/file';
 import { SearchableSelect } from '../../components/common/SearchableSelect';
@@ -32,16 +39,25 @@ import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { ResetAssetsButton } from '../../components/ResetAssetsButton';
 import { cn } from '../../lib/utils';
 
-export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { assets: ITAsset[], setAssets: React.Dispatch<React.SetStateAction<ITAsset[]>>, searchTerm: string, isAdmin: boolean, settings: SystemSettings }) {
- const [isAdding, setIsAdding] = useState(false);
- const [isEditing, setIsEditing] = useState(false);
- const [isDeleting, setIsDeleting] = useState(false);
- const [deleteTarget, setDeleteTarget] = useState<{ id: string | string[]; type: 'asset' | 'bulk-asset' } | null>(null);
- const [selectedAsset, setSelectedAsset] = useState<ITAsset | null>(null);
- const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
- const [newAsset, setNewAsset] = useState<Partial<ITAsset>>({ category: "Computer", status: "Active" });
+ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings }: { assets: ITAsset[], setAssets: React.Dispatch<React.SetStateAction<ITAsset[]>>, searchTerm: string, isAdmin: boolean, settings: SystemSettings }) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string | string[]; type: 'asset' | 'bulk-asset' } | null>(null);
+  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<{ id: string | string[]; type: 'asset' | 'bulk-asset' } | null>(null);
+  const [inventoryTab, setInventoryTab] = useState<'active' | 'purged'>('active');
+  const [selectedAsset, setSelectedAsset] = useState<ITAsset | null>(null);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [newAsset, setNewAsset] = useState<Partial<ITAsset>>({ category: "Computer", status: "Active" });
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false);
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>([]);
+  const [assetPeople, setAssetPeople] = useState<AssetPerson[]>([]);
+
+  useEffect(() => {
+    getAllSystemUsers().then(setSystemUsers).catch(console.error);
+    getAssetPeople().then(setAssetPeople).catch(console.error);
+  }, []);
 
   const handleRetry = () => {
     setIsLoading(true);
@@ -49,150 +65,296 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
     setTimeout(() => setIsLoading(false), 600);
   };
 
- // Hierarchical Filter State
- const [filterCategory, setFilterCategory] = useState<string[]>([]);
- const [selectedCategory, setSelectedCategory] = useState('All');
- const [filterBrand, setFilterBrand] = useState<string[]>([]);
- const [filterModel, setFilterModel] = useState<string[]>([]);
- const [filterSpec, setFilterSpec] = useState<string[]>([]);
- const [filterDept, setFilterDept] = useState<string[]>([]);
- const [filterUser, setFilterUser] = useState<string[]>([]);
+  const activeAssets = useMemo(() => assets.filter(a => !a.isPurged), [assets]);
+  const purgedAssets = useMemo(() => assets.filter(a => a.isPurged), [assets]);
+
+  const baseInventory = useMemo(() => {
+    return inventoryTab === 'active' ? activeAssets : purgedAssets;
+  }, [inventoryTab, activeAssets, purgedAssets]);
+
+  // Hierarchical Filter State
+  const [filterCategory, setFilterCategory] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [filterBrand, setFilterBrand] = useState<string[]>([]);
+  const [filterModel, setFilterModel] = useState<string[]>([]);
+  const [filterSpec, setFilterSpec] = useState<string[]>([]);
+  const [filterDept, setFilterDept] = useState<string[]>([]);
+  const [filterUser, setFilterUser] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
   const [filterLocation, setFilterLocation] = useState<string[]>([]);
   const [assetSearch, setAssetSearch] = useState("");
 
   const locations = useMemo(() => Array.from(new Set([...(settings.locations || []), ...assets.map(a => a.location).filter(Boolean)])).sort(), [assets, settings]);
 
- // Options memoized per level
- const categories = useMemo(() => {
- const baseCategories = ["Computer", "Monitor", "UPS", "Keyboard", "Mouse", "Printer", "Scanner", "Network", "Mobile", "USB Hub", "Fan", "Peripherals", "Other"];
- const foundCategories = assets.map(a => a.category).filter(Boolean);
- return Array.from(new Set([...baseCategories, ...foundCategories])).sort();
- }, [assets]);
- 
- const brands = useMemo(() => {
- const filtered = filterCategory.length === 0 ? assets : assets.filter(a => filterCategory.includes(a.category));
- return Array.from(new Set(filtered.map(a => a.brand).filter(Boolean))).sort();
- }, [assets, filterCategory]);
+  // Options memoized per level based on baseInventory
+  const categories = useMemo(() => {
+    const baseCategories = ["Computer", "Monitor", "UPS", "Keyboard", "Mouse", "Printer", "Scanner", "Network", "Mobile", "USB Hub", "Fan", "Peripherals", "Other"];
+    const foundCategories = baseInventory.map(a => a.category).filter(Boolean);
+    return Array.from(new Set([...baseCategories, ...foundCategories])).sort();
+  }, [baseInventory]);
+  
+  const brands = useMemo(() => {
+    const filtered = filterCategory.length === 0 ? baseInventory : baseInventory.filter(a => filterCategory.includes(a.category));
+    return Array.from(new Set(filtered.map(a => a.brand).filter(Boolean))).sort();
+  }, [baseInventory, filterCategory]);
 
- const models = useMemo(() => {
- let filtered = filterCategory.length === 0 ? assets : assets.filter(a => filterCategory.includes(a.category));
- if (filterBrand.length > 0) filtered = filtered.filter(a => filterBrand.includes(a.brand));
- return Array.from(new Set(filtered.map(a => a.model).filter(Boolean))).sort();
- }, [assets, filterCategory, filterBrand]);
+  const models = useMemo(() => {
+    let filtered = filterCategory.length === 0 ? baseInventory : baseInventory.filter(a => filterCategory.includes(a.category));
+    if (filterBrand.length > 0) filtered = filtered.filter(a => filterBrand.includes(a.brand));
+    return Array.from(new Set(filtered.map(a => a.model).filter(Boolean))).sort();
+  }, [baseInventory, filterCategory, filterBrand]);
 
- const specs = useMemo(() => {
- let filtered = filterCategory.length === 0 ? assets : assets.filter(a => filterCategory.includes(a.category));
- if (filterBrand.length > 0) filtered = filtered.filter(a => filterBrand.includes(a.brand));
- if (filterModel.length > 0) filtered = filtered.filter(a => filterModel.includes(a.model));
- return Array.from(new Set(filtered.map(a => a.specs).filter(Boolean))).sort();
- }, [assets, filterCategory, filterBrand, filterModel]);
+  const specs = useMemo(() => {
+    let filtered = filterCategory.length === 0 ? baseInventory : baseInventory.filter(a => filterCategory.includes(a.category));
+    if (filterBrand.length > 0) filtered = filtered.filter(a => filterBrand.includes(a.brand));
+    if (filterModel.length > 0) filtered = filtered.filter(a => filterModel.includes(a.model));
+    return Array.from(new Set(filtered.map(a => a.specs).filter(Boolean))).sort();
+  }, [baseInventory, filterCategory, filterBrand, filterModel]);
 
- const departments = useMemo(() => Array.from(new Set(assets.map(a => a.department || a.location).filter(Boolean))).sort(), [assets]);
- const users = useMemo(() => Array.from(new Set(assets.map(a => a.assignedTo).filter(Boolean))).sort(), [assets]);
- const statuses = useMemo(() => Array.from(new Set(assets.map(a => a.status).filter(Boolean))).sort(), [assets]);
+  const departments = useMemo(() => Array.from(new Set(baseInventory.map(a => a.department || a.location).filter(Boolean))).sort(), [baseInventory]);
+  const users = useMemo(() => {
+    const fromAssets = baseInventory.map(a => a.assignedTo).filter(Boolean);
+    const fromUsers = systemUsers.map(u => u.displayName).filter(Boolean);
+    const fromPeople = assetPeople.map(p => p.fullName).filter(Boolean);
+    const all = Array.from(new Set([...fromAssets, ...fromUsers, ...fromPeople].map(s => String(s).trim()).filter(Boolean)));
+    return all.filter(name => name.toLowerCase() !== 'unassigned').sort((a, b) => a.localeCompare(b));
+  }, [baseInventory, systemUsers, assetPeople]);
+  const statuses = useMemo(() => Array.from(new Set(baseInventory.map(a => a.status).filter(Boolean))).sort(), [baseInventory]);
 
- const displayedAssets = useMemo(() => {
- if (selectedCategory === 'All') return assets;
- 
- if (selectedCategory === 'Peripherals') {
- return assets.filter(asset => ['Keyboard', 'Mouse', 'Fan', 'USB Hub'].includes(asset.category));
- }
- 
- return assets.filter(asset => asset.category === selectedCategory);
- }, [assets, selectedCategory]);
+  const displayedAssets = useMemo(() => {
+    if (selectedCategory === 'All') return baseInventory;
+    if (selectedCategory === 'Peripherals') {
+      return baseInventory.filter(asset => ['Keyboard', 'Mouse', 'Fan', 'USB Hub'].includes(asset.category));
+    }
+    return baseInventory.filter(asset => asset.category === selectedCategory);
+  }, [baseInventory, selectedCategory]);
 
- const calculateTotalWorkstationValue = (asset: ITAsset) => {
- const basePrice = Number(asset.purchasePrice) || asset.itemPrice || 0;
- const linkedPeripherals = assets.filter(a => a.parentId === asset.id);
- const peripheralsTotal = linkedPeripherals.reduce((sum, p) => sum + (p.itemPrice || Number(p.purchasePrice) || 0), 0);
- return basePrice + peripheralsTotal;
- };
+  const calculateTotalWorkstationValue = (asset: ITAsset) => {
+    const basePrice = Number(asset.purchasePrice) || asset.itemPrice || 0;
+    const linkedPeripherals = assets.filter(a => a.parentId === asset.id);
+    const peripheralsTotal = linkedPeripherals.reduce((sum, p) => sum + (p.itemPrice || Number(p.purchasePrice) || 0), 0);
+    return basePrice + peripheralsTotal;
+  };
 
- const handleUnlink = async (childAsset: ITAsset) => {
- try {
- await saveAsset({ ...childAsset, parentId: null, status: "Standalone / Spare" });
- saveActivity({
- action: `Unlinked ${childAsset.model} from parent workstation`,
- details: `Asset ID: ${childAsset.id}`
- });
- } catch (error) {
- console.error("Failed to unlink asset", error);
- }
- };
+  const handleUnlink = async (childAsset: ITAsset) => {
+    try {
+      await saveAsset({ ...childAsset, parentId: null, status: "Standalone / Spare" });
+      saveActivity({
+        action: `Unlinked ${childAsset.model} from parent workstation`,
+        details: `Asset ID: ${childAsset.id}`
+      });
+    } catch (error) {
+      console.error("Failed to unlink asset", error);
+    }
+  };
 
- const handleLink = async (childId: string, parentId: string) => {
- try {
- const child = assets.find(a => a.id === childId);
- const parent = assets.find(a => a.id === parentId);
- if (child && parent) {
- await saveAsset({ 
- ...child, 
- parentId, 
- status: "Active",
- assignedTo: parent.assignedTo || "Unassigned",
- location: parent.location || "Warehouse",
- department: parent.department || ""
- });
- saveActivity({
- action: `Linked ${child.model} to ${parent.model}`,
- details: `Hierarchy update: ${child.id} -> ${parent.id}`
- });
- }
- } catch (error) {
- console.error("Failed to link asset", error);
- alert("Relational Linkage Failed. Check SOP-001 integrity.");
- }
- };
+  const handleLink = async (childId: string, parentId: string) => {
+    try {
+      const child = assets.find(a => a.id === childId);
+      const parent = assets.find(a => a.id === parentId);
+      if (child && parent) {
+        await saveAsset({ 
+          ...child, 
+          parentId, 
+          status: "Active",
+          assignedTo: parent.assignedTo || "Unassigned",
+          location: parent.location || "Warehouse",
+          department: parent.department || ""
+        });
+        saveActivity({
+          action: `Linked ${child.model} to ${parent.model}`,
+          details: `Hierarchy update: ${child.id} -> ${parent.id}`
+        });
+      }
+    } catch (error) {
+      console.error("Failed to link asset", error);
+      alert("Relational Linkage Failed. Check SOP-001 integrity.");
+    }
+  };
 
- const handleDeleteAsset = (docId: string, e: React.MouseEvent) => {
- e.stopPropagation();
- setDeleteTarget({ id: docId, type: 'asset' });
- };
+  const handleDeleteAsset = (docId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteTarget({ id: docId, type: 'asset' });
+  };
 
- const executeDelete = async () => {
- if (!deleteTarget) return;
- 
- setIsDeleting(true);
- 
- if (deleteTarget.type === 'asset' && typeof deleteTarget.id === 'string') {
- const docId = deleteTarget.id;
- const tid = toast.loading("Executing hardware purge...");
- try {
- const linkedPeripherals = assets.filter(a => a.parentId === docId);
- for (const p of linkedPeripherals) {
- await saveAsset({ ...p, parentId: null, status: "Standalone / Spare" });
- }
+  const handleUnpurgeAsset = async (docId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const targetAsset = assets.find(a => a.id === docId);
+    if (!targetAsset) return;
+    const tid = toast.loading("Unpurging and restoring asset...");
+    try {
+      const restored = await unpurgeAsset(targetAsset);
+      setAssets(prev => prev.map(a => a.id === docId ? restored : a));
+      if (selectedAsset?.id === docId) {
+        setSelectedAsset(restored);
+      }
+      toast.success("Asset unpurged & restored to active inventory!", { id: tid });
+      saveActivity({
+        action: `Unpurged Asset: ${targetAsset.asset_code || docId}`,
+        details: `Restored to ${restored.status} inventory`
+      });
+    } catch (error) {
+      console.error("Unpurge failed", error);
+      toast.error("Failed to unpurge asset.", { id: tid });
+    }
+  };
 
- await deleteAsset(docId);
- setAssets(prev => prev.filter(item => item.id !== docId));
- toast.success("Asset configuration purged successfully.", { id: tid });
- saveActivity({
- action: `Purged Asset: ${docId}`,
- details: "Security-cleared manual hardware removal"
- });
- } catch (error) {
- console.error("Delete failed", error);
- toast.error("Protocol Violation: Deletion request rejected.", { id: tid });
- }
- } else if (deleteTarget.type === 'bulk-asset' && Array.isArray(deleteTarget.id)) {
- const ids = deleteTarget.id;
- const tid = toast.loading(`Purging ${ids.length} nodes...`);
- try {
- for (const id of ids) {
- await deleteAsset(id);
- }
- setAssets(prev => prev.filter(a => !ids.includes(a.id)));
- setSelectedAssetIds([]);
- toast.success("Bulk purge complete.", { id: tid });
- } catch (error) {
- toast.error("Bulk operation failed.", { id: tid });
- }
- }
- 
- setIsDeleting(false);
- setDeleteTarget(null);
- };
+  const handleBulkUnpurge = async (customIds?: string[]) => {
+    const ids = customIds || selectedAssetIds;
+    if (ids.length === 0) return;
+    const tid = toast.loading(`Unpurging ${ids.length} assets...`);
+    try {
+      const restoredList: ITAsset[] = [];
+      for (const id of ids) {
+        const target = assets.find(a => a.id === id);
+        if (target) {
+          const restored = await unpurgeAsset(target);
+          restoredList.push(restored);
+        }
+      }
+      const restoredMap = new Map(restoredList.map(r => [r.id, r]));
+      setAssets(prev => prev.map(a => restoredMap.has(a.id) ? restoredMap.get(a.id)! : a));
+      setSelectedAssetIds([]);
+      toast.success(`${ids.length} assets unpurged & restored successfully!`, { id: tid });
+    } catch (error) {
+      console.error("Bulk unpurge failed", error);
+      toast.error("Bulk unpurge operation failed.", { id: tid });
+    }
+  };
+
+  const executeDelete = async () => {
+    if (!deleteTarget) return;
+    
+    setIsDeleting(true);
+    
+    if (deleteTarget.type === 'asset' && typeof deleteTarget.id === 'string') {
+      const docId = deleteTarget.id;
+      const targetAsset = assets.find(a => a.id === docId);
+      if (!targetAsset) {
+        setIsDeleting(false);
+        setDeleteTarget(null);
+        return;
+      }
+      const tid = toast.loading("Executing hardware purge...");
+      try {
+        const linkedPeripherals = assets.filter(a => a.parentId === docId);
+        for (const p of linkedPeripherals) {
+          await saveAsset({ ...p, parentId: null, status: "Standalone / Spare" });
+        }
+
+        const purged = await purgeAsset(targetAsset, { purgedBy: 'IT Supervisor' });
+        setAssets(prev => prev.map(item => item.id === docId ? purged : item));
+        if (selectedAsset?.id === docId) {
+          setSelectedAsset(purged);
+        }
+        toast.success(
+          (t) => (
+            <div className="flex items-center gap-3">
+              <span>Asset purged to archives.</span>
+              <button
+                onClick={async () => {
+                  toast.dismiss(t.id);
+                  await handleUnpurgeAsset(docId);
+                }}
+                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm"
+              >
+                Unpurge
+              </button>
+            </div>
+          ),
+          { id: tid, duration: 6000 }
+        );
+        saveActivity({
+          action: `Purged Asset: ${targetAsset.asset_code || docId}`,
+          details: "Safely archived (can be unpurged)"
+        });
+      } catch (error) {
+        console.error("Purge failed", error);
+        toast.error("Protocol Violation: Purge request rejected.", { id: tid });
+      }
+    } else if (deleteTarget.type === 'bulk-asset' && Array.isArray(deleteTarget.id)) {
+      const ids = deleteTarget.id;
+      const tid = toast.loading(`Purging ${ids.length} assets...`);
+      try {
+        const updatedList: ITAsset[] = [];
+        for (const id of ids) {
+          const target = assets.find(a => a.id === id);
+          if (target) {
+            const purged = await purgeAsset(target, { purgedBy: 'IT Supervisor' });
+            updatedList.push(purged);
+          }
+        }
+        const updatedMap = new Map(updatedList.map(u => [u.id, u]));
+        setAssets(prev => prev.map(a => updatedMap.has(a.id) ? updatedMap.get(a.id)! : a));
+        setSelectedAssetIds([]);
+        toast.success(
+          (t) => (
+            <div className="flex items-center gap-3">
+              <span>{ids.length} assets purged to archives.</span>
+              <button
+                onClick={async () => {
+                  toast.dismiss(t.id);
+                  await handleBulkUnpurge(ids);
+                }}
+                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm"
+              >
+                Unpurge All
+              </button>
+            </div>
+          ),
+          { id: tid, duration: 6000 }
+        );
+      } catch (error) {
+        console.error("Bulk purge failed", error);
+        toast.error("Bulk purge operation failed.", { id: tid });
+      }
+    }
+    
+    setIsDeleting(false);
+    setDeleteTarget(null);
+  };
+
+  const executePermanentDelete = async () => {
+    if (!permanentDeleteTarget) return;
+    setIsDeleting(true);
+    
+    if (permanentDeleteTarget.type === 'asset' && typeof permanentDeleteTarget.id === 'string') {
+      const docId = permanentDeleteTarget.id;
+      const tid = toast.loading("Permanently deleting asset from database...");
+      try {
+        await deleteAsset(docId);
+        setAssets(prev => prev.filter(a => a.id !== docId));
+        if (selectedAsset?.id === docId) {
+          setSelectedAsset(null);
+        }
+        toast.success("Asset permanently deleted from database.", { id: tid });
+        saveActivity({
+          action: `Permanent Asset Deletion: ${docId}`,
+          details: "Removed permanently from database"
+        });
+      } catch (err) {
+        console.error("Permanent delete failed", err);
+        toast.error("Failed to permanently delete asset.", { id: tid });
+      }
+    } else if (permanentDeleteTarget.type === 'bulk-asset' && Array.isArray(permanentDeleteTarget.id)) {
+      const ids = permanentDeleteTarget.id;
+      const tid = toast.loading(`Permanently deleting ${ids.length} assets...`);
+      try {
+        for (const id of ids) {
+          await deleteAsset(id);
+        }
+        setAssets(prev => prev.filter(a => !ids.includes(a.id)));
+        setSelectedAssetIds([]);
+        toast.success(`${ids.length} assets permanently deleted.`, { id: tid });
+      } catch (err) {
+        console.error("Permanent bulk delete failed", err);
+        toast.error("Failed to permanently delete assets.", { id: tid });
+      }
+    }
+
+    setIsDeleting(false);
+    setPermanentDeleteTarget(null);
+  };
 
  // Auto-reset dependent filters
  useEffect(() => { setFilterBrand([]); setFilterModel([]); setFilterSpec([]); }, [filterCategory]);
@@ -289,6 +451,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  remark2: newAsset.remark2,
  purchaseRecordId: newAsset.purchaseRecordId,
  supplier: newAsset.supplier,
+						asset_code: newAsset.asset_code,
  category: newAsset.category,
  model: newAsset.model,
  serialNumber: newAsset.serialNumber,
@@ -311,6 +474,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  const tid = toast.loading("Asset သစ် မှတ်ပုံတင်နေသည်...");
  try {
  const asset: Partial<ITAsset> = {
+					asset_code: newAsset.asset_code?.trim() || undefined,
  category: newAsset.category as any,
  model: newAsset.model!.trim(),
  serialNumber: newAsset.serialNumber!.trim(),
@@ -325,6 +489,8 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
  specs: newAsset.specs || "",
  remarks: newAsset.remarks,
  remark2: newAsset.remark2,
+					supplier: newAsset.supplier || "",
+					purchaseRecordId: newAsset.purchaseRecordId || "",
  purchasePrice: newAsset.purchasePrice || "0",
  itemPrice: newAsset.itemPrice,
  parentId: newAsset.parentId || null,
@@ -796,12 +962,13 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
     </div>
 
     {/* Summary Cards */}
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
       {[
-        { label: "Total Assets", value: assets.length, sub: "Registered", color: "text-[#2563EB]", bg: "bg-[#EFF6FF]", icon: Package },
-        { label: "Available", value: assets.filter(a => ["In Stock", "New", "Standalone / Spare"].includes(a.status) || (!a.assignedTo || a.assignedTo === "Unassigned")).length, sub: "In Inventory", color: "text-emerald-600", bg: "bg-emerald-50", icon: CheckCircle2 },
-        { label: "Assigned", value: assets.filter(a => a.assignedTo && a.assignedTo.trim() !== "" && a.assignedTo !== "Unassigned").length, sub: "In Service", color: "text-indigo-600", bg: "bg-indigo-50", icon: UserCheck },
-        { label: "Maintenance", value: assets.filter(a => ["Maintenance", "Under Repair"].includes(a.status)).length, sub: "Requires Action", color: "text-amber-600", bg: "bg-amber-50", icon: AlertTriangle }
+        { label: "Active Assets", value: activeAssets.length, sub: "In Service / Stock", color: "text-[#2563EB]", bg: "bg-[#EFF6FF]", icon: Package },
+        { label: "Available", value: activeAssets.filter(a => ["In Stock", "New", "Standalone / Spare"].includes(a.status) || (!a.assignedTo || a.assignedTo === "Unassigned")).length, sub: "In Inventory", color: "text-emerald-600", bg: "bg-emerald-50", icon: CheckCircle2 },
+        { label: "Assigned", value: activeAssets.filter(a => a.assignedTo && a.assignedTo.trim() !== "" && a.assignedTo !== "Unassigned").length, sub: "In Use", color: "text-indigo-600", bg: "bg-indigo-50", icon: UserCheck },
+        { label: "Maintenance", value: activeAssets.filter(a => ["Maintenance", "Under Repair"].includes(a.status)).length, sub: "Requires Action", color: "text-amber-600", bg: "bg-amber-50", icon: AlertTriangle },
+        { label: "Purged Archive", value: purgedAssets.length, sub: "Recoverable", color: "text-rose-600", bg: "bg-rose-50", icon: Archive }
       ].map((card, idx) => (
         <div key={idx} className="bg-white p-5 rounded-2xl border border-[#E2E8F0] shadow-sm flex items-center justify-between">
           <div>
@@ -814,6 +981,48 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
           </div>
         </div>
       ))}
+    </div>
+
+    {/* Inventory Navigation Tabs */}
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-[#E2E8F0] shadow-sm">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => {
+            setInventoryTab('active');
+            setSelectedAssetIds([]);
+          }}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all",
+            inventoryTab === 'active'
+              ? "bg-[#2563EB] text-white shadow-sm shadow-blue-500/20"
+              : "bg-[#F8FAFC] text-[#64748B] hover:text-[#0F172A] hover:bg-slate-100"
+          )}
+        >
+          <Package size={16} />
+          <span>Active Inventory ({activeAssets.length})</span>
+        </button>
+        <button
+          onClick={() => {
+            setInventoryTab('purged');
+            setSelectedAssetIds([]);
+          }}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all",
+            inventoryTab === 'purged'
+              ? "bg-rose-600 text-white shadow-sm shadow-rose-500/20"
+              : "bg-[#F8FAFC] text-[#64748B] hover:text-rose-600 hover:bg-rose-50"
+          )}
+        >
+          <Archive size={16} />
+          <span>Purged Archives ({purgedAssets.length})</span>
+        </button>
+      </div>
+      {inventoryTab === 'purged' && (
+        <div className="flex items-center gap-2 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
+          <RotateCcw size={14} className="text-amber-600 shrink-0" />
+          <span>Purged assets are archived and can be restored anytime with "Unpurge".</span>
+        </div>
+      )}
     </div>
 
     {/* Search / Filter Toolbar */}
@@ -982,34 +1191,29 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                 </th>
                 <th className="px-4 py-3.5">ASSET</th>
                 <th className="px-4 py-3.5">CATEGORY</th>
-                <th className="px-4 py-3.5">ASSIGNED TO</th>
+                <th className="px-4 py-3.5">{inventoryTab === 'purged' ? 'LAST ASSIGNEE' : 'ASSIGNED TO'}</th>
                 <th className="px-4 py-3.5">DEPARTMENT</th>
                 <th className="px-4 py-3.5">LOCATION</th>
                 <th className="px-4 py-3.5">STATUS</th>
-                <th className="px-4 py-3.5 text-right">PURCHASE DATE</th>
+                <th className="px-4 py-3.5 text-right">{inventoryTab === 'purged' ? 'PURGED AT' : 'PURCHASE DATE'}</th>
                 {isAdmin && <th className="px-4 py-3.5 text-center">ACTIONS</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] text-sm">
-              {[
-                { label: "Current Assets", items: currentAssets },
-                { label: "Historical Records (>30 days)", items: historicalAssets }
-              ].map((group) => (
-                <React.Fragment key={group.label}>
-                  {group.items.length > 0 && (
-                    <tr className="bg-[#F8FAFC]/60">
-                      <td colSpan={isAdmin ? 9 : 8} className="px-4 py-2 text-xs font-semibold text-[#64748B] tracking-wide uppercase">
-                        {group.label} ({group.items.length})
-                      </td>
-                    </tr>
-                  )}
-                  {group.items.map((asset) => (
+              {inventoryTab === 'purged' ? (
+                <>
+                  <tr className="bg-rose-50/60">
+                    <td colSpan={isAdmin ? 9 : 8} className="px-4 py-2 text-xs font-semibold text-rose-700 tracking-wide uppercase">
+                      Purged Assets ({filteredAssets.length})
+                    </td>
+                  </tr>
+                  {filteredAssets.map((asset) => (
                     <tr
                       key={asset.id}
                       onClick={() => setSelectedAsset(asset)}
                       className={cn(
-                        "hover:bg-[#F8FAFC] transition-colors cursor-pointer group text-[#0F172A]",
-                        selectedAssetIds.includes(asset.id) && "bg-blue-50/50"
+                        "hover:bg-rose-50/40 transition-colors cursor-pointer group text-[#0F172A]",
+                        selectedAssetIds.includes(asset.id) && "bg-rose-100/50"
                       )}
                     >
                       <td className="px-4 py-3.5 text-center" onClick={(e) => toggleSelectAsset(asset.id, e)}>
@@ -1017,28 +1221,34 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                           type="checkbox"
                           checked={selectedAssetIds.includes(asset.id)}
                           onChange={() => {}}
-                          className="w-4 h-4 rounded border-[#E2E8F0] bg-white text-[#2563EB] focus:ring-blue-500/20 cursor-pointer"
+                          className="w-4 h-4 rounded border-[#E2E8F0] bg-white text-rose-600 focus:ring-rose-500/20 cursor-pointer"
                         />
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#2563EB] flex items-center justify-center shrink-0">
-                            {asset.category === "Computer" ? <Monitor size={16} /> : <HardDrive size={16} />}
-                          </div>
+                          <AssetCategoryIcon
+                            category={asset.category}
+                            model={asset.model}
+                            name={asset.name}
+                            size={18}
+                            withContainer
+                            containerSize="md"
+                          />
                           <div>
-                            <div className="font-semibold text-[#0F172A] flex items-center gap-2">
-                              <span>{asset.brand ? `[${asset.brand}]` : ""} {asset.model}</span>
+                            <div className="font-semibold text-[#0F172A] flex items-center gap-2" title={`${asset.brand ? `[${asset.brand}] ` : ""}${asset.model || ""}`}>
+                              <span>
+                                {asset.brand ? `[${asset.brand}] ` : ""}
+                                {asset.model ? (asset.model.length > 8 ? `${asset.model.slice(0, 8)}...` : asset.model) : "-"}
+                              </span>
+                              <span className="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold uppercase">
+                                Purged
+                              </span>
                             </div>
                             <div className="text-xs font-mono text-[#64748B] mt-0.5 flex items-center gap-2 flex-wrap">
                               <span>{asset.asset_code || asset.id}</span>
-                              {asset.parentId && (
-                                <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
-                                  └─ Child of {assets.find(p => p.id === asset.parentId)?.model || asset.parentId}
-                                </span>
-                              )}
-                              {assets.some(c => c.parentId === asset.id) && (
-                                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
-                                  {assets.filter(c => c.parentId === asset.id).length} Peripherals
+                              {asset.previousStatus && (
+                                <span className="text-[10px] text-slate-500">
+                                  Prev: {asset.previousStatus}
                                 </span>
                               )}
                             </div>
@@ -1046,14 +1256,11 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-xs font-medium text-[#64748B]">
-                        <span className="px-2 py-1 bg-slate-100 rounded-md text-slate-700">{asset.category}</span>
+                        <AssetCategoryBadge category={asset.category} model={asset.model} name={asset.name} size="sm" />
                       </td>
                       <td className="px-4 py-3.5 text-xs text-[#0F172A] font-medium">
                         {asset.assignedTo && asset.assignedTo !== "Unassigned" ? (
-                          <span className="flex items-center gap-1.5 text-[#0F172A]">
-                            <UserCheck size={14} className="text-[#2563EB]" />
-                            {asset.assignedTo}
-                          </span>
+                          <span className="text-slate-600">{asset.assignedTo}</span>
                         ) : (
                           <span className="text-[#64748B] italic">Unassigned</span>
                         )}
@@ -1065,26 +1272,31 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                         {asset.location || "-"}
                       </td>
                       <td className="px-4 py-3.5">
-                        <AssetStatusBadge status={asset.status} />
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
+                          Purged
+                        </span>
                       </td>
-                      <td className="px-4 py-3.5 text-xs font-mono text-[#64748B] text-right">
-                        {asset.purchaseDate || "N/A"}
+                      <td className="px-4 py-3.5 text-xs font-mono text-rose-700 text-right">
+                        {asset.purgedAt ? format(parseISO(asset.purgedAt), 'dd/MM/yyyy HH:mm') : "N/A"}
                       </td>
                       {isAdmin && (
                         <td className="px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
-                          <div className="flex items-center justify-center gap-1">
+                          <div className="flex items-center justify-center gap-1.5">
                             <button
-                              onClick={() => handlePrintAsset(asset)}
-                              className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Print Tag"
+                              onClick={(e) => handleUnpurgeAsset(asset.id, e)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
+                              title="Unpurge & Restore to Active Inventory"
                             >
-                              <Printer size={15} />
+                              <RotateCcw size={13} />
+                              <span>Unpurge</span>
                             </button>
                             <button
-                              disabled={isDeleting}
-                              onClick={(e) => handleDeleteAsset(asset.id, e)}
-                              className="p-1.5 text-[#64748B] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                              title="Delete Asset"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPermanentDeleteTarget({ id: asset.id, type: 'asset' });
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Permanently Delete from Database"
                             >
                               <Trash2 size={15} />
                             </button>
@@ -1093,171 +1305,373 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                       )}
                     </tr>
                   ))}
-                </React.Fragment>
-              ))}
+                </>
+              ) : (
+                [
+                  { label: "Current Assets", items: currentAssets },
+                  { label: "Historical Records (>30 days)", items: historicalAssets }
+                ].map((group) => (
+                  <React.Fragment key={group.label}>
+                    {group.items.length > 0 && (
+                      <tr className="bg-[#F8FAFC]/60">
+                        <td colSpan={isAdmin ? 9 : 8} className="px-4 py-2 text-xs font-semibold text-[#64748B] tracking-wide uppercase">
+                          {group.label} ({group.items.length})
+                        </td>
+                      </tr>
+                    )}
+                    {group.items.map((asset) => (
+                      <tr
+                        key={asset.id}
+                        onClick={() => setSelectedAsset(asset)}
+                        className={cn(
+                          "hover:bg-[#F8FAFC] transition-colors cursor-pointer group text-[#0F172A]",
+                          selectedAssetIds.includes(asset.id) && "bg-blue-50/50"
+                        )}
+                      >
+                        <td className="px-4 py-3.5 text-center" onClick={(e) => toggleSelectAsset(asset.id, e)}>
+                          <input
+                            type="checkbox"
+                            checked={selectedAssetIds.includes(asset.id)}
+                            onChange={() => {}}
+                            className="w-4 h-4 rounded border-[#E2E8F0] bg-white text-[#2563EB] focus:ring-blue-500/20 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <AssetCategoryIcon
+                              category={asset.category}
+                              model={asset.model}
+                              name={asset.name}
+                              size={18}
+                              withContainer
+                              containerSize="md"
+                            />
+                            <div>
+                              <div className="font-semibold text-[#0F172A] flex items-center gap-2" title={`${asset.brand ? `[${asset.brand}] ` : ""}${asset.model || ""}`}>
+                                <span>
+                                  {asset.brand ? `[${asset.brand}] ` : ""}
+                                  {asset.model ? (asset.model.length > 5 ? `${asset.model.slice(0, 5)}...` : asset.model) : "-"}
+                                </span>
+                              </div>
+                              <div className="text-xs font-mono text-[#64748B] mt-0.5 flex items-center gap-2 flex-wrap">
+                                <span>{asset.asset_code || asset.id}</span>
+                                {asset.parentId && (
+                                  <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-medium">
+                                    └─ Child of {assets.find(p => p.id === asset.parentId)?.model || asset.parentId}
+                                  </span>
+                                )}
+                                {assets.some(c => c.parentId === asset.id) && (
+                                  <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
+                                    {assets.filter(c => c.parentId === asset.id).length} Peripherals
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-xs font-medium text-[#64748B]">
+                          <AssetCategoryBadge category={asset.category} model={asset.model} name={asset.name} size="sm" />
+                        </td>
+                        <td className="px-4 py-3.5 text-xs text-[#0F172A] font-medium">
+                          {asset.assignedTo && asset.assignedTo !== "Unassigned" ? (
+                            <span className="flex items-center gap-1.5 text-[#0F172A]">
+                              <UserCheck size={14} className="text-[#2563EB]" />
+                              {asset.assignedTo}
+                            </span>
+                          ) : (
+                            <span className="text-[#64748B] italic">Unassigned</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-xs text-[#64748B]">
+                          {asset.department || "-"}
+                        </td>
+                        <td className="px-4 py-3.5 text-xs text-[#64748B]">
+                          {asset.location || "-"}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <AssetStatusBadge status={asset.status} />
+                        </td>
+                        <td className="px-4 py-3.5 text-xs font-mono text-[#64748B] text-right">
+                          {asset.purchaseDate || "N/A"}
+                        </td>
+                        {isAdmin && (
+                          <td className="px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => handlePrintAsset(asset)}
+                                className="p-1.5 text-[#64748B] hover:text-[#2563EB] hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Print Tag"
+                              >
+                                <Printer size={15} />
+                              </button>
+                              <button
+                                disabled={isDeleting}
+                                onClick={(e) => handleDeleteAsset(asset.id, e)}
+                                className="p-1.5 text-[#64748B] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="Purge Asset to Archives"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       )}
     </div>
     
- {/* Bulk Action Bar */}
- <AnimatePresence>
- {selectedAssetIds.length > 0 && (
- <motion.div 
- initial={{ y: 100, opacity: 0 }}
- animate={{ y: 0, opacity: 1 }}
- exit={{ y: 100, opacity: 0 }}
- className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-900 border border-cyan-500/30 rounded-2xl p-4 shadow-2xl shadow-cyan-950/40 z-40 w-max max-w-full overflow-x-auto no-scrollbar"
- >
- <div className="flex items-center gap-3 border-r border-white/10 pr-4">
- <span className="flex items-center justify-center w-6 h-6 bg-cyan-600 rounded-full text-xs font-medium text-white">
- {selectedAssetIds.length}
- </span>
- <span className="text-xs font-medium text-slate-400 whitespace-nowrap">Selected</span>
- <button 
- onClick={() => setSelectedAssetIds([])}
- className="text-xs font-medium text-cyan-400  hover:text-white transition-colors"
- >
- Clear
- </button>
- </div>
- 
- <div className="flex items-center gap-3 pr-4 border-r border-white/10">
- <span className="text-xs font-medium text-slate-500 dark:text-slate-400 ">Bulk Action</span>
- <select 
- onChange={(e) => handleBulkUpdate({ status: e.target.value as any })}
- className="bg-white dark:bg-slate-900/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium"
- value=""
- >
- <option value="" disabled>Change Status</option>
- <option value="Active">Set Active</option>
- <option value="Maintenance">Set Maintenance</option>
- <option value="Disposed">Set Disposed</option>
- </select>
- 
- <select 
- onChange={(e) => handleBulkUpdate({ assignedTo: e.target.value })}
- className="bg-white dark:bg-slate-900/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium"
- value=""
- >
- <option value="" disabled>Assign User</option>
- {users.filter(u => u !== "All").map(user => (
- <option key={user} value={user}>{user}</option>
- ))}
- <option value="Unassigned">Unassigned</option>
- </select>
- </div>
-
- <button 
- onClick={() => {
- setDeleteTarget({ id: selectedAssetIds, type: 'bulk-asset' });
- }}
- className="flex items-center gap-2 px-3 py-1.5 bg-rose-600/20 text-rose-400 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-rose-600 hover:text-white transition-all border border-rose-500/30"
- >
- <ShieldCheck size={14} /> Bulk Delete
- </button>
- </motion.div>
- )}
- </AnimatePresence>
-
- <AnimatePresence>
-    {selectedAsset && (
-    <div className="fixed inset-0 z-50 overflow-hidden">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedAsset(null)} />
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <motion.div
-          initial={{ x: "100%" }}
-          animate={{ x: 0 }}
-          exit={{ x: "100%" }}
-          transition={{ type: "spring", damping: 25, stiffness: 200 }}
-          className="w-screen max-w-xl bg-white dark:bg-slate-900 shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800"
+  {/* Bulk Action Bar */}
+  <AnimatePresence>
+  {selectedAssetIds.length > 0 && (
+  <motion.div 
+  initial={{ y: 100, opacity: 0 }}
+  animate={{ y: 0, opacity: 1 }}
+  exit={{ y: 100, opacity: 0 }}
+  className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-900 border border-cyan-500/30 rounded-2xl p-4 shadow-2xl shadow-cyan-950/40 z-40 w-max max-w-full overflow-x-auto no-scrollbar"
+  >
+  <div className="flex items-center gap-3 border-r border-white/10 pr-4">
+  <span className="flex items-center justify-center w-6 h-6 bg-cyan-600 rounded-full text-xs font-medium text-white">
+  {selectedAssetIds.length}
+  </span>
+  <span className="text-xs font-medium text-slate-400 whitespace-nowrap">Selected</span>
+  <button 
+  onClick={() => setSelectedAssetIds([])}
+  className="text-xs font-medium text-cyan-400  hover:text-white transition-colors"
+  >
+  Clear
+  </button>
+  </div>
+  
+  {inventoryTab === 'purged' ? (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={() => handleBulkUnpurge()}
+        className="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
+      >
+        <RotateCcw size={14} /> Unpurge Selected ({selectedAssetIds.length})
+      </button>
+      {isAdmin && (
+        <button
+          onClick={() => {
+            setPermanentDeleteTarget({ id: selectedAssetIds, type: 'bulk-asset' });
+          }}
+          className="flex items-center gap-2 px-3 py-1.5 bg-rose-600/20 text-rose-400 rounded-lg text-xs font-medium hover:bg-rose-600 hover:text-white transition-all border border-rose-500/30"
         >
-          {/* Drawer Header */}
-          <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#2563EB] flex items-center justify-center font-bold">
-                <Monitor size={20} />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-[#0F172A] dark:text-slate-100">Asset Details</h3>
-                <p className="text-xs font-mono text-slate-500">{selectedAsset.asset_code || selectedAsset.id}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setSelectedAsset(null)}
-              className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 transition-colors"
-            >
-              <X size={20} />
-            </button>
-          </div>
+          <Trash2 size={14} /> Permanently Delete
+        </button>
+      )}
+    </div>
+  ) : (
+    <>
+      <div className="flex items-center gap-3 pr-4 border-r border-white/10">
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400 ">Bulk Action</span>
+      <select 
+      onChange={(e) => handleBulkUpdate({ status: e.target.value as any })}
+      className="bg-white dark:bg-slate-900/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium"
+      value=""
+      >
+      <option value="" disabled>Change Status</option>
+      <option value="Active">Set Active</option>
+      <option value="Maintenance">Set Maintenance</option>
+      <option value="Disposed">Set Disposed</option>
+      </select>
+      
+      <select 
+      onChange={(e) => handleBulkUpdate({ assignedTo: e.target.value })}
+      className="bg-white dark:bg-slate-900/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500/50 transition-all font-medium"
+      value=""
+      >
+      <option value="" disabled>Assign User</option>
+      {users.filter(u => u !== "All").map(user => (
+      <option key={user} value={user}>{user}</option>
+      ))}
+      <option value="Unassigned">Unassigned</option>
+      </select>
+      </div>
 
-          {/* Action Toolbar */}
-          <div className="px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 flex-wrap">
-            {isAdmin && (
-              <button
-                onClick={() => {
-                  setNewAsset({ ...selectedAsset });
-                  setIsEditing(true);
-                  setIsAdding(true);
-                  setSelectedAsset(null);
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-[#2563EB] rounded-xl text-xs font-medium transition-colors"
-              >
-                <Edit3 size={14} />
-                <span>Edit Asset</span>
-              </button>
-            )}
-            {isAdmin && (
-              <button
-                onClick={() => {
-                  const nextUser = prompt("Enter employee/user name to assign:", selectedAsset.assignedTo || "");
-                  if (nextUser !== null) {
-                    handleBulkUpdate({ assignedTo: nextUser, status: "Active" });
-                    setSelectedAsset({ ...selectedAsset, assignedTo: nextUser, status: "Active" });
-                  }
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-medium transition-colors"
-              >
-                <UserCheck size={14} />
-                <span>Assign</span>
-              </button>
-            )}
-            {isAdmin && selectedAsset.assignedTo && selectedAsset.assignedTo !== "Unassigned" && (
-              <button
-                onClick={() => {
-                  handleBulkUpdate({ assignedTo: "Unassigned", status: "In Stock" });
-                  setSelectedAsset({ ...selectedAsset, assignedTo: "Unassigned", status: "In Stock" });
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl text-xs font-medium transition-colors"
-              >
-                <UserX size={14} />
-                <span>Unassign</span>
-              </button>
-            )}
-            <button
-              onClick={() => handlePrintAsset(selectedAsset)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors"
-            >
-              <Printer size={14} />
-              <span>Print Tag</span>
-            </button>
-            {isAdmin && (
-              <button
-                onClick={() => {
-                  setDeleteTarget({ id: selectedAsset.id, type: "asset" });
-                  setSelectedAsset(null);
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-medium transition-colors ml-auto"
-              >
-                <Trash2 size={14} />
-                <span>Delete</span>
-              </button>
-            )}
-          </div>
+      <button 
+      onClick={() => {
+      setDeleteTarget({ id: selectedAssetIds, type: 'bulk-asset' });
+      }}
+      className="flex items-center gap-2 px-3 py-1.5 bg-rose-600/20 text-rose-400 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-rose-600 hover:text-white transition-all border border-rose-500/30"
+      >
+      <Trash2 size={14} /> Bulk Purge
+      </button>
+    </>
+  )}
+  </motion.div>
+  )}
+  </AnimatePresence>
 
-          {/* Drawer Body - 5 Sections */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+  <AnimatePresence>
+     {selectedAsset && (
+     <div className="fixed inset-0 z-50 overflow-hidden">
+       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedAsset(null)} />
+       <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
+         <motion.div
+           initial={{ x: "100%" }}
+           animate={{ x: 0 }}
+           exit={{ x: "100%" }}
+           transition={{ type: "spring", damping: 25, stiffness: 200 }}
+           className="w-screen max-w-xl bg-white dark:bg-slate-900 shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800"
+         >
+           {/* Drawer Header */}
+           <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
+             <div className="flex items-center gap-3">
+               <AssetCategoryIcon
+                 category={selectedAsset.category}
+                 model={selectedAsset.model}
+                 name={selectedAsset.name}
+                 size={20}
+                 withContainer
+                 containerSize="lg"
+               />
+               <div>
+                 <div className="flex items-center gap-2">
+                   <h3 className="text-base font-semibold text-[#0F172A] dark:text-slate-100">Asset Details</h3>
+                   {selectedAsset.isPurged && (
+                     <span className="text-[10px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded font-bold uppercase">
+                       Purged
+                     </span>
+                   )}
+                 </div>
+                 <p className="text-xs font-mono text-slate-500">{selectedAsset.asset_code || selectedAsset.id}</p>
+               </div>
+             </div>
+             <button
+               onClick={() => setSelectedAsset(null)}
+               className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 transition-colors"
+             >
+               <X size={20} />
+             </button>
+           </div>
+
+           {/* Action Toolbar */}
+           <div className="px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2 flex-wrap">
+             {selectedAsset.isPurged ? (
+               <>
+                 <button
+                   onClick={() => handleUnpurgeAsset(selectedAsset.id)}
+                   className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm"
+                 >
+                   <RotateCcw size={14} />
+                   <span>Unpurge Asset</span>
+                 </button>
+                 <button
+                   onClick={() => handlePrintAsset(selectedAsset)}
+                   className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors"
+                 >
+                   <Printer size={14} />
+                   <span>Print Tag</span>
+                 </button>
+                 {isAdmin && (
+                   <button
+                     onClick={() => {
+                       setPermanentDeleteTarget({ id: selectedAsset.id, type: "asset" });
+                       setSelectedAsset(null);
+                     }}
+                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-medium transition-colors ml-auto"
+                   >
+                     <Trash2 size={14} />
+                     <span>Permanently Delete</span>
+                   </button>
+                 )}
+               </>
+             ) : (
+               <>
+                 {isAdmin && (
+                   <button
+                     onClick={() => {
+                       setNewAsset({ ...selectedAsset });
+                       setIsEditing(true);
+                       setIsAdding(true);
+                       setSelectedAsset(null);
+                     }}
+                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-[#2563EB] rounded-xl text-xs font-medium transition-colors"
+                   >
+                     <Edit3 size={14} />
+                     <span>Edit Asset</span>
+                   </button>
+                 )}
+                 {isAdmin && (
+                   <button
+                     onClick={() => {
+                       const nextUser = prompt("Enter employee/user name to assign:", selectedAsset.assignedTo || "");
+                       if (nextUser !== null) {
+                         handleBulkUpdate({ assignedTo: nextUser, status: "Active" });
+                         setSelectedAsset({ ...selectedAsset, assignedTo: nextUser, status: "Active" });
+                       }
+                     }}
+                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-medium transition-colors"
+                   >
+                     <UserCheck size={14} />
+                     <span>Assign</span>
+                   </button>
+                 )}
+                 {isAdmin && selectedAsset.assignedTo && selectedAsset.assignedTo !== "Unassigned" && (
+                   <button
+                     onClick={() => {
+                       handleBulkUpdate({ assignedTo: "Unassigned", status: "In Stock" });
+                       setSelectedAsset({ ...selectedAsset, assignedTo: "Unassigned", status: "In Stock" });
+                     }}
+                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl text-xs font-medium transition-colors"
+                   >
+                     <UserX size={14} />
+                     <span>Unassign</span>
+                   </button>
+                 )}
+                 <button
+                   onClick={() => handlePrintAsset(selectedAsset)}
+                   className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors"
+                 >
+                   <Printer size={14} />
+                   <span>Print Tag</span>
+                 </button>
+                 {isAdmin && (
+                   <button
+                     onClick={() => {
+                       setDeleteTarget({ id: selectedAsset.id, type: "asset" });
+                       setSelectedAsset(null);
+                     }}
+                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-medium transition-colors ml-auto"
+                   >
+                     <Trash2 size={14} />
+                     <span>Purge</span>
+                   </button>
+                 )}
+               </>
+             )}
+           </div>
+
+           {/* Drawer Body */}
+           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+             {selectedAsset.isPurged && (
+               <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-xs text-rose-800 flex items-start justify-between gap-3">
+                 <div>
+                   <div className="font-semibold flex items-center gap-1.5 text-rose-900">
+                     <AlertTriangle size={15} className="text-rose-600" />
+                     <span>Purged Asset Record</span>
+                   </div>
+                   <p className="mt-1 text-rose-700 leading-relaxed">
+                     Purged on {selectedAsset.purgedAt ? format(parseISO(selectedAsset.purgedAt), 'dd MMM yyyy, HH:mm') : 'N/A'}.
+                     {selectedAsset.previousStatus && ` (Previous Status: ${selectedAsset.previousStatus})`}
+                   </p>
+                 </div>
+                 <button
+                   onClick={() => handleUnpurgeAsset(selectedAsset.id)}
+                   className="shrink-0 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1 shadow-sm transition-all"
+                 >
+                   <RotateCcw size={13} />
+                   <span>Unpurge</span>
+                 </button>
+               </div>
+             )}
             {/* Section 1: Asset Details */}
             <div className="bg-slate-50/50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-800">
               <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -1271,7 +1685,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                 </div>
                 <div>
                   <span className="text-slate-400 block mb-1">Category</span>
-                  <span className="font-medium text-slate-800 dark:text-slate-100">{selectedAsset.category}</span>
+                  <AssetCategoryBadge category={selectedAsset.category} model={selectedAsset.model} name={selectedAsset.name} size="sm" />
                 </div>
                 <div>
                   <span className="text-slate-400 block mb-1">Brand</span>
@@ -1337,7 +1751,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                 </div>
                 <div>
                   <span className="text-slate-400 block mb-1">Purchase Record / Invoice</span>
-                  <span className="font-mono text-slate-800 dark:text-slate-100">{selectedAsset.purchaseRecord || "-"}</span>
+                  <span className="font-mono text-slate-800 dark:text-slate-100">{selectedAsset.purchaseRecordId || "-"}</span>
                 </div>
               </div>
             </div>
@@ -1384,11 +1798,21 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                       ) : (
                         assets.filter(a => a.parentId === selectedAsset.id).map(child => (
                           <div key={child.id} className="flex justify-between items-center bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                            <div>
-                              <span className="font-semibold text-slate-800 dark:text-slate-100 block">{child.category}: {child.model}</span>
-                              <span className="text-[10px] font-mono text-slate-400">{child.asset_code || child.id}</span>
+                            <div className="flex items-center gap-2.5">
+                              <AssetCategoryIcon
+                                category={child.category}
+                                model={child.model}
+                                name={child.name}
+                                size={15}
+                                withContainer
+                                containerSize="sm"
+                              />
+                              <div>
+                                <span className="font-semibold text-slate-800 dark:text-slate-100 block text-xs">{child.category}: {child.model}</span>
+                                <span className="text-[10px] font-mono text-slate-400">{child.asset_code || child.id}</span>
+                              </div>
                             </div>
-                            <span className="font-mono text-emerald-600">{(child.itemPrice || Number(child.purchasePrice) || 0).toLocaleString()} MMK</span>
+                            <span className="font-mono text-emerald-600 text-xs">{(child.itemPrice || Number(child.purchasePrice) || 0).toLocaleString()} MMK</span>
                           </div>
                         ))
                       )}
@@ -1513,13 +1937,12 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-slate-500 font-medium mb-1.5">Assigned To</label>
-                <input 
-                  type="text" 
-                  value={newAsset.assignedTo || ""} 
-                  onChange={e => setNewAsset({...newAsset, assignedTo: e.target.value})} 
-                  placeholder="e.g., Mg Mg" 
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                <SearchableDropdown
+                  label="Assigned To"
+                  options={users || []}
+                  value={newAsset.assignedTo || ""}
+                  onChange={val => setNewAsset({...newAsset, assignedTo: val})}
+                  placeholder="e.g., Mg Mg"
                 />
               </div>
               <div>
@@ -1574,7 +1997,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                 <input 
                   type="number" 
                   value={newAsset.purchasePrice || newAsset.itemPrice || ""} 
-                  onChange={e => setNewAsset({...newAsset, purchasePrice: Number(e.target.value), itemPrice: Number(e.target.value)})} 
+                  onChange={e => setNewAsset({...newAsset, purchasePrice: e.target.value, itemPrice: Number(e.target.value) || undefined})} 
                   placeholder="e.g., 1500000" 
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
                 />
@@ -1583,8 +2006,8 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                 <label className="block text-slate-500 font-medium mb-1.5">Purchase Record / Invoice</label>
                 <input 
                   type="text" 
-                  value={newAsset.purchaseRecord || ""} 
-                  onChange={e => setNewAsset({...newAsset, purchaseRecord: e.target.value})} 
+                  value={newAsset.purchaseRecordId || ""} 
+                  onChange={e => setNewAsset({...newAsset, purchaseRecordId: e.target.value})} 
                   placeholder="e.g., INV-2026-0042" 
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-mono"
                 />
@@ -1603,7 +2026,7 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
                 <label className="block text-slate-500 font-medium mb-1.5">Status</label>
                 <select 
                   value={newAsset.status || "Active"} 
-                  onChange={e => setNewAsset({...newAsset, status: e.target.value})}
+                  onChange={e => setNewAsset({...newAsset, status: e.target.value as any})}
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 >
                   <option value="Active">Active</option>
@@ -1687,26 +2110,53 @@ export function AssetsModule({ assets, setAssets, searchTerm, isAdmin, settings 
     onClose={() => setDeleteTarget(null)}
     onConfirm={executeDelete}
     isLoading={isDeleting}
-    title="Delete Asset?"
+    title={deleteTarget?.type === 'bulk-asset' ? 'Purge Selected Assets?' : 'Purge Asset to Archives?'}
     message={
       deleteTarget?.type === 'bulk-asset' && Array.isArray(deleteTarget.id)
-        ? `You are about to delete ${deleteTarget.id.length} selected assets.
+        ? `You are about to purge ${deleteTarget.id.length} selected assets from active inventory.
 
-This action cannot be undone.`
+They will be moved to the Purged Archive, where you can unpurge and restore them at any time.`
         : (() => {
             const target = assets.find(a => a.id === deleteTarget?.id);
             const code = target?.asset_code || deleteTarget?.id;
             const modelName = target ? (target.brand ? target.brand + " " : "") + target.model : "";
-            return `You are about to delete:
+            return `You are about to purge:
 
 ${code}
 ${modelName}
 
-This action cannot be undone.`;
+This asset will be safely moved to the Purged Archive. You can unpurge and restore it at any time.`;
           })()
     }
-    confirmText="Delete Asset"
+    confirmText="Purge Asset"
     confirmColor="bg-rose-600"
+  />
+
+  <ConfirmationModal 
+    isOpen={permanentDeleteTarget !== null}
+    onClose={() => setPermanentDeleteTarget(null)}
+    onConfirm={executePermanentDelete}
+    isLoading={isDeleting}
+    title="Permanently Delete from Database?"
+    message={
+      permanentDeleteTarget?.type === 'bulk-asset' && Array.isArray(permanentDeleteTarget.id)
+        ? `CRITICAL: You are about to permanently erase ${permanentDeleteTarget.id.length} assets from the database.
+
+This action is IRREVERSIBLE and cannot be restored.`
+        : (() => {
+            const target = assets.find(a => a.id === permanentDeleteTarget?.id);
+            const code = target?.asset_code || permanentDeleteTarget?.id;
+            const modelName = target ? (target.brand ? target.brand + " " : "") + target.model : "";
+            return `CRITICAL: You are about to permanently erase:
+
+${code}
+${modelName}
+
+This will permanently delete this record from the database. This action CANNOT be undone.`;
+          })()
+    }
+    confirmText="Permanently Delete"
+    confirmColor="bg-rose-700"
   />
   </div>
   );
