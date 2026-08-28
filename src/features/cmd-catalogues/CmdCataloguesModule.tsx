@@ -1,116 +1,116 @@
-import React, { useState, useEffect } from 'react';
-import { Loader2, Image as ImageIcon, AlertTriangle } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Image as ImageIcon, Search } from 'lucide-react';
 
-interface DriveImage {
-  id: string;
+// Every image you upload into src/assets/catalogues/ (jpg, jpeg, png, webp, gif)
+// is automatically picked up here at build time. No API, no backend, no keys.
+// To add a new catalogue image: upload the file into that folder on GitHub,
+// commit, and Cloudflare will rebuild the site automatically.
+const modules = import.meta.glob('/src/assets/catalogues/*.{png,jpg,jpeg,webp,gif,PNG,JPG,JPEG}', {
+  eager: true,
+  import: 'default',
+}) as Record<string, string>;
+
+interface CatalogueImage {
   name: string;
-  mimeType: string;
+  url: string;
 }
 
-// Public, direct-view thumbnail URL for a Drive file that is shared
-// "Anyone with the link" -> Viewer. Works with no auth from the browser.
-function getDriveThumbnailUrl(fileId: string, size = 1000): string {
-  return `https://drive.google.com/thumbnail?id=${fileId}&sz=w${size}`;
-}
+const allImages: CatalogueImage[] = Object.entries(modules)
+  .map(([path, url]) => ({
+    name: decodeURIComponent(path.split('/').pop() || path),
+    url,
+  }))
+  .sort((a, b) => a.name.localeCompare(b.name));
 
-function getDriveViewUrl(fileId: string): string {
-  return `https://drive.google.com/file/d/${fileId}/view`;
-}
+const PAGE_SIZE = 24;
 
 export const CmdCataloguesModule = () => {
-  const [loading, setLoading] = useState(true);
-  const [images, setImages] = useState<DriveImage[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  // Set these in your hosting provider's Environment Variables
-  // (must be prefixed with VITE_ so Vite exposes them to the browser build).
-  const FOLDER_ID = import.meta.env.VITE_GOOGLE_DRIVE_FOLDER_ID || '1H6N6fSuJqVhs4iC_jR7ymS6Ctdql4SqQ';
-  const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined;
+  const filtered = useMemo(() => {
+    if (!search.trim()) return allImages;
+    const q = search.trim().toLowerCase();
+    return allImages.filter((img) => img.name.toLowerCase().includes(q));
+  }, [search]);
 
-  useEffect(() => {
-    if (!API_KEY) {
-      setError('VITE_GOOGLE_API_KEY မသတ်မှတ်ရသေးပါ။ Cloudflare Workers ရဲ့ Environment Variables ထဲမှာ ထည့်ပြီး redeploy လုပ်ပါ။');
-      setLoading(false);
-      return;
-    }
-
-    const q = encodeURIComponent(`'${FOLDER_ID}' in parents and trashed = false`);
-    const fields = encodeURIComponent('files(id,name,mimeType)');
-    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&key=${API_KEY}`;
-
-    fetch(url)
-      .then(async (res) => {
-        if (!res.ok) {
-          const body = await res.text();
-          throw new Error(`Drive API error (${res.status}): ${body}`);
-        }
-        return res.json();
-      })
-      .then((data) => {
-        const files: DriveImage[] = (data.files || []).filter((f: DriveImage) =>
-          f.mimeType?.startsWith('image/')
-        );
-        setImages(files);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Error fetching catalogues:', err);
-        setError(
-          'Catalogue ပုံများကို ရယူ၍ မရပါ။ Folder ကို "Anyone with the link" အဖြစ် share ထားခြင်း ရှိမရှိ၊ API Key မှန်ကန်ခြင်း ရှိမရှိ စစ်ပါ. (' +
-            (err?.message || '') +
-            ')'
-        );
-        setLoading(false);
-      });
-  }, [FOLDER_ID, API_KEY]);
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = visibleCount < filtered.length;
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">CMD Catalogues</h1>
-
-      {loading && (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="animate-spin text-blue-600" size={32} />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <h1 className="text-2xl font-bold">CMD Catalogues</h1>
+        <div className="relative w-full sm:w-72">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setVisibleCount(PAGE_SIZE);
+            }}
+            placeholder="Search catalogues..."
+            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
-      )}
+      </div>
 
-      {!loading && error && (
-        <div className="flex flex-col items-center justify-center h-64 text-center gap-3 text-amber-600">
-          <AlertTriangle size={32} />
-          <p className="text-sm max-w-md">{error}</p>
-        </div>
-      )}
+      <p className="text-xs text-slate-400 mb-4">
+        {filtered.length} of {allImages.length} catalogue{allImages.length === 1 ? '' : 's'}
+      </p>
 
-      {!loading && !error && images.length === 0 && (
+      {allImages.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-64 text-center gap-3 text-slate-400">
           <ImageIcon size={32} />
-          <p className="text-sm">ဒီ Folder ထဲမှာ ပုံ (image) file မရှိသေးပါ။</p>
+          <p className="text-sm max-w-md">
+            ပုံ file မတွေ့သေးပါ။ src/assets/catalogues/ folder ထဲကို ပုံများ upload
+            လုပ်ပြီး commit လုပ်ပါ။
+          </p>
         </div>
-      )}
-
-      {!loading && !error && images.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          {images.map((image) => (
-            <div key={image.id} className="border rounded-xl p-4 shadow-sm hover:shadow-md transition">
-              <img
-                src={getDriveThumbnailUrl(image.id)}
-                alt={image.name}
-                className="w-full h-48 object-contain mb-2"
-                referrerPolicy="no-referrer"
-                loading="lazy"
-              />
-              <p className="text-sm font-medium truncate">{image.name}</p>
-              <a
-                href={getDriveViewUrl(image.id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-600 mt-2 block"
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-64 text-center gap-3 text-slate-400">
+          <Search size={32} />
+          <p className="text-sm">ရှာဖွေမှုနှင့် ကိုက်ညီသော catalogue မတွေ့ပါ။</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+            {visible.map((image) => (
+              <div
+                key={image.name}
+                className="border rounded-xl p-4 shadow-sm hover:shadow-md transition"
               >
-                View Original
-              </a>
+                <img
+                  src={image.url}
+                  alt={image.name}
+                  className="w-full h-40 object-contain mb-2"
+                  loading="lazy"
+                />
+                <p className="text-sm font-medium truncate">{image.name}</p>
+                <a
+                  href={image.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 mt-2 block"
+                >
+                  View Full Size
+                </a>
+              </div>
+            ))}
+          </div>
+
+          {hasMore && (
+            <div className="flex justify-center mt-8">
+              <button
+                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                className="px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition"
+              >
+                Load More ({filtered.length - visibleCount} remaining)
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
