@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldOff, LayoutDashboard, Ticket as TicketIcon, Monitor, ShieldCheck, Megaphone, HardDrive, Settings, HelpCircle, Activity, Users, FileText, Briefcase, Calendar, FolderClock, Printer } from 'lucide-react';
+import { ShieldOff, LayoutDashboard, Ticket as TicketIcon, Monitor, ShieldCheck, Megaphone, HardDrive, Settings, HelpCircle, Activity, Users, FileText, Briefcase, Calendar, FolderClock, Printer, BookOpenText } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { useAuth, LoginScreen, LoadingScreen } from './features/auth';
 import { AppShell } from './components/layout';
@@ -20,6 +20,7 @@ import { FileManagerModule } from './features/file-manager';
 import { RenewalsModule } from './features/renewals';
 import { KPIDashboard, KPITracker } from './features/kpi';
 import { MeetingMinutesModule } from './features/meetings';
+import { CmdCataloguesModule } from './features/cmd-catalogues';
 import { IdLayoutGenerator } from './features/id-layout';
 import { TicketsModule } from './features/tickets';
 import { HelpSupportModule } from './components/HelpSupportModule';
@@ -57,7 +58,7 @@ const INITIAL_SCHEDULE: BackupSchedule[] = [
   { id: 'SCH-002', time: '22:00', type: 'External Drive', label: 'Nightly Physical Backup' },
 ];
 
-type ActiveTab = 'dashboard' | 'tickets' | 'assets' | 'asset-users' | 'security' | 'marketing' | 'renewals' | 'purchases' | 'files' | 'settings' | 'help' | 'kpi' | 'daily-kpi' | 'reports' | 'skills' | 'users' | 'meetings' | 'id-layout';
+type ActiveTab = 'dashboard' | 'tickets' | 'assets' | 'asset-users' | 'security' | 'marketing' | 'renewals' | 'purchases' | 'files' | 'settings' | 'help' | 'kpi' | 'daily-kpi' | 'reports' | 'skills' | 'users' | 'meetings' | 'id-layout' | 'cmd-catalogues';
 
 export default function App() {
   const { canAccess, loading: accessLoading } = useAccessControl();
@@ -217,6 +218,7 @@ export default function App() {
     { id: 'skills', label: 'Staff Matrix', icon: Users },
     { id: 'tickets', label: 'IT Support Log', icon: TicketIcon, badge: pendingTicketsCount > 0 ? pendingTicketsCount : undefined },
     { id: 'meetings', label: 'IT Meetings', icon: Calendar },
+    { id: 'cmd-catalogues', label: 'CMD Catalogues', icon: BookOpenText },
     { id: 'assets', label: 'Asset Inventory', icon: Monitor },
     { id: 'asset-users', label: 'Assets by User', icon: Users },
     { id: 'purchases', label: 'Purchases', icon: FolderClock },
@@ -232,6 +234,12 @@ export default function App() {
   const navItems = allNavItems.filter(item => {
     if (isAdmin) return true;
     if (accessLoading) return false;
+    
+    // Watch-only account restriction
+    if (userProfile?.role === UserRole.STAFF) {
+      return ['assets', 'asset-users', 'cmd-catalogues'].includes(item.id);
+    }
+    
     if (['tickets', 'help', 'meetings', 'id-layout'].includes(item.id)) return true;
     if (item.id === 'asset-users') return !!userProfile?.role && canAccess(userProfile.role, 'assets');
     if (userProfile?.role) return canAccess(userProfile.role, item.id);
@@ -270,8 +278,8 @@ export default function App() {
             )}
             {activeTab === 'dashboard' && canAccess(userProfile?.role as UserRole, 'dashboard') && <ReportsModule activities={activities} evidence={evidence} allDailyLogs={allDailyLogs} tickets={tickets} employees={employees} />}
             {activeTab === 'tickets' && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} userProfile={userProfile} />}
-            {activeTab === 'assets' && canAccess(userProfile?.role as UserRole, 'assets') && <AssetsModule assets={assets} setAssets={setAssets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} />}
-            {activeTab === 'asset-users' && (isAdmin || canAccess(userProfile?.role as UserRole, 'assets')) && <AssetUsersPage currentUserId={currentUser.id} isAdmin={isAdmin} settings={settings} />}
+            {activeTab === 'assets' && canAccess(userProfile?.role as UserRole, 'assets') && <AssetsModule assets={assets} setAssets={setAssets} searchTerm={searchTerm} isAdmin={isAdmin && userProfile?.role !== UserRole.STAFF} settings={settings} />}
+            {activeTab === 'asset-users' && (isAdmin || canAccess(userProfile?.role as UserRole, 'assets')) && <AssetUsersPage currentUserId={currentUser.id} isAdmin={isAdmin && userProfile?.role !== UserRole.STAFF} settings={settings} />}
             {activeTab === 'security' && canAccess(userProfile?.role as UserRole, 'security') && <SecurityModule backups={backups} setBackups={setBackups} requests={cctvRequests} setRequests={setCctvRequests} searchTerm={searchTerm} isAdmin={isAdmin} />}
             {activeTab === 'renewals' && canAccess(userProfile?.role as UserRole, 'renewals') && <RenewalsModule renewals={renewals} setRenewals={setRenewals} isAdmin={isAdmin} />}
             {activeTab === 'purchases' && canAccess(userProfile?.role as UserRole, 'purchases') && <PurchasesModule purchases={purchases} setPurchases={setPurchases} assets={assets} setAssets={setAssets} isAdmin={isAdmin} />}
@@ -282,6 +290,7 @@ export default function App() {
             {activeTab === 'kpi' && canAccess(userProfile?.role as UserRole, 'kpi') && <KPIDashboard />}
             {activeTab === 'daily-kpi' && canAccess(userProfile?.role as UserRole, 'daily-kpi') && <KPITracker userRole={userProfile?.role} />}
             {activeTab === 'meetings' && <MeetingMinutesModule userRole={userProfile?.role} isAdmin={isAdmin} />}
+            {activeTab === 'cmd-catalogues' && <CmdCataloguesModule />}
             {activeTab === 'id-layout' && <IdLayoutGenerator />}
             {activeTab === 'skills' && isAdmin && <SkillMatrix />}
             {activeTab === 'reports' && isAdmin && <ReportsModule activities={activities} evidence={evidence} allDailyLogs={allDailyLogs} tickets={tickets} employees={employees} />}

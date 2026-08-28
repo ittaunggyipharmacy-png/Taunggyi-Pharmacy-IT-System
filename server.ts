@@ -110,6 +110,8 @@ async function startServer() {
       if (folderId) {
         q += ` and '${folderId}' in parents`;
       }
+      
+      console.log(`Fetching files for query: ${q}`);
 
       const response = await drive.files.list({
         q,
@@ -118,6 +120,8 @@ async function startServer() {
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       });
+
+      console.log(`Fetched ${response.data.files?.length || 0} files`);
 
       const files = response.data.files?.map(file => ({
         ...file,

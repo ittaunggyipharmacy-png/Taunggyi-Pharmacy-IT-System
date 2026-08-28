@@ -65,6 +65,11 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
       UserRole.IT_DIGITAL_MARKETING
     ];
     if (ADMIN_ROLES.includes(role as UserRole)) return true;
+
+    // Staff role read-only restrictions
+    if (role === UserRole.STAFF) {
+      return ['assets', 'asset-users'].includes(menuId);
+    }
     
     const rolePermission = permissions.find(p => p.role === role);
     return rolePermission?.allowed_menus[menuId] === true;

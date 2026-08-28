@@ -102,19 +102,6 @@ export const fetchAssets = async (): Promise<ITAsset[]> => {
 
 export const generateNextAssetCode = async (category: string, currentOffset: number = 0): Promise<string> => {
   const catKey = (category || 'other').toLowerCase().replace(/\s+/g, '_');
-  const { data, error: fetchError } = await supabase
-    .from('asset_counters')
-    .select('count')
-    .eq('id', `assetCode_${catKey}`)
-    .single();
-  if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
-  const lastNum = data?.count || 0;
-  const nextNum = lastNum + 1 + currentOffset;
-  const { error: upsertError } = await supabase
-    .from('asset_counters')
-    .upsert({ id: `assetCode_${catKey}`, count: nextNum, updated_at: new Date().toISOString() });
-  if (upsertError) throw upsertError;
-
   const getPrefix = (cat: string) => {
     const c = (cat || '').toLowerCase();
     if (c === 'computer') return 'TG-PC-';
@@ -127,12 +114,37 @@ export const generateNextAssetCode = async (category: string, currentOffset: num
     if (c === 'scanner') return 'TG-SC-';
     return 'TG-ACC-';
   };
-  return `${getPrefix(category)}${String(nextNum).padStart(3, '0')}`;
+
+  try {
+    const { data, error: fetchError } = await supabase
+      .from('asset_counters')
+      .select('count')
+      .eq('id', `assetCode_${catKey}`)
+      .single();
+    if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+    const lastNum = data?.count || 0;
+    const nextNum = lastNum + 1 + currentOffset;
+    const { error: upsertError } = await supabase
+      .from('asset_counters')
+      .upsert({ id: `assetCode_${catKey}`, count: nextNum, updated_at: new Date().toISOString() });
+    if (upsertError) throw upsertError;
+
+    return `${getPrefix(category)}${String(nextNum).padStart(3, '0')}`;
+  } catch (err) {
+    console.warn('generateNextAssetCode database counter unavailable, using timestamp fallback:', err);
+    return `${getPrefix(category)}${Date.now().toString().slice(-4)}`;
+  }
 };
 
 export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undefined> => {
   let code = asset.asset_code;
-  if (!asset.id && !code && asset.category) code = await generateNextAssetCode(asset.category);
+  if (!asset.id && !code && asset.category) {
+    try {
+      code = await generateNextAssetCode(asset.category);
+    } catch (codeErr) {
+      console.warn('Could not generate sequential code:', codeErr);
+    }
+  }
   const payload = mapAssetToDatabase({ ...asset, id: asset.id || crypto.randomUUID(), asset_code: code });
   const { error } = await supabase.from('assets').upsert({
     ...cleanData(payload), updated_at: new Date().toISOString()
@@ -144,8 +156,8 @@ export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undef
   asset.id = payload.id;
   if (code) asset.asset_code = code;
 
-  // Synchronize assignment with Asset by User
-  if (payload.id && asset.assignedTo !== undefined) {
+  // Synchronize assignment with Asset by User (skip if asset is purged/disposed)
+  if (payload.id && asset.assignedTo !== undefined && !asset.isPurged && asset.status !== 'Disposed') {
     try {
       await syncAssetAssignmentByName({
         assetId: payload.id,
@@ -175,6 +187,7 @@ export const purgeAsset = async (
     purgeReason: options?.reason || 'Hardware purge',
     previousStatus,
     status: 'Disposed',
+    parentId: null,
   };
   await saveAsset(purgedAsset);
   return purgedAsset;

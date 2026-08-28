@@ -107,14 +107,107 @@ export const getAssetPeople = async (search = ''): Promise<AssetPerson[]> => {
   }
   const { data, error } = await query;
   if (error) throw error;
-  return (data || []).map(mapAssetPerson).filter(Boolean) as AssetPerson[];
+  
+  const mapped = (data || []).map(mapAssetPerson).filter(Boolean) as AssetPerson[];
+  
+  // Deduplicate by normalized fullName
+  const seenNames = new Map<string, AssetPerson>();
+  let hasDuplicates = false;
+  for (const person of mapped) {
+    const key = person.fullName.trim().toLowerCase();
+    if (!seenNames.has(key)) {
+      seenNames.set(key, person);
+    } else {
+      hasDuplicates = true;
+      const existing = seenNames.get(key)!;
+      // Prefer record with linkedUserId or more details
+      if ((!existing.linkedUserId && person.linkedUserId) || (!existing.department && person.department)) {
+        seenNames.set(key, person);
+      }
+    }
+  }
+
+  // Trigger background cleanup if duplicates detected in DB
+  if (hasDuplicates) {
+    cleanupDuplicateAssetPeople().catch(err => console.warn('Background cleanup error:', err));
+  }
+
+  return Array.from(seenNames.values());
+};
+
+/** Clean up any historical duplicate rows in asset_people */
+export const cleanupDuplicateAssetPeople = async (): Promise<void> => {
+  try {
+    const { data: people, error } = await supabase.from('asset_people').select('*');
+    if (error || !people || people.length === 0) return;
+
+    const grouped = new Map<string, any[]>();
+    for (const p of people) {
+      const norm = (p.full_name || '').trim().toLowerCase();
+      if (!norm) continue;
+      if (!grouped.has(norm)) grouped.set(norm, []);
+      grouped.get(norm)!.push(p);
+    }
+
+    for (const [, list] of grouped.entries()) {
+      if (list.length > 1) {
+        list.sort((a, b) => {
+          if (a.linked_user_id && !b.linked_user_id) return -1;
+          if (!a.linked_user_id && b.linked_user_id) return 1;
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+        const canonical = list[0];
+        const duplicates = list.slice(1);
+        for (const dup of duplicates) {
+          await supabase.from('asset_assignments').update({ asset_person_id: canonical.id }).eq('asset_person_id', dup.id);
+          await supabase.from('asset_people').delete().eq('id', dup.id);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('cleanupDuplicateAssetPeople exception:', err);
+  }
 };
 
 export const createAssetPerson = async (person: Omit<AssetPerson, 'id' | 'createdAt' | 'updatedAt'>): Promise<AssetPerson> => {
+  const targetName = person.fullName.trim();
+  if (!targetName) throw new Error('Person name is required');
+
+  // Check if person with same name already exists
+  const { data: existing } = await supabase
+    .from('asset_people')
+    .select('*')
+    .ilike('full_name', targetName);
+
+  if (existing && existing.length > 0) {
+    const matched = existing[0];
+    // Update missing fields if needed
+    const updates: any = {};
+    if (!matched.employee_id && person.employeeId) updates.employee_id = person.employeeId;
+    if (!matched.department && person.department) updates.department = person.department;
+    if (!matched.branch && person.branch) updates.branch = person.branch;
+    if (!matched.position && person.position) updates.position = person.position;
+    if (!matched.phone && person.phone) updates.phone = person.phone;
+    if (!matched.email && person.email) updates.email = person.email;
+    if (!matched.linked_user_id && person.linkedUserId) updates.linked_user_id = person.linkedUserId;
+
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString();
+      await supabase.from('asset_people').update(updates).eq('id', matched.id);
+    }
+    return mapAssetPerson({ ...matched, ...updates })!;
+  }
+
   const { data, error } = await supabase.from('asset_people').insert({
-    employee_id: person.employeeId || null, full_name: person.fullName, position: person.position || null,
-    department: person.department || null, branch: person.branch || null, phone: person.phone || null,
-    email: person.email || null, status: person.status || 'Active', notes: person.notes || null,
+    employee_id: person.employeeId || null,
+    full_name: targetName,
+    position: person.position || null,
+    department: person.department || null,
+    branch: person.branch || null,
+    phone: person.phone || null,
+    email: person.email || null,
+    status: person.status || 'Active',
+    notes: person.notes || null,
     linked_user_id: person.linkedUserId || null,
   }).select('*').single();
   if (error) throw error;
@@ -131,10 +224,44 @@ export const updateAssetPerson = async (person: AssetPerson): Promise<void> => {
   if (error) throw error;
 };
 
+export const deleteAssetPerson = async (id: string): Promise<void> => {
+  const { data: activeAssignments, error: assignmentsError } = await supabase
+    .from('asset_assignments')
+    .select('id')
+    .eq('asset_person_id', id)
+    .eq('status', 'Active');
+    
+  if (assignmentsError) throw assignmentsError;
+  if (activeAssignments && activeAssignments.length > 0) {
+    throw new Error('This user has active asset assignments. Please return or reassign them before deleting.');
+  }
+
+  // Delete historical assignments to satisfy foreign key constraints
+  const { error: delAssignmentsError } = await supabase.from('asset_assignments').delete().eq('asset_person_id', id);
+  if (delAssignmentsError) throw delAssignmentsError;
+
+  const { error } = await supabase.from('asset_people').delete().eq('id', id);
+  if (error) throw error;
+};
+
 /** Update the name shown by Asset by User. Linked login users are updated through the admin RPC. */
 export const updateAssetHolderName = async (holder: { kind: 'person'; id: string } | { kind: 'login'; uid: string }, displayName: string): Promise<void> => {
   const name = displayName.trim();
   if (!name) throw new Error('User name cannot be empty.');
+
+  // Helper function to update the assignee name in the assets table for active assignments
+  const updateAssetsAssigneeName = async (personId: string, newName: string) => {
+    const { data: assignments } = await supabase
+      .from('asset_assignments')
+      .select('asset_id')
+      .eq('asset_person_id', personId)
+      .eq('status', 'Active');
+      
+    if (assignments && assignments.length > 0) {
+      const assetIds = assignments.map(a => a.asset_id);
+      await supabase.from('assets').update({ assignee: newName }).in('id', assetIds);
+    }
+  };
 
   if (holder.kind === 'login') {
     const { error } = await supabase.rpc('admin_update_user_display_name', {
@@ -142,6 +269,15 @@ export const updateAssetHolderName = async (holder: { kind: 'person'; id: string
       new_display_name: name,
     });
     if (error) throw error;
+
+    // Check if this login user has an associated asset_person record and update it + assets too
+    const { data: linkedPerson } = await supabase.from('asset_people').select('id, full_name').eq('linked_user_id', holder.uid).maybeSingle();
+    if (linkedPerson) {
+      if (linkedPerson.full_name !== name) {
+        await supabase.from('asset_people').update({ full_name: name, updated_at: new Date().toISOString() }).eq('id', linkedPerson.id);
+      }
+      await updateAssetsAssigneeName(linkedPerson.id, name);
+    }
     return;
   }
 
@@ -154,11 +290,13 @@ export const updateAssetHolderName = async (holder: { kind: 'person'; id: string
       new_display_name: name,
     });
     if (error) throw error;
-    return;
   }
 
   const { error } = await supabase.from('asset_people').update({ full_name: name, updated_at: new Date().toISOString() }).eq('id', holder.id);
   if (error) throw error;
+  
+  // Sync the new name to the active assets so it doesn't create a "virtual" duplicate user in AssetUsersPage
+  await updateAssetsAssigneeName(holder.id, name);
 };
 
 export const getAssetPersonAssignments = async (assetPersonId: string, includeHistory = false): Promise<AssetAssignmentRecord[]> => {
@@ -176,9 +314,11 @@ export const assignAssetToPerson = async ({ assetId, assetPersonId, assignedDate
   if (assetError) throw assetError;
   if (!['Active', 'In Stock', 'New'].includes(asset.status)) throw new Error(`Asset status '${asset.status}' cannot be assigned.`);
 
+  const safeAssignedBy = (assignedBy && assignedBy !== '00000000-0000-0000-0000-000000000000') ? assignedBy : null;
+
   const { data, error } = await supabase.from('asset_assignments').insert({
     asset_id: assetId, asset_person_id: assetPersonId, user_id: person.linked_user_id || null,
-    assigned_date: assignedDate || new Date().toISOString().slice(0, 10), assigned_by: assignedBy || null,
+    assigned_date: assignedDate || new Date().toISOString().slice(0, 10), assigned_by: safeAssignedBy,
     notes: notes || null, status: 'Active',
   }).select('id').single();
   if (error) throw error;
@@ -218,6 +358,74 @@ export const returnAsset = async ({ assignmentId, returnDate, returnReason, note
   if (error) throw error;
   const { error: assetError } = await supabase.from('assets').update({ assignee: 'Unassigned', updated_at: new Date().toISOString() }).eq('id', assignment.asset_id);
   if (assetError) throw assetError;
+};
+
+// In-flight mutex/cache to prevent concurrent sync operations from creating duplicate person rows
+const inFlightPersonMap = new Map<string, Promise<AssetPerson | null>>();
+
+const getOrCreatePersonByName = async (targetName: string, department?: string | null, branch?: string | null): Promise<AssetPerson | null> => {
+  const normKey = targetName.trim().toLowerCase();
+  if (inFlightPersonMap.has(normKey)) {
+    return inFlightPersonMap.get(normKey)!;
+  }
+
+  const promise = (async () => {
+    try {
+      // 1. Find matching app_users or asset_people
+      const { data: matchedUsers } = await supabase
+        .from('app_users')
+        .select('uid, display_name, department, branch')
+        .ilike('display_name', targetName);
+
+      const matchedUser = matchedUsers && matchedUsers.length > 0 ? matchedUsers[0] : null;
+
+      const { data: matchedPeople } = await supabase
+        .from('asset_people')
+        .select('*')
+        .ilike('full_name', targetName);
+
+      let targetPerson: AssetPerson | null = (matchedPeople && matchedPeople.length > 0 ? mapAssetPerson(matchedPeople[0]) : null);
+
+      // If user found but no person, find or create asset_people linked to that user
+      if (matchedUser && !targetPerson) {
+        const { data: linkedPerson } = await supabase
+          .from('asset_people')
+          .select('*')
+          .eq('linked_user_id', matchedUser.uid)
+          .maybeSingle();
+
+        if (linkedPerson) {
+          targetPerson = mapAssetPerson(linkedPerson);
+        } else {
+          targetPerson = await createAssetPerson({
+            fullName: matchedUser.display_name || targetName,
+            department: matchedUser.department || department || null,
+            branch: matchedUser.branch || branch || null,
+            linkedUserId: matchedUser.uid,
+            status: 'Active',
+          });
+        }
+      }
+
+      // If no user and no person found, create a new asset_people record with this name
+      if (!targetPerson) {
+        targetPerson = await createAssetPerson({
+          fullName: targetName,
+          department: department || null,
+          branch: branch || null,
+          status: 'Active',
+        });
+      }
+
+      return targetPerson;
+    } finally {
+      // Remove from in-flight cache after a short delay
+      setTimeout(() => inFlightPersonMap.delete(normKey), 2000);
+    }
+  })();
+
+  inFlightPersonMap.set(normKey, promise);
+  return promise;
 };
 
 /**
@@ -265,62 +473,8 @@ export const syncAssetAssignmentByName = async ({
     return;
   }
 
-  // 2. Find matching app_users or asset_people
-  const { data: matchedUsers } = await supabase
-    .from('app_users')
-    .select('uid, display_name, department, branch')
-    .ilike('display_name', targetName);
-
-  const matchedUser = matchedUsers && matchedUsers.length > 0 ? matchedUsers[0] : null;
-
-  const { data: matchedPeople } = await supabase
-    .from('asset_people')
-    .select('*')
-    .ilike('full_name', targetName);
-
-  let targetPerson: AssetPerson | null = (matchedPeople && matchedPeople.length > 0 ? mapAssetPerson(matchedPeople[0]) : null);
-
-  // If user found but no person, find or create asset_people linked to that user
-  if (matchedUser && !targetPerson) {
-    const { data: linkedPerson } = await supabase
-      .from('asset_people')
-      .select('*')
-      .eq('linked_user_id', matchedUser.uid)
-      .maybeSingle();
-
-    if (linkedPerson) {
-      targetPerson = mapAssetPerson(linkedPerson);
-    } else {
-      const { data: createdPerson } = await supabase
-        .from('asset_people')
-        .insert({
-          full_name: matchedUser.display_name || targetName,
-          department: matchedUser.department || department || null,
-          branch: matchedUser.branch || branch || null,
-          linked_user_id: matchedUser.uid,
-          status: 'Active',
-        })
-        .select('*')
-        .single();
-      targetPerson = mapAssetPerson(createdPerson);
-    }
-  }
-
-  // If no user and no person found, create a new asset_people record with this name
-  if (!targetPerson) {
-    const { data: createdPerson } = await supabase
-      .from('asset_people')
-      .insert({
-        full_name: targetName,
-        department: department || null,
-        branch: branch || null,
-        status: 'Active',
-      })
-      .select('*')
-      .single();
-    targetPerson = mapAssetPerson(createdPerson);
-  }
-
+  // 2. Find or create matching targetPerson (concurrency safe)
+  const targetPerson = await getOrCreatePersonByName(targetName, department, branch);
   if (!targetPerson) return;
 
   // Check active assignment for this asset
@@ -332,7 +486,7 @@ export const syncAssetAssignmentByName = async ({
 
   // If already actively assigned to this person/user, do nothing
   const alreadyAssigned = currentActive?.some(
-    a => a.asset_person_id === targetPerson!.id || (matchedUser && a.user_id === matchedUser.uid)
+    a => a.asset_person_id === targetPerson.id || (targetPerson.linkedUserId && a.user_id === targetPerson.linkedUserId)
   );
 
   if (alreadyAssigned) return;
@@ -352,13 +506,15 @@ export const syncAssetAssignmentByName = async ({
     }
   }
 
+  const safeAssignedBy = (assignedBy && assignedBy !== '00000000-0000-0000-0000-000000000000') ? assignedBy : null;
+
   // Create new active assignment
   await supabase.from('asset_assignments').insert({
     asset_id: assetId,
     asset_person_id: targetPerson.id,
-    user_id: targetPerson.linkedUserId || matchedUser?.uid || null,
+    user_id: targetPerson.linkedUserId || null,
     assigned_date: assignedDate || new Date().toISOString().slice(0, 10),
-    assigned_by: assignedBy || 'Asset Inventory',
+    assigned_by: safeAssignedBy,
     status: 'Active',
   });
 };

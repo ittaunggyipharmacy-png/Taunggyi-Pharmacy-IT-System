@@ -1,0 +1,30 @@
+const fs = require('fs');
+let code = fs.readFileSync('src/features/assets/AssetsPage.tsx', 'utf8');
+
+const target = `  const currentAssets = filteredAssets.filter(a => !isHistorical(a.purchaseDate));
+ const historicalAssets = filteredAssets.filter(a => isHistorical(a.purchaseDate));`;
+
+const replace = `  const groupedByUser = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    filteredAssets.forEach(asset => {
+      const user = (asset.assignedTo && asset.assignedTo !== "Unassigned") ? asset.assignedTo : 'Unassigned / Stock';
+      if (!groups.has(user)) groups.set(user, []);
+      groups.get(user).push(asset);
+    });
+
+    return Array.from(groups.entries())
+      .sort(([userA], [userB]) => {
+        if (userA === 'Unassigned / Stock') return 1;
+        if (userB === 'Unassigned / Stock') return -1;
+        return userA.localeCompare(userB);
+      })
+      .map(([label, items]) => ({ label, items }));
+  }, [filteredAssets]);
+  
+  // Dummy currentAssets and historicalAssets to satisfy other references if any, or just define them as empty arrays.
+  // Wait, currentAssets is used in other places? Let's check.
+  const currentAssets = filteredAssets.filter(a => !isHistorical(a.purchaseDate));
+  const historicalAssets = filteredAssets.filter(a => isHistorical(a.purchaseDate));
+`;
+code = code.replace(target, replace);
+fs.writeFileSync('src/features/assets/AssetsPage.tsx', code);

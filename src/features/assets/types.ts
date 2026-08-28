@@ -44,6 +44,7 @@ export interface AssetAssignedUser {
 }
 
 export interface ITAsset {
+  displayOrder?: number;
   id: string;
   asset_code?: string;
   name?: string;

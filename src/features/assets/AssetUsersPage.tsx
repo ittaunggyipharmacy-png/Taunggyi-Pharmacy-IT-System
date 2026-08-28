@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Building2, CalendarDays, ChevronRight, Package, Plus, Search, UserRound, X, UserPlus, Pencil, RefreshCw, Users, UserCheck, MapPin } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, ChevronRight, Package, Plus, Search, UserRound, X, UserPlus, Pencil, Trash2, RefreshCw, Users, UserCheck, MapPin } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { SystemUser, ITAsset, AssetPerson, SystemSettings } from '../../types';
 import { getAllSystemUsers } from '../../services/userService';
 import { fetchAssets, updateAssetAssignment } from '../../services/assetService';
 import { getSettings } from '../../services/settingsService';
 import { SearchableDropdown } from '../../components/SearchableDropdown';
-import { assignAssetToPerson, createAssetPerson, getAssetPeople, getAssetPersonAssignments, getUserAssetAssignments, getUserAssignmentHistory, returnAsset, syncAssetAssignmentByName, updateAssetHolderName, AssetAssignmentRecord } from '../../services/assetAssignmentService';
+import { assignAssetToPerson, createAssetPerson, deleteAssetPerson, getAssetPeople, getAssetPersonAssignments, getUserAssetAssignments, getUserAssignmentHistory, returnAsset, syncAssetAssignmentByName, updateAssetHolderName, AssetAssignmentRecord } from '../../services/assetAssignmentService';
 import { AssetCategoryIcon, AssetCategoryBadge } from './components/AssetCategoryIcon';
 
 type AssetHolder =
@@ -161,15 +161,27 @@ export function AssetUsersPage({ currentUserId, isAdmin, settings: propSettings 
   useEffect(() => { loadUsersAndAssets(); }, [loadUsersAndAssets]);
 
   const holders = useMemo<AssetHolder[]>(() => {
-    const peopleHolders: AssetHolder[] = people.map(person => ({ kind: 'person', person }));
-    const loginHolders = users.map(user => ({ kind: 'login' as const, user }));
+    // 1. Deduplicate people by normalized name
+    const seenPeopleNames = new Set<string>();
+    const uniquePeople: AssetPerson[] = [];
+    people.forEach(p => {
+      const norm = (p.fullName || '').trim().toLowerCase();
+      if (norm && !seenPeopleNames.has(norm)) {
+        seenPeopleNames.add(norm);
+        uniquePeople.push(p);
+      }
+    });
 
-    // Also include any assignees present on assets who aren't yet in people or users
+    const peopleHolders: AssetHolder[] = uniquePeople.map(person => ({ kind: 'person', person }));
+    const loginHolders: AssetHolder[] = users.map(user => ({ kind: 'login' as const, user }));
+
+    // 2. Known names (both from registered people and login users)
     const knownNames = new Set([
-      ...people.map(p => p.fullName.trim().toLowerCase()),
+      ...uniquePeople.map(p => (p.fullName || '').trim().toLowerCase()),
       ...users.map(u => (u.displayName || '').trim().toLowerCase()),
     ]);
 
+    // 3. Virtual people from asset assignees that aren't yet in people or users
     const virtualPeople: AssetPerson[] = [];
     assets.forEach(a => {
       const raw = (a.assignedTo || '').trim();
@@ -198,9 +210,19 @@ export function AssetUsersPage({ currentUserId, isAdmin, settings: propSettings 
     if (filterType === 'login') {
       return loginHolders;
     }
-    // 'all' -> show ALL people + all login users (ensuring every single asset person is visible)
-    const linkedUids = new Set(people.map(p => p.linkedUserId).filter(Boolean));
-    const unlinkedLoginHolders: AssetHolder[] = loginHolders.filter(u => !linkedUids.has(u.user.uid));
+
+    // 'all' -> Unify individuals so nobody appears twice
+    const linkedUids = new Set(uniquePeople.map(p => p.linkedUserId).filter(Boolean));
+    const peopleNameSet = new Set(allPeopleHolders.map(h => (h.kind === 'person' ? h.person.fullName : '').trim().toLowerCase()));
+
+    // Only add login holders who aren't already represented by an AssetPerson (by linked uid or matching display name)
+    const unlinkedLoginHolders: AssetHolder[] = loginHolders.filter((h): h is { kind: 'login'; user: SystemUser } => {
+      if (h.kind !== 'login') return false;
+      const isLinked = linkedUids.has(h.user.uid);
+      const hasMatchingPersonName = peopleNameSet.has((h.user.displayName || '').trim().toLowerCase());
+      return !isLinked && !hasMatchingPersonName;
+    });
+
     return [...allPeopleHolders, ...unlinkedLoginHolders];
   }, [users, people, assets, filterType]);
 
@@ -374,7 +396,36 @@ export function AssetUsersPage({ currentUserId, isAdmin, settings: propSettings 
     }
   };
 
+  const handleDeletePerson = async () => {
+    if (!selectedHolder || selectedHolder.kind !== 'person') return;
+    
+    // Check if they have active assignments
+    if (assignments.length > 0) {
+      toast.error('This user has active assigned assets. Please return or reassign them first.');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete the user "${selectedHolder.person.fullName}"? This action cannot be undone.`)) return;
+
+    try {
+      await deleteAssetPerson(selectedHolder.person.id);
+      toast.success('Asset user has been deleted.');
+      setSelectedHolder(null);
+      await loadUsersAndAssets();
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error?.message || 'Failed to delete asset user.');
+    }
+  };
+
   const holderName = selectedHolder?.kind === 'person' ? selectedHolder.person.fullName : selectedHolder?.user.displayName || '';
+
+  const totalPeopleCount = useMemo(() => {
+    const names = new Set(people.map(p => (p.fullName || '').trim().toLowerCase()).filter(Boolean));
+    return names.size;
+  }, [people]);
+  const totalLoginCount = users.length;
+  const totalDisplayCount = holders.length;
 
   if (loading) return <div className="rounded-3xl border border-slate-200 bg-white p-12 text-center text-sm text-slate-500">Loading asset users and assets...</div>;
 
@@ -391,7 +442,7 @@ export function AssetUsersPage({ currentUserId, isAdmin, settings: propSettings 
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600"><UserRound size={25} /></div><div className="min-w-0 flex-1">
-            {editingName ? <div className="flex flex-wrap items-center gap-2"><input autoFocus value={nameDraft} onChange={e => setNameDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') cancelEditName(); }} className="w-full max-w-sm rounded-xl border border-blue-300 px-3 py-2 text-lg font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-100" disabled={savingName} /><button type="button" onClick={handleSaveName} disabled={savingName} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingName ? 'Saving...' : 'Save'}</button><button type="button" onClick={cancelEditName} disabled={savingName} className="rounded-xl border border-slate-200 px-4 py-2 text-sm">Cancel</button></div> : <div className="flex items-center gap-2"><h1 className="truncate text-xl font-bold text-slate-900">{holderName}</h1>{isAdmin && <button type="button" onClick={startEditName} title="Edit user name" className="rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"><Pencil size={16} /></button>}<span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{isAssetPerson ? 'ASSET USER' : 'LOGIN USER'}</span></div>}
+            {editingName ? <div className="flex flex-wrap items-center gap-2"><input autoFocus value={nameDraft} onChange={e => setNameDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') cancelEditName(); }} className="w-full max-w-sm rounded-xl border border-blue-300 px-3 py-2 text-lg font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-100" disabled={savingName} /><button type="button" onClick={handleSaveName} disabled={savingName} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingName ? 'Saving...' : 'Save'}</button><button type="button" onClick={cancelEditName} disabled={savingName} className="rounded-xl border border-slate-200 px-4 py-2 text-sm">Cancel</button></div> : <div className="flex items-center gap-2"><h1 className="truncate text-xl font-bold text-slate-900">{holderName}</h1>{isAdmin && <button type="button" onClick={startEditName} title="Edit user name" className="rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600"><Pencil size={16} /></button>}{isAdmin && isAssetPerson && <button type="button" onClick={handleDeletePerson} title="Delete user" className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={16} /></button>}<span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{isAssetPerson ? 'ASSET USER' : 'LOGIN USER'}</span></div>}
             <p className="text-sm text-slate-500">{position || '-'} · {department || '-'} · {branch || '-'}</p><p className="mt-1 text-xs text-slate-400">Employee ID: {employeeId || '-'}{selectedHolder.kind === 'login' ? ` · ${selectedHolder.user.email}` : ''}</p>
           </div></div>
           <div className="rounded-2xl bg-blue-50 px-5 py-3 text-center text-blue-700"><div className="text-2xl font-bold">{assignments.length}</div><div className="text-xs font-medium">Active Assets</div></div>
@@ -560,10 +611,6 @@ export function AssetUsersPage({ currentUserId, isAdmin, settings: propSettings 
     </section>;
   }
 
-  const totalPeopleCount = people.length;
-  const totalLoginCount = users.length;
-  const totalDisplayCount = holders.length;
-
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -595,6 +642,14 @@ export function AssetUsersPage({ currentUserId, isAdmin, settings: propSettings 
               className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2.5 pl-9 pr-3 text-sm text-slate-900 dark:text-white outline-none focus:border-blue-500 shadow-sm"
             />
           </div>
+          <select 
+            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm text-slate-900 dark:text-white outline-none focus:border-blue-500 shadow-sm"
+            value={search} 
+            onChange={(e) => setSearch(e.target.value)}
+          >
+            <option value="">All Departments</option>
+            {departmentOptions.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+          </select>
           {isAdmin && (
             <button
               type="button"
@@ -631,18 +686,6 @@ export function AssetUsersPage({ currentUserId, isAdmin, settings: propSettings 
         >
           <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
           Asset People ({totalPeopleCount})
-        </button>
-        <button
-          type="button"
-          onClick={() => setFilterType('login')}
-          className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-            filterType === 'login'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-          }`}
-        >
-          <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-          Login Accounts ({totalLoginCount})
         </button>
       </div>
 

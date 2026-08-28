@@ -78,9 +78,37 @@ export function useAuth() {
   }, []);
 
   const loginWithCredentials = useCallback(async (username?: string, password?: string) => {
-    if (username === 'Tgpadmin' && password === 'Tgp@admin123') {
+    if (username === 'user' && password === 'user') {
+      const mockUserId = '11111111-1111-1111-1111-111111111111';
       const mockUser = {
-        id: 'mock-admin-id',
+        id: mockUserId,
+        email: 'user@taunggyipharmacy.local',
+        user_metadata: {
+          name: 'User',
+        }
+      };
+      
+      const profile: SystemUser = {
+        uid: mockUserId,
+        email: 'user@taunggyipharmacy.local',
+        displayName: 'User',
+        role: UserRole.STAFF, // Assuming STAFF role
+        isAdmin: false,
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+      };
+      
+      setCurrentUser(mockUser);
+      setUserProfile(profile);
+      setIsAdmin(false);
+      setAuthReady(true);
+      return true;
+    }
+
+    if (username === 'Tgpadmin' && password === 'Tgp@admin123') {
+      const mockAdminId = '00000000-0000-0000-0000-000000000000';
+      const mockUser = {
+        id: mockAdminId,
         email: 'tgpadmin@taunggyipharmacy.local',
         user_metadata: {
           name: 'Tgpadmin',
@@ -88,7 +116,7 @@ export function useAuth() {
       };
       
       const profile: SystemUser = {
-        uid: 'mock-admin-id',
+        uid: mockAdminId,
         email: 'tgpadmin@taunggyipharmacy.local',
         displayName: 'Tgpadmin',
         role: UserRole.ADMIN,
