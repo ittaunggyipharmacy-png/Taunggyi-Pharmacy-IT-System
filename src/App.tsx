@@ -240,7 +240,7 @@ export default function App() {
       return ['assets', 'asset-users', 'cmd-catalogues'].includes(item.id);
     }
     
-    if (['tickets', 'help', 'meetings', 'id-layout'].includes(item.id)) return true;
+    if (['tickets', 'help', 'meetings', 'id-layout', 'cmd-catalogues'].includes(item.id)) return true;
     if (item.id === 'asset-users') return !!userProfile?.role && canAccess(userProfile.role, 'assets');
     if (userProfile?.role) return canAccess(userProfile.role, item.id);
     return false;

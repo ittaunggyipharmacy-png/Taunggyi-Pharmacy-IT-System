@@ -68,7 +68,7 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
 
     // Staff role read-only restrictions
     if (role === UserRole.STAFF) {
-      return ['assets', 'asset-users'].includes(menuId);
+      return ['assets', 'asset-users', 'cmd-catalogues'].includes(menuId);
     }
     
     const rolePermission = permissions.find(p => p.role === role);
