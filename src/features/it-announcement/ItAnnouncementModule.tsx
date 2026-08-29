@@ -1,71 +1,151 @@
-import React, { useState, useEffect } from 'react';
-import { Send, Loader2, MessageSquare, Megaphone } from 'lucide-react';
-import { postAnnouncement, subscribeToAnnouncements, ItAnnouncement } from '../../services/itAnnouncementService';
-import { useAuth } from '../../features/auth/hooks/useAuth';
+import React, { useEffect, useState } from 'react';
+import { ExternalLink, FileImage, FileVideo, Link as LinkIcon, Loader2, Megaphone, PlayCircle, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { postAnnouncement, subscribeToAnnouncements, ItAnnouncement, AnnouncementCategory } from '../../services/itAnnouncementService';
+import { uploadStorageFile } from '../../services/storageService';
+import { useAuth } from '../../features/auth/hooks/useAuth';
+
+const categories: { value: AnnouncementCategory; label: string }[] = [
+  { value: 'guide', label: 'Guide' },
+  { value: 'video', label: 'Video Guide' },
+  { value: 'link', label: 'Useful Link' },
+  { value: 'notice', label: 'Important Notice' },
+  { value: 'tip', label: 'IT Tip' },
+  { value: 'document', label: 'Document / Manual' },
+];
+
+const isYouTube = (url?: string | null) => !!url && /(?:youtube\.com\/watch\?v=|youtu\.be\/)/i.test(url);
+const youtubeEmbedUrl = (url: string) => {
+  const match = url.match(/(?:v=|youtu\.be\/)([^&?/]+)/i);
+  return match ? `https://www.youtube.com/embed/${match[1]}` : url;
+};
 
 export const ItAnnouncementModule = ({ isAdmin }: { isAdmin: boolean }) => {
   const { currentUser } = useAuth();
-  const [message, setMessage] = useState('');
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState<AnnouncementCategory>('guide');
+  const [content, setContent] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [coverImageUrl, setCoverImageUrl] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [announcements, setAnnouncements] = useState<ItAnnouncement[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = subscribeToAnnouncements((data) => setAnnouncements(data));
+    const unsubscribe = subscribeToAnnouncements(setAnnouncements);
     return () => unsubscribe();
   }, []);
 
-  const handlePostAnnouncement = async () => {
-    if (!message.trim() || !currentUser || !isAdmin) return;
-    
+  const resetForm = () => {
+    setTitle(''); setCategory('guide'); setContent(''); setLinkUrl(''); setVideoUrl('');
+    setCoverImageUrl(''); setImageFile(null); setVideoFile(null);
+  };
+
+  const handlePost = async () => {
+    if (!currentUser || !isAdmin || !title.trim() || !content.trim()) return;
     setLoading(true);
     try {
-      await postAnnouncement(currentUser.id, currentUser.email || 'Admin', message);
-      setMessage('');
-      toast.success('ကြေညာချက် တင်ပြီးပါပြီ။');
+      let uploadedImageUrl = coverImageUrl.trim() || null;
+      let uploadedVideoUrl = videoUrl.trim() || null;
+
+      if (imageFile) {
+        const result = await uploadStorageFile(imageFile, `it-guides/images/${Date.now()}`);
+        if (result?.path) uploadedImageUrl = supabasePublicUrl(result.path);
+      }
+      if (videoFile) {
+        const result = await uploadStorageFile(videoFile, `it-guides/videos/${Date.now()}`);
+        if (result?.path) uploadedVideoUrl = supabasePublicUrl(result.path);
+      }
+
+      await postAnnouncement({
+        userId: currentUser.id,
+        userName: currentUser.email || 'IT Admin',
+        title: title.trim(),
+        category,
+        content: content.trim(),
+        coverImageUrl: uploadedImageUrl,
+        videoUrl: uploadedVideoUrl,
+        linkUrl: linkUrl.trim() || null,
+      });
+      resetForm();
+      toast.success('IT Guide တင်ပြီးပါပြီ။');
     } catch (error) {
-      toast.error('ကြေညာချက် တင်၍မရပါ။');
+      console.error(error);
+      toast.error('IT Guide တင်၍မရပါ။ Storage permission / file size ကိုစစ်ပါ။');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">IT Announcements</h1>
-      
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold">IT Guide & Announcements</h1>
+        <p className="text-slate-500 mt-1">User တွေအတွက် IT Guide, Video, Link, Document နဲ့ အသိပေးချက်တွေကို တစ်နေရာတည်းမှာ မျှဝေပါ။</p>
+      </div>
+
       {isAdmin && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border p-6 mb-8">
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="IT ကြေညာချက် အသစ်ရေးရန်..."
-            className="w-full p-3 rounded-lg border mb-4 focus:ring-2 focus:ring-indigo-500 bg-transparent"
-            rows={3}
-          />
-          <button
-            onClick={handlePostAnnouncement}
-            disabled={loading || !message.trim()}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
-            Post Announcement
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border p-6 mb-8 space-y-4">
+          <h2 className="font-semibold text-lg">Create IT Guide</h2>
+          <div className="grid md:grid-cols-2 gap-4">
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className="p-3 rounded-lg border bg-transparent" />
+            <select value={category} onChange={e => setCategory(e.target.value as AnnouncementCategory)} className="p-3 rounded-lg border bg-transparent">
+              {categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </div>
+          <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Guide အကြောင်းအရာ / Description..." rows={5} className="w-full p-3 rounded-lg border bg-transparent" />
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <label className="border rounded-lg p-4 cursor-pointer block">
+              <span className="flex items-center gap-2 font-medium"><FileImage size={18} /> Cover Image</span>
+              <input type="file" accept="image/*" className="mt-2 w-full" onChange={e => setImageFile(e.target.files?.[0] || null)} />
+            </label>
+            <label className="border rounded-lg p-4 cursor-pointer block">
+              <span className="flex items-center gap-2 font-medium"><FileVideo size={18} /> Video File</span>
+              <input type="file" accept="video/*" className="mt-2 w-full" onChange={e => setVideoFile(e.target.files?.[0] || null)} />
+            </label>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <input value={coverImageUrl} onChange={e => setCoverImageUrl(e.target.value)} placeholder="Image URL (optional)" className="p-3 rounded-lg border bg-transparent" />
+            <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="YouTube / Video URL (optional)" className="p-3 rounded-lg border bg-transparent" />
+          </div>
+          <div className="flex gap-2">
+            <LinkIcon className="mt-3 text-slate-400" size={18} />
+            <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="Useful Link (optional)" className="flex-1 p-3 rounded-lg border bg-transparent" />
+          </div>
+
+          <button onClick={handlePost} disabled={loading || !title.trim() || !content.trim()} className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            {loading ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />} Publish
           </button>
         </div>
       )}
 
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold">Announcements</h2>
-        {announcements.map((announcement) => (
-          <div key={announcement.id} className="bg-white dark:bg-slate-900 p-4 rounded-lg border flex items-start gap-4">
-            <Megaphone className="text-indigo-500 shrink-0 mt-1" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-slate-500">{new Date(announcement.createdAt).toLocaleString()}</p>
-              <p className="text-slate-800 dark:text-slate-200 mt-1">{announcement.message}</p>
+      <div className="space-y-5">
+        {announcements.map(item => (
+          <article key={item.id} className="bg-white dark:bg-slate-900 rounded-xl border overflow-hidden">
+            {item.coverImageUrl && <img src={item.coverImageUrl} alt={item.title} className="w-full max-h-80 object-cover" />}
+            <div className="p-5">
+              <div className="flex items-center gap-2 text-xs text-slate-500 mb-2"><Megaphone size={15} /> {item.category} · {new Date(item.createdAt).toLocaleString()}</div>
+              <h2 className="text-xl font-semibold">{item.title}</h2>
+              <p className="mt-3 whitespace-pre-wrap text-slate-700 dark:text-slate-300">{item.content}</p>
+              {item.videoUrl && (isYouTube(item.videoUrl) ? <div className="mt-4 aspect-video"><iframe src={youtubeEmbedUrl(item.videoUrl)} title={item.title} className="w-full h-full rounded-lg" allowFullScreen /></div> : <video src={item.videoUrl} controls className="mt-4 w-full rounded-lg max-h-[480px]" />)}
+              {item.linkUrl && <a href={item.linkUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-indigo-600 hover:underline"><ExternalLink size={16} /> Open Link</a>}
             </div>
-          </div>
+          </article>
         ))}
+        {announcements.length === 0 && <div className="text-center py-12 text-slate-500"><PlayCircle className="mx-auto mb-2" /> No IT guides yet.</div>}
       </div>
     </div>
   );
+};
+
+// Kept local to avoid exposing service credentials. The uploads bucket must be public for
+// browser-rendered media URLs; private buckets should instead use signed URLs.
+const supabasePublicUrl = (path: string) => {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  if (!supabaseUrl) throw new Error('Missing VITE_SUPABASE_URL');
+  return `${supabaseUrl.replace(/\/$/, '')}/storage/v1/object/public/uploads/${path}`;
 };
