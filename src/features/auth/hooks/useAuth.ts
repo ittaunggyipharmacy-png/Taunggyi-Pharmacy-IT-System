@@ -3,7 +3,6 @@ import { supabase } from '../../../lib/supabase';
 import { UserRole, SystemUser } from '../../../types';
 import {
   loginWithGoogle as authLogin,
-  loginWithCredentials as authLoginWithCredentials,
   logout as authLogout
 } from '../../../services/authService';
 import { syncSystemUser } from '../../../services/userService';
@@ -37,32 +36,25 @@ export function useAuth() {
 
           try {
             const userChannel = supabase.channel(`user-profile-${user.id}`)
-              .on(
-                'postgres_changes',
-                {
-                  event: '*',
-                  schema: 'public',
-                  table: 'app_users',
-                  filter: `id=eq.${user.id}`
-                },
-                (payload) => {
-                  if (payload.new) {
-                    const updatedProfile = payload.new as SystemUser;
-                    setUserProfile(updatedProfile);
-                    setIsAdmin(
-                      updatedProfile.role === UserRole.IT_SUPERVISOR ||
-                      updatedProfile.role === UserRole.IT_SUPERVISOR_CAPS ||
-                      updatedProfile.role === UserRole.ADMIN ||
-                      updatedProfile.role === UserRole.ADMIN_CAPS
-                    );
-                  }
+              .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'app_users',
+                filter: `id=eq.${user.id}`
+              }, (payload) => {
+                if (payload.new) {
+                  const updatedProfile = payload.new as SystemUser;
+                  setUserProfile(updatedProfile);
+                  setIsAdmin(
+                    updatedProfile.role === UserRole.IT_SUPERVISOR ||
+                    updatedProfile.role === UserRole.IT_SUPERVISOR_CAPS ||
+                    updatedProfile.role === UserRole.ADMIN ||
+                    updatedProfile.role === UserRole.ADMIN_CAPS
+                  );
                 }
-              )
-              .subscribe();
+              }).subscribe();
 
-            unsubUserDoc = () => {
-              supabase.removeChannel(userChannel);
-            };
+            unsubUserDoc = () => { supabase.removeChannel(userChannel); };
           } catch (e) {
             console.error('User profile subscription failed', e);
           }
@@ -94,19 +86,22 @@ export function useAuth() {
   }, []);
 
   /**
-   * Authenticates with Supabase Auth. No mock users or local user IDs are used.
+   * Authenticates against Supabase Auth. Mock users are intentionally removed.
    */
-  const loginWithCredentials = useCallback(async (username?: string, password?: string) => {
-    if (!username || !password) return false;
+  const loginWithCredentials = useCallback(async (email?: string, password?: string) => {
+    if (!email || !password) return false;
 
-    const email = username.trim();
-    try {
-      await authLoginWithCredentials(email, password);
-      return true;
-    } catch (error) {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
+
+    if (error) {
       console.error('Credential login failed:', error);
       return false;
     }
+
+    return true;
   }, []);
 
   return {
