@@ -56,6 +56,9 @@ export const AccessControlProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const canAccess = (role: UserRole | string, menuId: string) => {
+    // Allow IT Announcements for everyone
+    if (menuId === 'it-ping') return true;
+
     const ADMIN_ROLES = [
       UserRole.ADMIN, 
       UserRole.ADMIN_CAPS,

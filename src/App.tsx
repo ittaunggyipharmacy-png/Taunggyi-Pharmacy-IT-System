@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldOff, LayoutDashboard, Ticket as TicketIcon, Monitor, ShieldCheck, Megaphone, HardDrive, Settings, HelpCircle, Activity, Users, FileText, Briefcase, Calendar, FolderClock, Printer, BookOpenText } from 'lucide-react';
+import { ShieldOff, LayoutDashboard, Ticket as TicketIcon, Monitor, ShieldCheck, Megaphone, HardDrive, Settings, HelpCircle, Activity, Users, FileText, Briefcase, Calendar, FolderClock, Printer, BookOpenText, MessageSquare } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { useAuth, LoginScreen, LoadingScreen } from './features/auth';
 import { AppShell } from './components/layout';
@@ -20,7 +20,8 @@ import { FileManagerModule } from './features/file-manager';
 import { RenewalsModule } from './features/renewals';
 import { KPIDashboard, KPITracker } from './features/kpi';
 import { MeetingMinutesModule } from './features/meetings';
-import { CmdCataloguesModule } from './features/cmd-catalogues';
+import { ItAnnouncementModule } from './features/it-announcement/ItAnnouncementModule';
+import { CmdCataloguesModule } from './features/cmd-catalogues/CmdCataloguesModule';
 import { IdLayoutGenerator } from './features/id-layout';
 import { TicketsModule } from './features/tickets';
 import { HelpSupportModule } from './components/HelpSupportModule';
@@ -58,7 +59,7 @@ const INITIAL_SCHEDULE: BackupSchedule[] = [
   { id: 'SCH-002', time: '22:00', type: 'External Drive', label: 'Nightly Physical Backup' },
 ];
 
-type ActiveTab = 'dashboard' | 'tickets' | 'assets' | 'asset-users' | 'security' | 'marketing' | 'renewals' | 'purchases' | 'files' | 'settings' | 'help' | 'kpi' | 'daily-kpi' | 'reports' | 'skills' | 'users' | 'meetings' | 'id-layout' | 'cmd-catalogues';
+type ActiveTab = 'dashboard' | 'tickets' | 'assets' | 'asset-users' | 'security' | 'marketing' | 'renewals' | 'purchases' | 'files' | 'settings' | 'help' | 'kpi' | 'daily-kpi' | 'reports' | 'skills' | 'users' | 'meetings' | 'cmd-catalogues' | 'it-ping' | 'id-layout';
 
 export default function App() {
   const { canAccess, loading: accessLoading } = useAccessControl();
@@ -218,6 +219,7 @@ export default function App() {
     { id: 'skills', label: 'Staff Matrix', icon: Users },
     { id: 'tickets', label: 'IT Support Log', icon: TicketIcon, badge: pendingTicketsCount > 0 ? pendingTicketsCount : undefined },
     { id: 'meetings', label: 'IT Meetings', icon: Calendar },
+    { id: 'it-ping', label: 'IT Announcements', icon: MessageSquare },
     { id: 'cmd-catalogues', label: 'CMD Catalogues', icon: BookOpenText },
     { id: 'assets', label: 'Asset Inventory', icon: Monitor },
     { id: 'asset-users', label: 'Assets by User', icon: Users },
@@ -237,10 +239,10 @@ export default function App() {
     
     // Watch-only account restriction
     if (userProfile?.role === UserRole.STAFF) {
-      return ['assets', 'asset-users', 'cmd-catalogues'].includes(item.id);
+      return ['assets', 'asset-users', 'cmd-catalogues', 'it-ping'].includes(item.id);
     }
     
-    if (['tickets', 'help', 'meetings', 'id-layout', 'cmd-catalogues'].includes(item.id)) return true;
+    if (['tickets', 'help', 'meetings', 'id-layout', 'cmd-catalogues', 'it-ping'].includes(item.id)) return true;
     if (item.id === 'asset-users') return !!userProfile?.role && canAccess(userProfile.role, 'assets');
     if (userProfile?.role) return canAccess(userProfile.role, item.id);
     return false;
@@ -290,6 +292,7 @@ export default function App() {
             {activeTab === 'kpi' && canAccess(userProfile?.role as UserRole, 'kpi') && <KPIDashboard />}
             {activeTab === 'daily-kpi' && canAccess(userProfile?.role as UserRole, 'daily-kpi') && <KPITracker userRole={userProfile?.role} />}
             {activeTab === 'meetings' && <MeetingMinutesModule userRole={userProfile?.role} isAdmin={isAdmin} />}
+            {activeTab === 'it-ping' && <ItAnnouncementModule isAdmin={isAdmin} />}
             {activeTab === 'cmd-catalogues' && <CmdCataloguesModule />}
             {activeTab === 'id-layout' && <IdLayoutGenerator />}
             {activeTab === 'skills' && isAdmin && <SkillMatrix />}
