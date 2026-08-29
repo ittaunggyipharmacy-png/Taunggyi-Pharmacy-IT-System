@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { UserRole, SystemUser } from '../../../types';
-import { 
-  loginWithGoogle as authLogin, 
+import {
+  loginWithGoogle as authLogin,
+  loginWithCredentials as authLoginWithCredentials,
   logout as authLogout
 } from '../../../services/authService';
-import { 
-  syncSystemUser 
-} from '../../../services/userService';
+import { syncSystemUser } from '../../../services/userService';
 
 export function useAuth() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -23,37 +22,54 @@ export function useAuth() {
       setCurrentUser(user);
 
       if (user) {
-        // Sync user profile
         try {
           const profile = await syncSystemUser(user);
           setUserProfile(profile);
 
           if (profile) {
-            setIsAdmin(profile.role === UserRole.IT_SUPERVISOR || profile.role === UserRole.IT_SUPERVISOR_CAPS || profile.role === UserRole.ADMIN || profile.role === UserRole.ADMIN_CAPS);
+            setIsAdmin(
+              profile.role === UserRole.IT_SUPERVISOR ||
+              profile.role === UserRole.IT_SUPERVISOR_CAPS ||
+              profile.role === UserRole.ADMIN ||
+              profile.role === UserRole.ADMIN_CAPS
+            );
           }
 
-          // Realtime user profile updates
           try {
             const userChannel = supabase.channel(`user-profile-${user.id}`)
-              .on('postgres_changes', { 
-                event: '*', 
-                schema: 'public', 
-                table: 'app_users', 
-                filter: `id=eq.${user.id}` 
-              }, (payload) => {
-                if (payload.new) {
-                  const updatedProfile = payload.new as SystemUser;
-                  setUserProfile(updatedProfile);
-                  setIsAdmin(updatedProfile.role === UserRole.IT_SUPERVISOR || updatedProfile.role === UserRole.IT_SUPERVISOR_CAPS || updatedProfile.role === UserRole.ADMIN || updatedProfile.role === UserRole.ADMIN_CAPS);
+              .on(
+                'postgres_changes',
+                {
+                  event: '*',
+                  schema: 'public',
+                  table: 'app_users',
+                  filter: `id=eq.${user.id}`
+                },
+                (payload) => {
+                  if (payload.new) {
+                    const updatedProfile = payload.new as SystemUser;
+                    setUserProfile(updatedProfile);
+                    setIsAdmin(
+                      updatedProfile.role === UserRole.IT_SUPERVISOR ||
+                      updatedProfile.role === UserRole.IT_SUPERVISOR_CAPS ||
+                      updatedProfile.role === UserRole.ADMIN ||
+                      updatedProfile.role === UserRole.ADMIN_CAPS
+                    );
+                  }
                 }
-              }).subscribe();
+              )
+              .subscribe();
 
-            unsubUserDoc = () => { supabase.removeChannel(userChannel); };
+            unsubUserDoc = () => {
+              supabase.removeChannel(userChannel);
+            };
           } catch (e) {
             console.error('User profile subscription failed', e);
           }
         } catch (err) {
           console.error('Error syncing user profile:', err);
+          setUserProfile(null);
+          setIsAdmin(false);
         }
       } else {
         setUserProfile(null);
@@ -77,61 +93,20 @@ export function useAuth() {
     await authLogout();
   }, []);
 
+  /**
+   * Authenticates with Supabase Auth. No mock users or local user IDs are used.
+   */
   const loginWithCredentials = useCallback(async (username?: string, password?: string) => {
-    if (username === 'user' && password === 'user') {
-      const mockUserId = '11111111-1111-1111-1111-111111111111';
-      const mockUser = {
-        id: mockUserId,
-        email: 'user@taunggyipharmacy.local',
-        user_metadata: {
-          name: 'User',
-        }
-      };
-      
-      const profile: SystemUser = {
-        uid: mockUserId,
-        email: 'user@taunggyipharmacy.local',
-        displayName: 'User',
-        role: UserRole.STAFF, // Assuming STAFF role
-        isAdmin: false,
-        createdAt: new Date().toISOString(),
-        lastLogin: new Date().toISOString()
-      };
-      
-      setCurrentUser(mockUser);
-      setUserProfile(profile);
-      setIsAdmin(false);
-      setAuthReady(true);
-      return true;
-    }
+    if (!username || !password) return false;
 
-    if (username === 'Tgpadmin' && password === 'Tgp@admin123') {
-      const mockAdminId = '00000000-0000-0000-0000-000000000000';
-      const mockUser = {
-        id: mockAdminId,
-        email: 'tgpadmin@taunggyipharmacy.local',
-        user_metadata: {
-          name: 'Tgpadmin',
-        }
-      };
-      
-      const profile: SystemUser = {
-        uid: mockAdminId,
-        email: 'tgpadmin@taunggyipharmacy.local',
-        displayName: 'Tgpadmin',
-        role: UserRole.ADMIN,
-        isAdmin: true,
-        createdAt: new Date().toISOString(),
-        lastLogin: new Date().toISOString()
-      };
-      
-      setCurrentUser(mockUser);
-      setUserProfile(profile);
-      setIsAdmin(true);
-      setAuthReady(true);
+    const email = username.trim();
+    try {
+      await authLoginWithCredentials(email, password);
       return true;
+    } catch (error) {
+      console.error('Credential login failed:', error);
+      return false;
     }
-    return false;
   }, []);
 
   return {
