@@ -40,7 +40,7 @@ export function useAuth() {
                 event: '*',
                 schema: 'public',
                 table: 'app_users',
-                filter: `id=eq.${user.id}`
+                filter: `uid=eq.${user.id}`
               }, (payload) => {
                 if (payload.new) {
                   const updatedProfile = payload.new as SystemUser;
@@ -86,13 +86,26 @@ export function useAuth() {
   }, []);
 
   /**
-   * Authenticates against Supabase Auth. Mock users are intentionally removed.
+   * Authenticates with a username by resolving it to the user's email in app_users.
+   * Supabase Auth remains the credential authority; passwords are never stored in app_users.
    */
-  const loginWithCredentials = useCallback(async (email?: string, password?: string) => {
-    if (!email || !password) return false;
+  const loginWithCredentials = useCallback(async (username?: string, password?: string) => {
+    const identifier = username?.trim();
+    if (!identifier || !password) return false;
+
+    const { data: profile, error: lookupError } = await supabase
+      .from('app_users')
+      .select('email')
+      .ilike('username', identifier)
+      .maybeSingle();
+
+    if (lookupError || !profile?.email) {
+      console.error('Username lookup failed:', lookupError);
+      return false;
+    }
 
     const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
+      email: profile.email,
       password
     });
 
