@@ -64,15 +64,25 @@ export const deletePurchaseRecord = async (recordId: string): Promise<void> => {
 };
 
 export const subscribeToPurchases = (callback: (purchases: PurchaseRecord[]) => void) => {
+  let refreshVersion = 0;
   const channel = supabase
     .channel('purchases_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'purchases' }, async () => {
+      const version = ++refreshVersion;
       const purchases = await fetchPurchases();
-      callback(purchases);
+      if (version === refreshVersion) callback(purchases);
     })
     .subscribe();
 
+  const initialVersion = refreshVersion;
+  fetchPurchases()
+    .then((purchases) => {
+      if (initialVersion === refreshVersion) callback(purchases);
+    })
+    .catch((err) => console.error('Failed to load initial purchases', err));
+
   return () => {
+    refreshVersion++;
     supabase.removeChannel(channel);
   };
 };
