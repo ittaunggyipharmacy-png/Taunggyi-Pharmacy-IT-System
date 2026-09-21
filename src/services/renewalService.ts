@@ -59,15 +59,25 @@ export const updateRenewalOrder = async (renewals: RenewalRecord[]): Promise<voi
 };
 
 export const subscribeToRenewals = (callback: (renewals: RenewalRecord[]) => void) => {
+  let refreshVersion = 0;
   const channel = supabase
     .channel('renewals_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'renewals' }, async () => {
+      const version = ++refreshVersion;
       const renewals = await fetchRenewals();
-      callback(renewals);
+      if (version === refreshVersion) callback(renewals);
     })
     .subscribe();
 
+  const initialVersion = refreshVersion;
+  fetchRenewals()
+    .then((renewals) => {
+      if (initialVersion === refreshVersion) callback(renewals);
+    })
+    .catch((err) => console.error('Failed to load initial renewals', err));
+
   return () => {
+    refreshVersion++;
     supabase.removeChannel(channel);
   };
 };
