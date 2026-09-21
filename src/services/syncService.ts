@@ -10,20 +10,18 @@ export const subscribeToSync = (handlers?: any) => {
   let unsubs: (() => void)[] = [];
   
   if (handlers?.onAssets) {
+    // Subscription helpers now perform their own initial fetch. Keeping the
+    // fetch in one place prevents duplicate callbacks and UI flicker.
     unsubs.push(subscribeToAssets(handlers.onAssets));
-    fetchAssets().then(handlers.onAssets).catch(err => { console.error("Failed to load assets", err); if (handlers.onAssetsError) handlers.onAssetsError(err); });
   }
   if (handlers?.onPurchases) {
     unsubs.push(subscribeToPurchases(handlers.onPurchases));
-    fetchPurchases().then(handlers.onPurchases);
   }
   if (handlers?.onRenewals) {
     unsubs.push(subscribeToRenewals(handlers.onRenewals));
-    fetchRenewals().then(handlers.onRenewals);
   }
   if (handlers?.onPlans) {
     unsubs.push(subscribeToContentPlans(handlers.onPlans));
-    fetchContentPlans().then(handlers.onPlans);
   }
   
   if (handlers?.onBackups) {
