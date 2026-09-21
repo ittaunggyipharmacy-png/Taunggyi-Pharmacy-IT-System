@@ -11,14 +11,28 @@ interface LoginScreenProps {
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onLoginWithCredentials }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const handleManualLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (onLoginWithCredentials) {
-      const success = await onLoginWithCredentials(username, password);
+    if (!onLoginWithCredentials || isLoggingIn) return;
+
+    setIsLoggingIn(true);
+    try {
+      const loginPromise = onLoginWithCredentials(username, password);
+      const timeoutPromise = new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), 12000)
+      );
+      const success = await Promise.race([loginPromise, timeoutPromise]);
+
       if (!success) {
-        toast.error('Invalid username or password');
+        toast.error('Login failed or timed out. Please check Supabase connection and credentials.');
       }
+    } catch (error) {
+      console.error('Login request failed:', error);
+      toast.error('Login error. Please try again.');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -66,9 +80,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onLoginWithCr
           </div>
           <button
             type="submit"
-            className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-3 rounded-xl transition-colors cursor-pointer"
+            className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-3 rounded-xl transition-colors cursor-pointer"
+            disabled={isLoggingIn}
           >
-            System Login
+            {isLoggingIn ? 'Signing in...' : 'System Login'}
           </button>
         </form>
 
