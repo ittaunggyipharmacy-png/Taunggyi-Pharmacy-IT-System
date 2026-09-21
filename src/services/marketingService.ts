@@ -40,15 +40,25 @@ export const deleteContentPlan = async (id: string): Promise<void> => {
 };
 
 export const subscribeToContentPlans = (callback: (plans: ContentPlan[]) => void) => {
+  let refreshVersion = 0;
   const channel = supabase
     .channel('content_plans_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'content_plans' }, async () => {
+      const version = ++refreshVersion;
       const plans = await fetchContentPlans();
-      callback(plans);
+      if (version === refreshVersion) callback(plans);
     })
     .subscribe();
 
+  const initialVersion = refreshVersion;
+  fetchContentPlans()
+    .then((plans) => {
+      if (initialVersion === refreshVersion) callback(plans);
+    })
+    .catch((err) => console.error('Failed to load initial content plans', err));
+
   return () => {
+    refreshVersion++;
     supabase.removeChannel(channel);
   };
 };
