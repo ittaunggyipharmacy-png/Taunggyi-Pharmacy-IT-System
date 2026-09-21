@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { UserRole, SystemUser } from '../../../types';
 import { loginWithGoogle as authLogin, logout as authLogout } from '../../../services/authService';
-import { syncSystemUser } from '../../../services/userService';
+import { getSystemUser, syncSystemUser } from '../../../services/userService';
 
 const ADMIN_ROLES = [
   UserRole.IT_SUPERVISOR,
@@ -60,8 +60,14 @@ export function useAuth() {
               { event: '*', schema: 'public', table: 'app_users', filter: `uid=eq.${userId}` },
               (payload) => {
                 if (!mounted || activeUserId !== userId || !payload.new) return;
-                const updatedProfile = payload.new as SystemUser;
-                applyProfile(updatedProfile);
+                // Realtime payloads use database column names (snake_case), not
+                // the application's SystemUser shape. Re-fetch the mapped
+                // profile instead of casting the raw row, otherwise is_admin
+                // can be lost and an admin can appear to be logged out.
+                void getSystemUser(userId).then((updatedProfile) => {
+                  if (!mounted || activeUserId !== userId) return;
+                  applyProfile(updatedProfile);
+                });
               }
             )
             .subscribe();
@@ -137,22 +143,35 @@ export function useAuth() {
     const identifier = username?.trim();
     if (!identifier || !password) return false;
 
-    const { data: email, error: lookupError } = await supabase.rpc('get_auth_email_by_username', {
-      p_username: identifier,
-    });
+    try {
+      const { data: email, error: lookupError } = await supabase.rpc('get_auth_email_by_username', {
+        p_username: identifier,
+      });
 
-    if (lookupError || !email) {
-      console.error('Username lookup failed:', lookupError);
+      if (lookupError || !email) {
+        console.error('Username lookup failed:', lookupError);
+        return false;
+      }
+
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        console.error('Credential login failed:', error);
+        return false;
+      }
+
+      // Confirm that Supabase actually established a session before reporting
+      // success to the login screen. The auth listener will finish profile loading.
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.user) {
+        console.error('Credential login session verification failed:', sessionError);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Credential login request failed:', error);
       return false;
     }
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      console.error('Credential login failed:', error);
-      return false;
-    }
-
-    return true;
   }, []);
 
   return {
