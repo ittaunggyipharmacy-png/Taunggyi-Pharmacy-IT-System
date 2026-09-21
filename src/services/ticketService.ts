@@ -323,14 +323,8 @@ export const fetchTicketsByAssignee = async (userId: string): Promise<ITTicket[]
  * Subscribe to realtime changes on the Supabase 'tickets' table.
  */
 export const subscribeToTickets = (onTicketsChange: (tickets: ITTicket[]) => void): (() => void) => {
-  // 1. Initial fetch
-  fetchTickets().then((initialTickets) => {
-    if (initialTickets.length > 0) {
-      onTicketsChange(initialTickets);
-    }
-  });
+  let refreshVersion = 0;
 
-  // 2. Realtime listener
   const channel = supabase
     .channel('tickets-realtime-channel')
     .on(
@@ -341,15 +335,24 @@ export const subscribeToTickets = (onTicketsChange: (tickets: ITTicket[]) => voi
         table: 'tickets'
       },
       async () => {
-        // On any change (insert, update, delete), re-fetch latest tickets list
+        const version = ++refreshVersion;
         const updated = await fetchTickets();
-        onTicketsChange(updated);
+        // Ignore an older request if a newer realtime event already refreshed
+        // the list. This prevents stale ticket data from flashing back into UI.
+        if (version === refreshVersion) onTicketsChange(updated);
       }
     )
     .subscribe();
 
-  // Return cleanup unsubscribe function
+  const initialVersion = refreshVersion;
+  fetchTickets()
+    .then((initialTickets) => {
+      if (initialVersion === refreshVersion) onTicketsChange(initialTickets);
+    })
+    .catch((err) => console.error('Failed to load initial tickets', err));
+
   return () => {
+    refreshVersion++;
     supabase.removeChannel(channel);
   };
 };
