@@ -34,7 +34,7 @@ export function useAuth() {
     const applyProfile = (profile: SystemUser | null) => {
       if (!mounted) return;
       setUserProfile(profile);
-      setIsAdmin(!!profile && ADMIN_ROLES.includes(profile.role));
+      setIsAdmin(!!profile && (profile.isAdmin === true || ADMIN_ROLES.includes(profile.role)));
     };
 
     const loadAuthenticatedUser = async (user: any) => {
