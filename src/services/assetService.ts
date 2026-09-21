@@ -327,18 +327,31 @@ export const migrateAssetsToSequentialCodes = async (_dryRun = false) => ({ succ
 export const importKeyboardsMigration = async () => ({ success: true });
 
 export const subscribeToAssets = (callback: (assets: ITAsset[]) => void) => {
+  let refreshVersion = 0;
   const channel = supabase
     .channel('assets_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'assets' }, async () => {
+      const version = ++refreshVersion;
       try {
         const assets = await fetchAssets();
-        callback(assets);
+        if (version === refreshVersion) callback(assets);
       } catch (err) {
         console.error('Failed to refresh assets on change', err);
       }
     })
     .subscribe();
+
+  // Initial load participates in the same versioning guard so a slow
+  // initial request cannot overwrite newer realtime data.
+  const initialVersion = refreshVersion;
+  fetchAssets()
+    .then((assets) => {
+      if (initialVersion === refreshVersion) callback(assets);
+    })
+    .catch((err) => console.error('Failed to load initial assets', err));
+
   return () => {
+    refreshVersion++;
     supabase.removeChannel(channel);
   };
 };
