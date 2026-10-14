@@ -1,10 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import toast from 'react-hot-toast';
 import { KPI } from '../../types';
 import { INITIAL_KPIS } from '../../constants';
 
 const KPIDashboard: React.FC = () => {
  const [kpis, setKpis] = useState<KPI[]>(INITIAL_KPIS);
 
+ useEffect(() => { supabase.from('kpi_metrics').select('metrics').eq('id', 'main').maybeSingle().then(({ data, error }) => { if (error) toast.error('Could not load saved KPIs'); else if (data) setKpis(data.metrics); }); }, []);
+ const save = async () => { const { error } = await supabase.from('kpi_metrics').upsert({ id: 'main', metrics: kpis }); if (error) toast.error('Could not save KPIs'); else toast.success('KPIs saved'); };
  const handleInputChange = (id: string, field: 'target' | 'actual', value: string) => {
  const numValue = parseFloat(value) || 0;
  setKpis(prev => prev.map(k => k.id === id ? { ...k, [field]: numValue } : k));
@@ -13,7 +17,7 @@ const KPIDashboard: React.FC = () => {
  const calculatedKpis = useMemo(() => {
  return kpis.map(k => {
  const actualPercentage = k.target !== 0 ? (k.actual / k.target) * 100 : 0;
- const status = actualPercentage >= (k.target ? 100 : 0) ? "Achieved" : "In Progress";
+ const status = k.target > 0 && actualPercentage >= 100 ? "Achieved" : "In Progress";
  const weightedScore = (Math.min(actualPercentage, 100) * k.weight) / 100;
  return { ...k, actualPercentage, status, weightedScore };
  });
@@ -31,7 +35,8 @@ const KPIDashboard: React.FC = () => {
  <div className="p-6 bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-300">
  <h2 className="text-3xl font-medium text-slate-800 dark:text-slate-100 mb-8 ">IT Department KPI Dashboard</h2>
  
- {Object.entries(groupedKpis).map(([role, kpis]) => (
+ <button onClick={save} className="px-4 py-2 mb-4 bg-indigo-600 text-white rounded-lg">Save KPIs</button>
+ {(Object.entries(groupedKpis) as [string, typeof calculatedKpis][]).map(([role, kpis]) => (
  <div key={role} className="mb-8 bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden transition-all duration-300">
  <div className="bg-slate-800 dark:bg-slate-950 px-4 py-3.5">
  <h3 className="text-white font-medium text-lg ">{role}</h3>
@@ -49,7 +54,7 @@ const KPIDashboard: React.FC = () => {
  </tr>
  </thead>
  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
- {calculatedKpis.map(k => (
+ {kpis.map(k => (
  <tr key={k.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
  <td className="px-4 py-3.5 text-sm font-medium text-slate-700 dark:text-slate-300">{k.title} ({k.unit})</td>
  <td className="px-4 py-3.5 text-right">

@@ -4,11 +4,12 @@ import { cleanData } from '../utils/cleanData';
 
 export const saveSettings = async (settings: SystemSettings): Promise<void> => {
   try {
-    await supabase.from('system_config').upsert({
+    const { error } = await supabase.from('system_config').upsert({
       id: 'main',
-      ...cleanData(settings),
+      ...cleanData({ departments: settings.departments, locations: settings.locations, itContacts: settings.itContacts, branchNotes: settings.branchNotes }),
       updated_at: new Date().toISOString()
     });
+    if (error) throw error;
   } catch (error) {
     console.error('Error saving settings:', error);
     throw error;
@@ -17,7 +18,7 @@ export const saveSettings = async (settings: SystemSettings): Promise<void> => {
 
 export const getSettings = async (): Promise<SystemSettings | null> => {
   try {
-    const { data, error } = await supabase.from('system_config').select('*').eq('id', 'main').single();
+    const { data, error } = await supabase.from('system_config').select('id,departments,locations,itContacts,branchNotes,updated_at').eq('id', 'main').single();
     if (error || !data) return null;
     return data as SystemSettings;
   } catch (error) {
@@ -39,11 +40,12 @@ export const fetchRolePermissions = async (): Promise<RolePermission[]> => {
 
 export const saveRolePermission = async (rolePermission: RolePermission): Promise<void> => {
   try {
-    await supabase.from('role_permissions').upsert({
+    const { error } = await supabase.from('role_permissions').upsert({
       role: rolePermission.role,
       allowed_menus: rolePermission.allowed_menus,
       updated_at: new Date().toISOString()
     });
+    if (error) throw error;
   } catch (error) {
     console.error('Error saving role permission:', error);
     throw error;

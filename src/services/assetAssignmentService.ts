@@ -192,34 +192,9 @@ export const getAssetPersonAssignments = async (assetPersonId: string, includeHi
 export const assignAssetToPerson = async ({
   assetId, assetPersonId, assignedDate, assignedBy, notes,
 }: { assetId: string; assetPersonId: string; assignedDate?: string; assignedBy?: string; notes?: string }): Promise<string> => {
-  const { data: person, error: personError } = await supabase.from('asset_people').select('*').eq('id', assetPersonId).single();
-  if (personError) throw personError;
-  const { data: asset, error: assetError } = await supabase.from('assets').select('id, status').eq('id', assetId).single();
-  if (assetError) throw assetError;
-  if (!['Active', 'In Stock', 'New'].includes(asset.status)) throw new Error(`Asset status '${asset.status}' cannot be assigned.`);
-
-  const { data: existing } = await supabase.from('asset_assignments').select('id').eq('asset_id', assetId).eq('status', 'Active').maybeSingle();
-  if (existing) throw new Error('This asset is already assigned. Return or reassign it first.');
-
-  const safeAssignedBy = assignedBy && assignedBy !== '00000000-0000-0000-0000-000000000000' ? assignedBy : null;
-  const { data, error } = await supabase.from('asset_assignments').insert({
-    asset_id: assetId,
-    asset_person_id: assetPersonId,
-    assigned_date: assignedDate || new Date().toISOString().slice(0, 10),
-    assigned_by: safeAssignedBy,
-    notes: notes || null,
-    status: 'Active',
-  }).select('id').single();
+  const { data, error } = await supabase.rpc('assign_asset_person', { asset_id_arg: assetId, person_id_arg: assetPersonId, assigned_date_arg: assignedDate || new Date().toISOString().slice(0, 10), notes_arg: notes || null });
   if (error) throw error;
-
-  const { error: assetUpdateError } = await supabase.from('assets').update({
-    assignee: person.full_name,
-    department: person.department || null,
-    branch: person.branch || undefined,
-    updated_at: new Date().toISOString(),
-  }).eq('id', assetId);
-  if (assetUpdateError) throw assetUpdateError;
-  return data.id;
+  return data;
 };
 
 /** Deprecated compatibility export. Login users are not asset holders. */
@@ -228,18 +203,8 @@ export const assignAssetToUser = async (_args: { assetId: string; userId: string
 };
 
 export const returnAsset = async ({ assignmentId, returnDate, returnReason, notes }: { assignmentId: string; returnDate?: string; returnReason?: string; notes?: string }): Promise<void> => {
-  const { data: assignment, error: assignmentError } = await supabase.from('asset_assignments').select('asset_id').eq('id', assignmentId).single();
-  if (assignmentError) throw assignmentError;
-  const { error } = await supabase.from('asset_assignments').update({
-    status: 'Returned',
-    return_date: returnDate || new Date().toISOString().slice(0, 10),
-    return_reason: returnReason || null,
-    notes: notes || null,
-    updated_at: new Date().toISOString(),
-  }).eq('id', assignmentId);
+  const { error } = await supabase.rpc('return_asset_assignment', { assignment_id_arg: assignmentId, return_date_arg: returnDate || new Date().toISOString().slice(0, 10), reason_arg: returnReason || null, notes_arg: notes || null });
   if (error) throw error;
-  const { error: assetError } = await supabase.from('assets').update({ assignee: 'Unassigned', updated_at: new Date().toISOString() }).eq('id', assignment.asset_id);
-  if (assetError) throw assetError;
 };
 
 const inFlightPersonMap = new Map<string, Promise<AssetPerson | null>>();
@@ -268,45 +233,7 @@ export const syncAssetAssignmentByName = async ({
   assetId, assignedTo, department, branch, assignedDate, assignedBy,
 }: { assetId: string; assignedTo?: string | null; department?: string | null; branch?: string | null; assignedDate?: string | null; assignedBy?: string | null }): Promise<void> => {
   if (!assetId) return;
-  const targetName = (assignedTo || '').trim();
-
-  const { data: activeAssignments } = await supabase.from('asset_assignments').select('id, asset_person_id')
-    .eq('asset_id', assetId).eq('status', 'Active');
-
-  if (!targetName || targetName.toLowerCase() === 'unassigned') {
-    for (const assignment of activeAssignments || []) {
-      await supabase.from('asset_assignments').update({
-        status: 'Returned',
-        return_date: new Date().toISOString().slice(0, 10),
-        return_reason: 'Unassigned from Asset Inventory',
-        updated_at: new Date().toISOString(),
-      }).eq('id', assignment.id);
-    }
-    return;
-  }
-
-  const person = await getOrCreatePersonByName(targetName, department, branch);
-  if (!person) return;
-  const alreadyAssigned = (activeAssignments || []).some(a => a.asset_person_id === person.id);
-  if (alreadyAssigned) return;
-
-  for (const assignment of activeAssignments || []) {
-    await supabase.from('asset_assignments').update({
-      status: 'Returned',
-      return_date: new Date().toISOString().slice(0, 10),
-      return_reason: `Reassigned to ${targetName}`,
-      updated_at: new Date().toISOString(),
-    }).eq('id', assignment.id);
-  }
-
-  const safeAssignedBy = assignedBy && assignedBy !== '00000000-0000-0000-0000-000000000000' ? assignedBy : null;
-  const { error } = await supabase.from('asset_assignments').insert({
-    asset_id: assetId,
-    asset_person_id: person.id,
-    assigned_date: assignedDate || new Date().toISOString().slice(0, 10),
-    assigned_by: safeAssignedBy,
-    status: 'Active',
-  });
+  const { error } = await supabase.rpc('save_asset_record', { record: { id: assetId, assignee: assignedTo || 'Unassigned', ...(department !== undefined ? { department } : {}), ...(branch !== undefined ? { location: branch } : {}) } });
   if (error) throw error;
 };
 

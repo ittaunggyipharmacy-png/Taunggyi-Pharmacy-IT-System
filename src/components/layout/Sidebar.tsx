@@ -29,6 +29,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   navItems,
   accessLoading
 }) => {
+  const groupFor = (id: string) => ['dashboard','tickets','daily-kpi'].includes(id) ? 'Daily Work' : ['assets','asset-users','security','purchases','renewals','files'].includes(id) ? 'IT Operations' : ['marketing','meetings','it-ping','cmd-catalogues','id-layout'].includes(id) ? 'Team' : 'Management';
+  const order = ['Daily Work','IT Operations','Team','Management'];
+  const orderedItems = [...navItems].sort((a,b) => order.indexOf(groupFor(a.id))-order.indexOf(groupFor(b.id)));
   return (
     <>
       {/* Mobile Sidebar Overlay */}
@@ -75,9 +78,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <Box size={20} />
                 </div>
                 <div className="font-medium text-slate-800 dark:text-slate-100 tracking-tight leading-none">
-                  managez.<br />
+                  Taunggyi Pharmacy<br />
                   <span className="text-slate-400 dark:text-slate-500 font-medium text-xs">
-                    Powered by Lex Corp.
+                    IT Operations
                   </span>
                 </div>
               </motion.div>
@@ -116,7 +119,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ))}
             </div>
           ) : (
-            navItems.map((item) => (
+            orderedItems.map((item, index) => (
+              <React.Fragment key={item.id}>
+              {isSidebarOpen && (index === 0 || groupFor(orderedItems[index-1].id) !== groupFor(item.id)) && <p className="px-3 pt-4 pb-1 text-xs font-semibold text-slate-400">{groupFor(item.id)}</p>}
               <button
                 key={item.id}
                 onClick={() => {
@@ -173,35 +178,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="absolute right-0 w-1 h-6 bg-indigo-600 rounded-l" />
                 )}
               </button>
+              </React.Fragment>
             ))
           )}
         </nav>
 
-        <AnimatePresence>
-          {isSidebarOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              transition={{ duration: 0.2 }}
-              className="p-6 bg-slate-50/50 dark:bg-slate-800/20"
-            >
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                  <Activity size={20} />
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-slate-800 dark:text-slate-100">
-                    Overall usage 45% (51 °C)
-                  </p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                    23 Dec 2020, 6:00 pm
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </motion.aside>
     </>
   );

@@ -39,32 +39,36 @@ export function InfrastructurePage({ isAdmin }: { isAdmin: boolean }) {
   const [section, setSection] = useState<Section>('network');
   const [rows, setRows] = useState<Record<string, any[]>>({});
   const [form, setForm] = useState<Record<string, any>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [loadError, setLoadError] = useState(false);
   const config = configs[section];
 
   const load = async (s: Section = section) => {
     const c = configs[s];
     const { data, error } = await supabase.from(c.table).select('*').order('created_at', { ascending: false });
-    if (error) { toast.error(`Unable to load ${c.title}`); return; }
+    if (error) { setLoadError(true); toast.error(`Unable to load ${c.title}`); return; }
+    setLoadError(false);
     setRows(prev => ({ ...prev, [s]: data || [] }));
   };
 
   useEffect(() => { load(section); }, [section]);
 
-  const currentRows = rows[section] || [];
+  const currentRows = (rows[section] || []).filter(row => Object.values(row).some(value => String(value).toLowerCase().includes(query.toLowerCase())));
   const stats = useMemo(() => ({ total: currentRows.length, active: currentRows.filter(r => ['Active', 'Success', 'Completed'].includes(r.status)).length }), [currentRows]);
 
   const save = async () => {
-    const required = config.fields[0]?.key;
-    if (!form[required]) { toast.error(`${config.fields[0]?.label} is required`); return; }
-    const payload = { ...form };
-    Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
-    const { error } = await supabase.from(config.table).insert(payload);
+    if (!isAdmin) return;
+    const required = config.fields.slice(0, 2);
+    if (required.some(f => !String(form[f.key] ?? '').trim())) { toast.error('Complete the first two required fields.'); return; }
+    const payload = Object.fromEntries(config.fields.filter(f => form[f.key] !== undefined && form[f.key] !== '').map(f => [f.key, form[f.key]]));
+    const { error } = editingId ? await supabase.from(config.table).update(payload).eq('id', editingId) : await supabase.from(config.table).insert(payload);
     if (error) { toast.error(error.message); return; }
-    toast.success('Saved successfully'); setForm({}); load();
+    toast.success('Saved successfully'); setForm({}); setEditingId(null); load();
   };
 
   const remove = async (id: string) => {
-    if (!isAdmin) return;
+    if (!isAdmin || !window.confirm('Delete this record permanently?')) return;
     const { error } = await supabase.from(config.table).delete().eq('id', id);
     if (error) { toast.error(error.message); return; }
     toast.success('Deleted'); load();
@@ -80,10 +84,11 @@ export function InfrastructurePage({ isAdmin }: { isAdmin: boolean }) {
         <div className="flex gap-3 text-xs"><span className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800">Total <b>{stats.total}</b></span><span className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700">Active <b>{stats.active}</b></span></div>
       </div>
       <div className="flex flex-wrap gap-2 mt-5">
-        {sections.map(s => { const Icon = s.icon; return <button key={s.id} onClick={() => setSection(s.id)} className={`px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-2 transition ${section === s.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}><Icon size={14}/>{s.label}</button>; })}
+        {sections.map(s => { const Icon = s.icon; return <button key={s.id} onClick={() => { setSection(s.id); setForm({}); setEditingId(null); setQuery(''); }} className={`px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-2 transition ${section === s.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}><Icon size={14}/>{s.label}</button>; })}
       </div>
     </div>
 
+    <input aria-label="Search records" placeholder="Search records or branch…" value={query} onChange={e => setQuery(e.target.value)} className="p-3 border rounded-xl w-full"/>
     <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6">
       <div className="enterprise-card p-5">
         <h3 className="font-semibold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2"><Plus size={16}/> Add Record</h3>
@@ -96,7 +101,7 @@ export function InfrastructurePage({ isAdmin }: { isAdmin: boolean }) {
 
       <div className="enterprise-card overflow-hidden">
         <div className="p-5 border-b border-slate-200 dark:border-slate-800"><h3 className="font-semibold text-slate-800 dark:text-slate-100">{config.title}</h3></div>
-        <div className="overflow-auto max-h-[65vh]"><table className="w-full text-left"><thead className="sticky top-0 bg-slate-50 dark:bg-slate-800"><tr>{config.fields.slice(0, 6).map(f => <th key={f.key} className="px-4 py-3 text-[11px] font-semibold text-slate-500 whitespace-nowrap">{f.label}</th>)}<th className="px-4 py-3"/></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{currentRows.length === 0 ? <tr><td colSpan={7} className="px-5 py-12 text-center text-xs text-slate-400">No records yet</td></tr> : currentRows.map(r => <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">{config.fields.slice(0, 6).map(f => <td key={f.key} className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{String(r[f.key] ?? '-')}</td>)}<td className="px-4 py-3 text-right">{isAdmin && <button onClick={() => remove(r.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"><Trash2 size={14}/></button>}</td></tr>)}</tbody></table></div>
+        <div className="overflow-auto max-h-[65vh]"><table className="w-full text-left"><thead className="sticky top-0 bg-slate-50 dark:bg-slate-800"><tr>{config.fields.map(f => <th key={f.key} className="px-4 py-3 text-[11px] font-semibold text-slate-500 whitespace-nowrap">{f.label}</th>)}<th className="px-4 py-3"/></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{currentRows.length === 0 ? <tr><td colSpan={7} className="px-5 py-12 text-center text-xs text-slate-400">{loadError ? 'Unable to load records. Switch tabs to retry.' : 'No matching records'}</td></tr> : currentRows.map(r => <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">{config.fields.map(f => <td key={f.key} className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{String(r[f.key] ?? '-')}</td>)}<td className="px-4 py-3 text-right">{isAdmin && <button onClick={() => { setEditingId(r.id); setForm(r); }} className="mr-3 text-indigo-600">Edit / Details</button>}{isAdmin && <button onClick={() => remove(r.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"><Trash2 size={14}/></button>}</td></tr>)}</tbody></table></div>
       </div>
     </div>
   </div>;

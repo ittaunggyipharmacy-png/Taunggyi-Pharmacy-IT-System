@@ -1,3 +1,4 @@
+import { completedTasks, completionPercent } from '../../utils/taskCompletion';
 import React, { useState } from 'react';
 import { format, subDays, parseISO } from 'date-fns';
 import { utils, writeFile } from 'xlsx';
@@ -19,13 +20,13 @@ export function ReportsModule({ activities, evidence, allDailyLogs, tickets, emp
 
  const exportKPISummary = () => {
  const data = filteredDailyLogs.map(log => {
- const completion = Object.values(log.tasks).filter(Boolean).length;
+ const completion = completedTasks(log.tasks);
  return {
  Date: log.date,
  UserID: log.userId,
  TasksCompleted: completion,
  TotalTasks: Object.keys(log.tasks).length,
- CompletionRate: `${Math.round((completion / Object.keys(log.tasks).length) * 100)}%`
+ CompletionRate: `${completionPercent(log.tasks)}%`
  };
  });
 
@@ -36,15 +37,14 @@ export function ReportsModule({ activities, evidence, allDailyLogs, tickets, emp
  };
 
  // Group logs by date to show progress over time
- const chartData = Array.from({ length: 7 }).map((_, i) => {
- const date = format(subDays(new Date(), 6 - i), "yyyy-MM-dd");
- const dayLogs = allDailyLogs.filter(l => l.date === date);
+ const chartData = [...new Set(filteredDailyLogs.map(l => l.date))].sort().map(date => {
+ const dayLogs = filteredDailyLogs.filter(l => l.date === date);
  
  let totalComp = 0;
  let totalTasks = 0;
  
  dayLogs.forEach(l => {
- totalComp += Object.values(l.tasks).filter(Boolean).length;
+ totalComp += completedTasks(l.tasks);
  totalTasks += Object.keys(l.tasks).length;
  });
 
@@ -55,14 +55,14 @@ export function ReportsModule({ activities, evidence, allDailyLogs, tickets, emp
  });
 
  const staffPerformance = employees.map(emp => {
- const logs = allDailyLogs.filter(l => l.userId === emp.id);
+ const logs = filteredDailyLogs.filter(l => l.userId === emp.id);
  let totalTasks = 0;
- let completedTasks = 0;
+ let completedCount = 0;
  logs.forEach(l => {
  totalTasks += Object.keys(l.tasks).length;
- completedTasks += Object.values(l.tasks).filter(Boolean).length;
+ completedCount += completedTasks(l.tasks);
  });
- const completionRate = totalTasks > 0 ? Math.round((completedTasks/totalTasks) * 100) : 0;
+ const completionRate = totalTasks > 0 ? Math.round((completedCount/totalTasks) * 100) : 0;
  const avgSkill = emp.skills && emp.skills.length > 0 
  ? emp.skills.reduce((acc, s) => acc + s.level, 0) / emp.skills.length 
  : 0;

@@ -1,3 +1,4 @@
+import { readRows } from './readRows';
 import { supabase } from '../lib/supabase';
 import { RenewalRecord } from '../types';
 import { cleanData } from '../utils/cleanData';
@@ -5,10 +6,8 @@ import { sanitizeDateForDb } from '../utils/date';
 
 export const fetchRenewals = async (): Promise<RenewalRecord[]> => {
   try {
-    const { data, error } = await supabase
-      .from('renewals')
-      .select('*')
-      .order('order_index', { ascending: true });
+    const data = await readRows('renewals', 'order_index', true);
+    const error = null;
     if (error) throw error;
     return (data || []) as unknown as RenewalRecord[];
   } catch (error) {
@@ -50,7 +49,8 @@ export const deleteRenewal = async (id: string): Promise<void> => {
 export const updateRenewalOrder = async (renewals: RenewalRecord[]): Promise<void> => {
   try {
     for (let i = 0; i < renewals.length; i++) {
-      await supabase.from('renewals').update({ order_index: i + 1 }).eq('id', renewals[i].id);
+      const { error } = await supabase.from('renewals').update({ order_index: i + 1 }).eq('id', renewals[i].id);
+      if (error) throw error;
     }
   } catch (error) {
     console.error('Error updating renewal order:', error);

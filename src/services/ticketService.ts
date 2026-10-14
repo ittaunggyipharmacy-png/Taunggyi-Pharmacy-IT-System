@@ -58,41 +58,30 @@ export const mapTicketToDbRecord = (ticket: Partial<ITTicket>) => {
 
   if (ticket.id) record.id = ticket.id;
   if (ticket.problemType !== undefined) {
-    record.problemType = ticket.problemType;
-    record.problem_type = ticket.problemType;
     record.title = ticket.problemType;
   }
   if (ticket.priority !== undefined) {
     record.priority = ticket.priority;
   }
   if (ticket.requestTime !== undefined) {
-    record.requestTime = ticket.requestTime;
-    record.request_time = ticket.requestTime;
     record.created_at = ticket.requestTime;
   }
   if (ticket.requesterName !== undefined) {
-    record.requesterName = ticket.requesterName;
     record.requester_name = ticket.requesterName;
   }
   if (ticket.requesterBranch !== undefined) {
-    record.requesterBranch = ticket.requesterBranch;
-    record.requester_branch = ticket.requesterBranch;
     record.branch = ticket.requesterBranch;
   }
   if (ticket.department !== undefined) {
     record.department = ticket.department;
   }
   if (ticket.assignedTo !== undefined) {
-    record.assignedTo = ticket.assignedTo;
-    record.assigned_to = ticket.assignedTo;
     record.assignee = ticket.assignedTo;
   }
   if (ticket.assignedToName !== undefined) {
-    record.assignedToName = ticket.assignedToName;
     record.assigned_to_name = ticket.assignedToName;
   }
   if (ticket.responseTime !== undefined) {
-    record.responseTime = ticket.responseTime;
     record.response_time = ticket.responseTime;
   }
   if (ticket.actions !== undefined) {
@@ -102,8 +91,6 @@ export const mapTicketToDbRecord = (ticket: Partial<ITTicket>) => {
     record.status = ticket.status;
   }
   if (ticket.completedAt !== undefined) {
-    record.completedAt = ticket.completedAt;
-    record.completed_at = ticket.completedAt;
     record.resolved_at = ticket.completedAt;
   }
   if (ticket.description !== undefined) {

@@ -1,42 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { MoreHorizontal, X } from 'lucide-react';
 import { NavItem } from './Sidebar';
-import { cn } from '../../lib/utils';
-
-interface MobileNavProps {
-  navItems: NavItem[];
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-}
-
-export const MobileNav: React.FC<MobileNavProps> = ({
-  navItems,
-  activeTab,
-  setActiveTab
-}) => {
-  return (
-    <nav className="fixed bottom-0 left-0 right-0 h-20 glass-panel border-t border-white/10 flex items-center justify-around px-2 z-40 lg:hidden">
-      {navItems.map((item) => (
-        <button
-          key={item.id}
-          onClick={() => setActiveTab(item.id)}
-          className={cn(
-            'flex flex-col items-center justify-center gap-1.5 min-w-[64px] h-full transition-all duration-200 cursor-pointer',
-            activeTab === item.id ? 'text-indigo-600' : 'text-slate-500 dark:text-slate-400 hover:text-slate-400'
-          )}
-        >
-          <div
-            className={cn(
-              'p-1.5 rounded-lg transition-all',
-              activeTab === item.id && 'bg-indigo-50 dark:bg-indigo-950/40'
-            )}
-          >
-            <item.icon size={22} strokeWidth={activeTab === item.id ? 2.5 : 2} />
-          </div>
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400 scale-75 origin-top">
-            {item.label.split(' ')[0]}
-          </span>
-        </button>
-      ))}
-    </nav>
-  );
+export const MobileNav = ({ navItems, activeTab, setActiveTab }: { navItems: NavItem[]; activeTab: string; setActiveTab: (tab: string) => void }) => {
+ const [open, setOpen] = useState(false);
+ const choose = (id: string) => { setActiveTab(id); setOpen(false); };
+ const render = (item: NavItem) => <button key={item.id} aria-current={activeTab === item.id ? 'page' : undefined} onClick={() => choose(item.id)} className={`min-w-0 flex-1 flex flex-col items-center gap-1 p-2 text-xs ${activeTab === item.id ? 'text-indigo-600 font-semibold' : 'text-slate-600 dark:text-slate-300'}`}><item.icon size={22}/><span className="text-center break-words">{item.label}</span></button>;
+ return <>
+ {open && <div className="fixed inset-0 z-50 lg:hidden bg-black/40" onClick={() => setOpen(false)}><div role="dialog" aria-modal="true" aria-label="Navigation" className="absolute bottom-20 inset-x-0 max-h-[70vh] overflow-auto rounded-t-2xl bg-white dark:bg-slate-900 p-4" onClick={e => e.stopPropagation()}><button aria-label="Close menu" onClick={() => setOpen(false)} className="float-right p-2"><X/></button><div className="grid grid-cols-3 clear-both">{navItems.slice(4).map(render)}</div></div></div>}
+ <nav aria-label="Main navigation" className="fixed bottom-0 inset-x-0 min-h-20 pb-[env(safe-area-inset-bottom)] bg-white dark:bg-slate-900 border-t flex items-center z-50 lg:hidden">{navItems.slice(0,4).map(render)}{navItems.length > 4 && <button aria-expanded={open} onClick={() => setOpen(!open)} className="flex-1 p-2 flex flex-col items-center text-xs gap-1"><MoreHorizontal size={22}/>More</button>}</nav>
+ </>;
 };

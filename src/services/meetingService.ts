@@ -1,13 +1,12 @@
+import { readRows } from './readRows';
 import { supabase } from '../lib/supabase';
 import { MeetingMinute } from '../types';
 import { cleanData } from '../utils/cleanData';
 
 export const fetchMeetingMinutes = async (): Promise<MeetingMinute[]> => {
   try {
-    const { data, error } = await supabase
-      .from('meeting_minutes')
-      .select('*')
-      .order('date', { ascending: false });
+    const data = await readRows('meeting_minutes', 'date', false);
+    const error = null;
     if (error) throw error;
     return (data || []) as unknown as MeetingMinute[];
   } catch (error) {

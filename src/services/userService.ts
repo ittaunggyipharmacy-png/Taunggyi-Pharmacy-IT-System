@@ -7,8 +7,7 @@ const ELEVATED_ROLES = [
   UserRole.ADMIN_CAPS,
   UserRole.IT_SUPERVISOR,
   UserRole.IT_SUPERVISOR_CAPS,
-  UserRole.MERCHANDISING_SUPERVISOR,
-  UserRole.IT_DIGITAL_MARKETING
+
 ];
 
 const mapSystemUser = (data: any): SystemUser => ({
@@ -43,7 +42,7 @@ export const syncSystemUser = async (supabaseUser: any): Promise<SystemUser | nu
     const { data: existing } = await supabase.from('app_users').select('*').eq('uid', uid).single();
 
     if (!existing) {
-      const initialRole = isSuperAdminEmail ? UserRole.ADMIN : UserRole.STAFF;
+      const initialRole = UserRole.STAFF;
       const newUser = { uid, email, display_name: metadataName, photo_url: photoURL, role: initialRole, is_admin: ELEVATED_ROLES.includes(initialRole), created_at: new Date().toISOString(), last_login: new Date().toISOString() };
       const { error } = await supabase.from('app_users').insert(newUser);
       if (error) throw error;
@@ -52,8 +51,8 @@ export const syncSystemUser = async (supabaseUser: any): Promise<SystemUser | nu
 
     // Keep the administrator-edited name. Login/provider metadata must not overwrite it.
     let updatedRole = existing.role;
-    if (isSuperAdminEmail && !ELEVATED_ROLES.includes(updatedRole)) updatedRole = UserRole.ADMIN;
-    const { error } = await supabase.from('app_users').update({ last_login: new Date().toISOString(), photo_url: photoURL || existing.photo_url, role: updatedRole, is_admin: ELEVATED_ROLES.includes(updatedRole) }).eq('uid', uid);
+
+    const { error } = await supabase.from('app_users').update({ last_login: new Date().toISOString(), photo_url: photoURL || existing.photo_url }).eq('uid', uid);
     if (error) throw error;
     const { data: refreshed } = await supabase.from('app_users').select('*').eq('uid', uid).single();
     return refreshed ? mapSystemUser(refreshed) : null;
@@ -75,7 +74,7 @@ export const updateSystemUserDisplayName = async (uid: string, displayName: stri
   const name = displayName.trim();
   if (!name) throw new Error('User name cannot be empty.');
 
-  const { data, error } = await supabase.rpc('admin_update_user_display_name', {
+  const { data, error } = await supabase.rpc('update_login_display_name', {
     target_uid: uid,
     new_display_name: name,
   });

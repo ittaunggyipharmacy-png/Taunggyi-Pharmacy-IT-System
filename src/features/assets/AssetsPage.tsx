@@ -586,6 +586,8 @@ const handleUnlink = async (childAsset: ITAsset) => {
   
   // Dummy currentAssets and historicalAssets to satisfy other references if any, or just define them as empty arrays.
   // Wait, currentAssets is used in other places? Let's check.
+  const [visibleLimit, setVisibleLimit] = useState(100);
+  const visibleIds = new Set(filteredAssets.slice(0, visibleLimit).map(a => a.id));
   const currentAssets = filteredAssets.filter(a => !isHistorical(a.purchaseDate));
   const historicalAssets = filteredAssets.filter(a => isHistorical(a.purchaseDate));
 
@@ -1331,6 +1333,7 @@ const handleUnlink = async (childAsset: ITAsset) => {
       )}
     </div>
 
+    {filteredAssets.length > visibleLimit && <button onClick={() => setVisibleLimit(limit => limit + 100)} className="px-4 py-2 border rounded-lg">Show 100 more ({visibleLimit} of {filteredAssets.length} shown)</button>}
     {/* Table Container Start */}
     <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm overflow-hidden">
       {isError ? (
@@ -1417,7 +1420,7 @@ const handleUnlink = async (childAsset: ITAsset) => {
                       Purged Assets ({filteredAssets.length})
                     </td>
                   </tr>
-                  {filteredAssets.map((asset) => (
+                  {filteredAssets.slice(0, visibleLimit).map((asset) => (
                     <tr
                       key={asset.id}
                       onClick={() => setSelectedAsset(asset)}
@@ -1526,7 +1529,7 @@ const handleUnlink = async (childAsset: ITAsset) => {
                         </td>
                       </tr>
                     )}
-                    {group.items.map((asset) => (
+                    {group.items.filter(asset => visibleIds.has(asset.id)).map((asset) => (
                       <tr
                         key={asset.id}
                         onDragOver={e => handleDragOver(e, asset.id)}

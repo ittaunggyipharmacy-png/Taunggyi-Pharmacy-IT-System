@@ -1,3 +1,4 @@
+import { readRows } from './readRows';
 import { supabase } from '../lib/supabase';
 import { PurchaseRecord } from '../types';
 import { cleanData } from '../utils/cleanData';
@@ -5,10 +6,8 @@ import { sanitizeDateForDb } from '../utils/date';
 
 export const fetchPurchases = async (): Promise<PurchaseRecord[]> => {
   try {
-    const { data, error } = await supabase
-      .from('purchases')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const data = await readRows('purchases', 'created_at', false);
+    const error = null;
     if (error) {
       console.warn('Error fetching purchases from Supabase:', error.message);
       return [];
@@ -44,7 +43,7 @@ export const savePurchaseRecord = async (record: Partial<PurchaseRecord>): Promi
       request_date: validDate,
       updated_at: new Date().toISOString()
     };
-    const { error } = await supabase.from('purchases').upsert(rec);
+    const { error } = await supabase.rpc('save_purchase_record', { record: rec });
     if (error) throw error;
     return rec.id;
   } catch (error) {
