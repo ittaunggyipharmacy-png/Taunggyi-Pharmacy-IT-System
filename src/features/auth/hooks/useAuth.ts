@@ -34,7 +34,7 @@ export function useAuth() {
     const applyProfile = (profile: SystemUser | null) => {
       if (!mounted) return;
       setUserProfile(profile);
-      setIsAdmin(!!profile && (profile.isAdmin === true || ADMIN_ROLES.includes(profile.role)));
+      setIsAdmin(!!profile && ADMIN_ROLES.includes(profile.role));
     };
 
     const loadAuthenticatedUser = async (user: any) => {
@@ -144,20 +144,11 @@ export function useAuth() {
     if (!identifier || !password) return false;
 
     try {
-      const { data: email, error: lookupError } = await supabase.rpc('get_auth_email_by_username', {
-        p_username: identifier,
-      });
-
-      if (lookupError || !email) {
-        console.error('Username lookup failed:', lookupError);
-        return false;
-      }
-
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        console.error('Credential login failed:', error);
-        return false;
-      }
+      const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier, password }) });
+      if (!response.ok) return false;
+      const session = await response.json();
+      const { error } = await supabase.auth.setSession(session);
+      if (error) return false;
 
       // Confirm that Supabase actually established a session before reporting
       // success to the login screen. The auth listener will finish profile loading.

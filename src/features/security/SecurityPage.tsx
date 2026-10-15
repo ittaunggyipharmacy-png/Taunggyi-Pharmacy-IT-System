@@ -10,6 +10,7 @@ import {
 import { format, parseISO } from 'date-fns';
 import { utils, writeFile } from 'xlsx';
 import { toast } from 'react-hot-toast';
+import { supabase } from '../../lib/supabase';
 import { BackupLog, CCTVRequest, PasswordVaultEntry } from '../../types';
 import { 
   fetchBackups, 
@@ -48,14 +49,15 @@ export function SecurityModule({ backups, setBackups, requests, setRequests, sea
  );
  });
 
- const handlePerformBackup = () => {
- const newBackup: Partial<BackupLog> = {
- date: format(new Date(), "yyyy-MM-dd"),
- storageType: "External Drive",
- status: "Success",
- performer: "IT User"
- };
- saveBackup(newBackup).catch(err => console.error("Backup trigger failed", err));
+ const handlePerformBackup = async () => {
+ const location = window.prompt('Manual backup log: enter the backup location after verifying the backup completed.');
+ if (!location?.trim()) return;
+ try {
+ const { data } = await supabase.auth.getUser();
+ await saveBackup({ date: format(new Date(), 'yyyy-MM-dd'), storageType: 'External Drive', status: 'Success', performer: data.user?.email || 'Unknown', ...{ location: location.trim() } });
+ setBackups(await fetchBackups());
+ toast.success('Manual backup completion recorded. No backup job was run.');
+ } catch { toast.error('Could not record backup.'); }
  };
 
  const handleAddRequest = () => {
@@ -99,7 +101,7 @@ export function SecurityModule({ backups, setBackups, requests, setRequests, sea
  <div>
  <h2 className="text-base lg:text-lg font-medium text-slate-800 dark:text-slate-100 flex items-center gap-2 tracking-tight">
  <HardDrive size={18} className="text-indigo-600" />
- Data Integrity Cluster
+ Backup Records
  </h2>
  </div>
  {isAdmin && (
@@ -107,7 +109,7 @@ export function SecurityModule({ backups, setBackups, requests, setRequests, sea
  onClick={handlePerformBackup}
  className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-indigo-700 transition-all shadow-sm"
  >
- Trigger Backup
+ Record Verified Backup
  </button>
  )}
  </div>

@@ -1,12 +1,16 @@
+import { readRows } from './readRows';
 import { supabase } from '../lib/supabase';
 import { DailyLog, WeeklyLog, MonthlyLog, ActivityEntry, TaskEvidence } from '../types';
 import { cleanData } from '../utils/cleanData';
+const mapLog = (row: any) => row ? ({ ...row, userId: row.user_id, customTasks: row.custom_tasks, updatedAt: row.updated_at }) : null;
+const logRecord = (log: any) => { const { userId, customTasks, updatedAt, ...rest } = log; return cleanData({ ...rest, user_id: userId, custom_tasks: customTasks }); };
+
 
 export const saveDailyLog = async (log: Partial<DailyLog>): Promise<string | undefined> => {
   try {
     const rec = {
       id: log.id || crypto.randomUUID(),
-      ...cleanData(log),
+      ...logRecord(log),
       updated_at: new Date().toISOString()
     };
     const { error } = await supabase.from('daily_logs').upsert(rec);
@@ -21,7 +25,7 @@ export const saveDailyLog = async (log: Partial<DailyLog>): Promise<string | und
 export const getDailyLog = async (id: string): Promise<DailyLog | null> => {
   try {
     const { data } = await supabase.from('daily_logs').select('*').eq('id', id).single();
-    return (data || null) as unknown as DailyLog | null;
+    return mapLog(data) as DailyLog | null;
   } catch {
     return null;
   }
@@ -29,15 +33,14 @@ export const getDailyLog = async (id: string): Promise<DailyLog | null> => {
 
 export const fetchAllDailyLogs = async (): Promise<DailyLog[]> => {
   try {
-    const { data, error } = await supabase.from('daily_logs').select('*');
+    const data = await readRows('daily_logs', 'date');
+    const error = null;
     if (error) {
-      console.warn('Daily logs table not available or error:', error.message);
-      return [];
+      throw error;
     }
-    return (data || []) as unknown as DailyLog[];
+    return (data || []).map(mapLog) as DailyLog[];
   } catch (error) {
-    console.warn('Error fetching all daily logs:', error);
-    return [];
+    throw error;
   }
 };
 
@@ -45,7 +48,7 @@ export const saveWeeklyLog = async (log: Partial<WeeklyLog>): Promise<string | u
   try {
     const rec = {
       id: log.id || crypto.randomUUID(),
-      ...cleanData(log),
+      ...logRecord(log),
       updated_at: new Date().toISOString()
     };
     const { error } = await supabase.from('weekly_logs').upsert(rec);
@@ -60,7 +63,7 @@ export const saveWeeklyLog = async (log: Partial<WeeklyLog>): Promise<string | u
 export const getWeeklyLog = async (id: string): Promise<WeeklyLog | null> => {
   try {
     const { data } = await supabase.from('weekly_logs').select('*').eq('id', id).single();
-    return (data || null) as unknown as WeeklyLog | null;
+    return mapLog(data) as WeeklyLog | null;
   } catch {
     return null;
   }
@@ -70,7 +73,7 @@ export const saveMonthlyLog = async (log: Partial<MonthlyLog>): Promise<string |
   try {
     const rec = {
       id: log.id || crypto.randomUUID(),
-      ...cleanData(log),
+      ...logRecord(log),
       updated_at: new Date().toISOString()
     };
     const { error } = await supabase.from('monthly_logs').upsert(rec);
@@ -85,7 +88,7 @@ export const saveMonthlyLog = async (log: Partial<MonthlyLog>): Promise<string |
 export const getMonthlyLog = async (id: string): Promise<MonthlyLog | null> => {
   try {
     const { data } = await supabase.from('monthly_logs').select('*').eq('id', id).single();
-    return (data || null) as unknown as MonthlyLog | null;
+    return mapLog(data) as MonthlyLog | null;
   } catch {
     return null;
   }
@@ -93,9 +96,12 @@ export const getMonthlyLog = async (id: string): Promise<MonthlyLog | null> => {
 
 export const saveActivity = async (activity: Partial<ActivityEntry>): Promise<void> => {
   try {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) throw new Error('Sign in required');
     const record = {
+      user_id: auth.user.id, user_name: auth.user.email,
       id: activity.id || crypto.randomUUID(),
-      ...cleanData(activity),
+      ...cleanData({ action: activity.action, department: activity.department, details: activity.details }),
       timestamp: activity.timestamp || new Date().toISOString()
     };
     const { error } = await supabase.from('activities').insert(record);
@@ -115,7 +121,7 @@ export const fetchActivities = async (): Promise<ActivityEntry[]> => {
       console.warn('Activities table not available or error:', error.message);
       return [];
     }
-    return (data || []) as unknown as ActivityEntry[];
+    return (data || []).map(r => ({ ...r, userId: r.user_id, userName: r.user_name })) as ActivityEntry[];
   } catch (error) {
     console.warn('Error fetching activities:', error);
     return [];
@@ -126,7 +132,7 @@ export const saveEvidence = async (evidence: Partial<TaskEvidence>): Promise<voi
   try {
     const record = {
       id: evidence.id || crypto.randomUUID(),
-      ...cleanData(evidence),
+      ...cleanData({ task_id: evidence.taskId, log_id: evidence.logId, image_url: evidence.imageUrl, timestamp: evidence.timestamp, user_id: evidence.userId, user_name: evidence.userName }),
       updated_at: new Date().toISOString()
     };
     const { error } = await supabase.from('task_evidence').upsert(record);
@@ -146,7 +152,7 @@ export const fetchEvidence = async (): Promise<TaskEvidence[]> => {
       console.warn('Task evidence table not available or error:', error.message);
       return [];
     }
-    return (data || []) as unknown as TaskEvidence[];
+    return (data || []).map(r => ({ ...r, taskId: r.task_id, logId: r.log_id, imageUrl: r.image_url, userId: r.user_id, userName: r.user_name })) as TaskEvidence[];
   } catch (error) {
     console.warn('Error fetching evidence:', error);
     return [];

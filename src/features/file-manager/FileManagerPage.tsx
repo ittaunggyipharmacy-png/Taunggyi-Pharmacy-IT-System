@@ -9,12 +9,13 @@ import {
 import { toast } from 'react-hot-toast';
 import { supabase } from '../../lib/supabase';
 import { DriveFile } from '../../types';
-import { fetchStorageFiles, deleteStorageFile, uploadStorageFile, fetchStorageQuota } from '../../services/storageService';
+import { driveRequest } from '../../services/driveService';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
 import { formatStorage, formatId, safeFormat } from '../../utils/file';
 import { cn } from '../../lib/utils';
 
 export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boolean, quota: {limit: string, usage: string} | null, setQuota: (q: {limit: string, usage: string} | null) => void }) {
+ const [loadError, setLoadError] = useState(false);
  const [files, setFiles] = useState<DriveFile[]>([]);
  const [isLoading, setIsLoading] = useState(true);
  const [isUploading, setIsUploading] = useState(false);
@@ -31,16 +32,17 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
 
  const fetchFiles = async (folderId?: string) => {
  setIsLoading(true);
+ setLoadError(false);
  try {
  // Fetch Files from Google Drive
- const data = await fetchStorageFiles(folderId || currentFolderId);
+ const data = await driveRequest('files?folderId=' + encodeURIComponent(folderId ?? currentFolderId));
  setFiles(data as any);
  
  // Also update quota
- const quotaData = await fetchStorageQuota();
+ const quotaData = await driveRequest('quota');
  setQuota(quotaData);
  } catch (err) {
- console.error("Fetch failed", err);
+ setLoadError(true); console.error("Fetch failed", err); toast.error("Could not load files. Please retry.");
  } finally {
  setIsLoading(false);
  }
@@ -74,9 +76,10 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  formData.append("folderId", currentFolderId);
  }
 
+ let progressInterval: ReturnType<typeof setInterval> | undefined;
  try {
  // Artificial progress for UI since fetch doesn't support upload progress natively
- const progressInterval = setInterval(() => {
+ progressInterval = setInterval(() => {
  setUploadProgress(prev => (prev >= 90 ? 90 : prev + 10));
  }, 300);
 
@@ -103,6 +106,8 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  fetchFiles(currentFolderId);
  }, 500);
  } catch (error) {
+ clearInterval(progressInterval);
+ toast.error("Upload failed. Maximum file size is 25 MB.");
  console.error("Upload error", error);
  setIsUploading(false);
  }
@@ -133,9 +138,11 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  };
 
  const handleRename = async (id: string) => {
- // Cloud storage doesn't support rename natively without copy/delete
- alert("Rename is not supported in this version.");
+ try {
+ await driveRequest('files/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName }) });
  setEditingId(null);
+ await fetchFiles();
+ } catch (error) { toast.error(error instanceof Error ? error.message : 'Rename failed'); }
  };
 
  const [confirmTarget, setConfirmTarget] = useState<{ id: string, onConfirm: () => void, message: string, title?: string, confirmText?: string } | null>(null);
@@ -148,10 +155,10 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  setConfirmTarget(null);
  try {
  const pathSuffix = currentFolderId ? `/${currentFolderId}` : '';
- await deleteStorageFile(`uploads${pathSuffix}/${id}`);
+ await driveRequest('files/' + encodeURIComponent(id), { method: 'DELETE' });
  fetchFiles();
  } catch (err) {
- console.error("Delete failed", err);
+ console.error("Delete failed", err); toast.error("Delete failed.");
  }
  }
  });
@@ -173,11 +180,11 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  </div>
  
  <div className="flex items-center gap-3">
- <button 
+ <button onClick={() => fetchFiles()}
  className="p-3 bg-white dark:bg-slate-900 hover:bg-slate-50 text-slate-700 dark:text-slate-200 rounded-2xl flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 transition-all border border-slate-200 dark:border-slate-800 shadow-sm"
  >
- <Plus size={18} />
- <span>New Folder</span>
+ <Folder size={18} />
+ <span>Refresh</span>
  </button>
  <label className="p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 cursor-pointer transition-all shadow-md">
  {isUploading ? <RefreshCw size={18} className="animate-spin" /> : <Upload size={18} />}
@@ -327,7 +334,7 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  <td className="px-4 py-3.5"><div className="h-4 w-8 bg-slate-100 ml-auto rounded"></div></td>
  </tr>
  ))
- ) : filteredFiles.length === 0 ? (
+ ) : loadError ? (<tr><td colSpan={6} className="p-8 text-center">Could not load files. <button className="underline" onClick={() => fetchFiles()}>Retry</button></td></tr>) : filteredFiles.length === 0 ? (
  <tr>
  <td colSpan={5} className="py-24 text-center">
  <HardDrive size={48} className="mx-auto text-slate-200 mb-4" />
@@ -451,8 +458,8 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  <div className="relative w-48 h-48 mx-auto mb-8">
  {quota ? (() => {
  const usage = Number(quota.usage) || 0;
- const limit = Number(quota.limit) || 2199023255552;
- const percent = Math.min(1, usage / limit);
+ const limit = Number(quota.limit) || 0;
+ const percent = limit > 0 ? Math.min(1, usage / limit) : 0;
  const offset = 502 * (1 - percent);
  
  return (
@@ -470,7 +477,7 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  </svg>
  <div className="absolute inset-0 flex flex-col items-center justify-center">
  <p className="text-3xl font-medium text-slate-800 dark:text-slate-100 tracking-tighter">
- {(percent * 100).toFixed(1)}%
+ {limit > 0 ? (percent * 100).toFixed(1) + '%' : 'N/A'}
  </p>
  <p className="text-xs text-slate-400 font-medium text-slate-500 dark:text-slate-400 mt-1">Full</p>
  </div>
@@ -516,12 +523,12 @@ export function FileManagerModule({ isAdmin, quota, setQuota }: { isAdmin: boole
  <h4 className="text-xs font-medium text-slate-800 dark:text-slate-100 mb-2">Storage Status</h4>
  {quota ? (() => {
  const usage = Number(quota.usage) || 0;
- const limit = Number(quota.limit) || 2199023255552;
- const percent = Math.min(1, usage / limit);
+ const limit = Number(quota.limit) || 0;
+ const percent = limit > 0 ? Math.min(1, usage / limit) : 0;
  return (
  <>
  <p className="text-xs text-slate-400 font-medium text-slate-500 dark:text-slate-400 mb-4">
- {formatStorage(usage)} / {formatStorage(limit)}
+ {formatStorage(usage)} / {limit > 0 ? formatStorage(limit) : 'Quota unavailable'}
  </p>
  <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
  <div 

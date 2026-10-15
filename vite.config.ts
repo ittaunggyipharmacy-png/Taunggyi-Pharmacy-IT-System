@@ -11,9 +11,6 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
@@ -25,10 +22,11 @@ export default defineConfig(({mode}) => {
       hmr: process.env.DISABLE_HMR !== 'true',
     },
     build: {
+      rollupOptions: { output: { manualChunks(id) { if (id.includes('node_modules/@supabase')) return 'supabase'; if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) return 'react'; } } },
       target: 'esnext',
       outDir: 'dist',
-      emptyOutDir: false,
-      sourcemap: true,
+      emptyOutDir: true,
+      sourcemap: false,
     },
     esbuild: {
       target: 'esnext',

@@ -1,3 +1,5 @@
+import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
 import { subscribeToAssets, fetchAssets } from './assetService';
 import { subscribeToPurchases, fetchPurchases } from './purchaseService';
 import { subscribeToRenewals, fetchRenewals } from './renewalService';
@@ -25,11 +27,11 @@ export const subscribeToSync = (handlers?: any) => {
   }
   
   if (handlers?.onBackups) {
-    fetchBackups().then(handlers.onBackups);
+    unsubs.push(watchTable('backups', fetchBackups, handlers.onBackups));
   }
   
   if (handlers?.onCCTV) {
-    fetchCCTVRequests().then(handlers.onCCTV);
+    unsubs.push(watchTable('cctv_requests', fetchCCTVRequests, handlers.onCCTV));
   }
 
   return () => {
@@ -37,18 +39,18 @@ export const subscribeToSync = (handlers?: any) => {
   };
 };
 
+function watchTable(table: string, fetcher: () => Promise<any>, callback: (data: any) => void) {
+ let active = true; let revision = 0;
+ const refresh = async () => { const version = ++revision; try { const data = await fetcher(); if (active && version === revision) callback(data); } catch { if (active) toast.error(`Could not refresh ${table.replaceAll('_', ' ')}. Please reload.`); } };
+ const channel = supabase.channel('sync-' + table).on('postgres_changes', { event: '*', schema: 'public', table }, () => { void refresh(); }).subscribe();
+ void refresh();
+ return () => { active = false; void supabase.removeChannel(channel); };
+}
 export const subscribeToSupervisorFeatures = (handlers?: any) => {
-  if (handlers?.onAllDailyLogs) {
-    fetchAllDailyLogs().then(handlers.onAllDailyLogs);
-  }
-  if (handlers?.onActivities) {
-    fetchActivities().then(handlers.onActivities);
-  }
-  if (handlers?.onEvidence) {
-    fetchEvidence().then(handlers.onEvidence);
-  }
-  if (handlers?.onEmployees) {
-    fetchEmployees().then(handlers.onEmployees);
-  }
-  return () => {};
+ const unsubs: (()=>void)[] = [];
+ if (handlers?.onAllDailyLogs) unsubs.push(watchTable('daily_logs', fetchAllDailyLogs, handlers.onAllDailyLogs));
+ if (handlers?.onActivities) unsubs.push(watchTable('activities', fetchActivities, handlers.onActivities));
+ if (handlers?.onEvidence) unsubs.push(watchTable('task_evidence', fetchEvidence, handlers.onEvidence));
+ if (handlers?.onEmployees) unsubs.push(watchTable('employees', fetchEmployees, handlers.onEmployees));
+ return () => unsubs.forEach(stop => stop());
 };

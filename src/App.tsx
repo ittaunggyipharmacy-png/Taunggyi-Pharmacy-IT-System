@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,49 +9,29 @@ import { AppShell } from './components/layout';
 import { useAccessControl } from './contexts/AccessControlContext';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { Dashboard } from './features/dashboard/Dashboard';
-import { AssetsModule, AssetUsersPage } from './features/assets';
-import { SettingsModule } from './features/settings';
-import { SkillsModule, SkillMatrix } from './features/skills';
-import { ReportsModule } from './features/reports';
-import { SecurityModule } from './features/security';
-import { PurchasesModule } from './features/purchases';
-import { MarketingModule } from './features/marketing';
-import { FileManagerModule } from './features/file-manager';
-import { RenewalsModule } from './features/renewals';
-import { KPIDashboard, KPITracker } from './features/kpi';
-import { MeetingMinutesModule } from './features/meetings';
-import { ItAnnouncementModule } from './features/it-announcement/ItAnnouncementModule';
-import { CmdCataloguesModule } from './features/cmd-catalogues/CmdCataloguesModule';
-import { IdLayoutGenerator } from './features/id-layout';
-import { TicketsModule } from './features/tickets';
+const AssetsModule = lazy(() => import('./features/assets').then(m => ({ default: m.AssetsModule })));
+const AssetUsersPage = lazy(() => import('./features/assets').then(m => ({ default: m.AssetUsersPage })));
+const SettingsModule = lazy(() => import('./features/settings').then(m => ({ default: m.SettingsModule })));
+const SkillsModule = lazy(() => import('./features/skills').then(m => ({ default: m.SkillsModule })));
+const SkillMatrix = lazy(() => import('./features/skills').then(m => ({ default: m.SkillMatrix })));
+const ReportsModule = lazy(() => import('./features/reports').then(m => ({ default: m.ReportsModule })));
+const SecurityModule = lazy(() => import('./features/security').then(m => ({ default: m.SecurityModule })));
+const PurchasesModule = lazy(() => import('./features/purchases').then(m => ({ default: m.PurchasesModule })));
+const MarketingModule = lazy(() => import('./features/marketing').then(m => ({ default: m.MarketingModule })));
+const FileManagerModule = lazy(() => import('./features/file-manager').then(m => ({ default: m.FileManagerModule })));
+const RenewalsModule = lazy(() => import('./features/renewals').then(m => ({ default: m.RenewalsModule })));
+const KPIDashboard = lazy(() => import('./features/kpi').then(m => ({ default: m.KPIDashboard })));
+const KPITracker = lazy(() => import('./features/kpi').then(m => ({ default: m.KPITracker })));
+const MeetingMinutesModule = lazy(() => import('./features/meetings').then(m => ({ default: m.MeetingMinutesModule })));
+const ItAnnouncementModule = lazy(() => import('./features/it-announcement/ItAnnouncementModule').then(m => ({ default: m.ItAnnouncementModule })));
+const CmdCataloguesModule = lazy(() => import('./features/cmd-catalogues/CmdCataloguesModule').then(m => ({ default: m.CmdCataloguesModule })));
+const IdLayoutGenerator = lazy(() => import('./features/id-layout').then(m => ({ default: m.IdLayoutGenerator })));
+const TicketsModule = lazy(() => import('./features/tickets').then(m => ({ default: m.TicketsModule })));
 import { HelpSupportModule } from './components/HelpSupportModule';
 import { Status, ITTicket, ITAsset, BackupLog, BackupSchedule, ContentPlan, CCTVRequest, RenewalRecord, PurchaseRecord, SystemSettings, ActivityEntry, TaskEvidence, DailyLog, EmployeeProfile, UserRole } from './types';
 import { subscribeToTickets } from './services/ticketService';
 import { subscribeToSync, subscribeToSupervisorFeatures } from './services/syncService';
 import { getSettings } from './services/settingsService';
-
-if (typeof window !== 'undefined' && window.opener && window.location.hash.includes('access_token')) {
-  setTimeout(() => {
-    window.opener.postMessage({ type: 'SUPABASE_AUTH_COMPLETED', hash: window.location.hash }, '*');
-    window.close();
-  }, 1500);
-}
-
-if (typeof window !== 'undefined' && !window.opener) {
-  window.addEventListener('message', async (event) => {
-    if (event.data && event.data.type === 'SUPABASE_AUTH_COMPLETED') {
-      const hash = event.data.hash;
-      if (hash) {
-        const hashParams = new URLSearchParams(hash.substring(1));
-        const accessToken = hashParams.get('access_token');
-        const refreshToken = hashParams.get('refresh_token');
-        if (accessToken && refreshToken) await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-      }
-    } else if (event.data === 'SUPABASE_AUTH_COMPLETED') {
-      await supabase.auth.getSession();
-    }
-  });
-}
 
 const INITIAL_SETTINGS: SystemSettings = { departments: [], locations: [], itContacts: [], branchNotes: [] };
 const INITIAL_SCHEDULE: BackupSchedule[] = [
@@ -278,25 +258,27 @@ export default function App() {
             {(activeTab === 'dashboard' || activeTab === 'tickets') && !canAccess(userProfile?.role as UserRole, activeTab) && !isAdmin && (
               <div className="flex flex-col items-center justify-center p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm"><div className="w-16 h-16 bg-rose-50 dark:bg-rose-950/20 rounded-2xl flex items-center justify-center text-rose-500 mb-4"><ShieldOff size={32} /></div><h3 className="text-lg font-medium text-slate-800 dark:text-slate-100 mb-2 italic">Access Restricted</h3><p className="text-slate-500 dark:text-slate-400 text-sm max-w-xs">You do not have permission to access the {activeTab} module. Please contact your IT Supervisor.</p></div>
             )}
+            <Suspense fallback={<div role="status" className="p-8">Loading module…</div>}>
             {activeTab === 'dashboard' && canAccess(userProfile?.role as UserRole, 'dashboard') && <ReportsModule activities={activities} evidence={evidence} allDailyLogs={allDailyLogs} tickets={tickets} employees={employees} />}
-            {activeTab === 'tickets' && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} userProfile={userProfile} />}
+            {activeTab === 'tickets' && canAccess(userProfile?.role as UserRole, 'tickets') && <TicketsModule tickets={tickets} setTickets={setTickets} searchTerm={searchTerm} isAdmin={isAdmin} settings={settings} userProfile={userProfile} />}
             {activeTab === 'assets' && canAccess(userProfile?.role as UserRole, 'assets') && <AssetsModule assets={assets} setAssets={setAssets} searchTerm={searchTerm} isAdmin={isAdmin && userProfile?.role !== UserRole.STAFF} settings={settings} />}
             {activeTab === 'asset-users' && (isAdmin || canAccess(userProfile?.role as UserRole, 'assets')) && <AssetUsersPage currentUserId={currentUser.id} isAdmin={isAdmin && userProfile?.role !== UserRole.STAFF} settings={settings} />}
             {activeTab === 'security' && canAccess(userProfile?.role as UserRole, 'security') && <SecurityModule backups={backups} setBackups={setBackups} requests={cctvRequests} setRequests={setCctvRequests} searchTerm={searchTerm} isAdmin={isAdmin} />}
             {activeTab === 'renewals' && canAccess(userProfile?.role as UserRole, 'renewals') && <RenewalsModule renewals={renewals} setRenewals={setRenewals} isAdmin={isAdmin} />}
             {activeTab === 'purchases' && canAccess(userProfile?.role as UserRole, 'purchases') && <PurchasesModule purchases={purchases} setPurchases={setPurchases} assets={assets} setAssets={setAssets} isAdmin={isAdmin} />}
             {activeTab === 'marketing' && canAccess(userProfile?.role as UserRole, 'marketing') && <MarketingModule plans={contentPlans} setPlans={setContentPlans} isAdmin={isAdmin} />}
-            {activeTab === 'settings' && <SettingsModule settings={settings} setSettings={setSettings} isAdmin={isAdmin} allNavItems={allNavItems} setAssets={setAssets} />}
-            {activeTab === 'help' && <HelpSupportModule />}
+            {activeTab === 'settings' && canAccess(userProfile?.role as UserRole, 'settings') && <SettingsModule settings={settings} setSettings={setSettings} isAdmin={isAdmin} allNavItems={allNavItems} setAssets={setAssets} />}
+            {activeTab === 'help' && canAccess(userProfile?.role as UserRole, 'help') && <HelpSupportModule />}
             {activeTab === 'files' && canAccess(userProfile?.role as UserRole, 'files') && <FileManagerModule isAdmin={isAdmin} quota={quota} setQuota={setQuota} />}
             {activeTab === 'kpi' && canAccess(userProfile?.role as UserRole, 'kpi') && <KPIDashboard />}
             {activeTab === 'daily-kpi' && canAccess(userProfile?.role as UserRole, 'daily-kpi') && <KPITracker userRole={userProfile?.role} />}
-            {activeTab === 'meetings' && <MeetingMinutesModule userRole={userProfile?.role} isAdmin={isAdmin} />}
-            {activeTab === 'it-ping' && <ItAnnouncementModule isAdmin={isAdmin} />}
-            {activeTab === 'cmd-catalogues' && <CmdCataloguesModule />}
-            {activeTab === 'id-layout' && <IdLayoutGenerator />}
+            {activeTab === 'meetings' && canAccess(userProfile?.role as UserRole, 'meetings') && <MeetingMinutesModule userRole={userProfile?.role} isAdmin={isAdmin} />}
+            {activeTab === 'it-ping' && canAccess(userProfile?.role as UserRole, 'it-ping') && <ItAnnouncementModule isAdmin={isAdmin} />}
+            {activeTab === 'cmd-catalogues' && canAccess(userProfile?.role as UserRole, 'cmd-catalogues') && <CmdCataloguesModule />}
+            {activeTab === 'id-layout' && canAccess(userProfile?.role as UserRole, 'id-layout') && <IdLayoutGenerator />}
             {activeTab === 'skills' && isAdmin && <SkillMatrix />}
             {activeTab === 'reports' && isAdmin && <ReportsModule activities={activities} evidence={evidence} allDailyLogs={allDailyLogs} tickets={tickets} employees={employees} />}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
       </AppShell>

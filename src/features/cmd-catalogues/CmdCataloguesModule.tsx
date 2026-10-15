@@ -46,7 +46,7 @@ export const CmdCataloguesModule = () => {
   // optional GitHub variables.
   const owner = import.meta.env.VITE_GITHUB_REPO_OWNER || CATALOGUE_REPO_OWNER;
   const repo = import.meta.env.VITE_GITHUB_REPO_NAME || CATALOGUE_REPO_NAME;
-  const token = import.meta.env.VITE_GITHUB_TOKEN;
+
 
   useEffect(() => {
     const fetchCatalogues = async () => {
@@ -54,9 +54,7 @@ export const CmdCataloguesModule = () => {
         setLoading(true);
         setError(null);
 
-        const headers: HeadersInit = token
-          ? { Authorization: `Bearer ${token}` }
-          : { Accept: 'application/vnd.github+json' };
+        const headers: HeadersInit = { Accept: 'application/vnd.github+json' };
 
         const fetchContents = async (path = ''): Promise<CatalogueImage[]> => {
           const encodedPath = path
@@ -111,7 +109,7 @@ export const CmdCataloguesModule = () => {
     };
 
     fetchCatalogues();
-  }, [owner, repo, token]);
+  }, [owner, repo]);
 
   const groupedImages = useMemo(() => {
     return allImages.reduce((acc, img) => {

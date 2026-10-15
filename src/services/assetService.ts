@@ -1,3 +1,4 @@
+import { readRows } from './readRows';
 import { supabase } from '../lib/supabase';
 import { ITAsset } from '../types';
 import { cleanData } from '../utils/cleanData';
@@ -89,10 +90,8 @@ export const mapAssetToDatabase = (asset: Partial<ITAsset>): any => {
 };
 
 export const fetchAssets = async (): Promise<ITAsset[]> => {
-  const { data, error } = await supabase
-    .from('assets')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const data = await readRows('assets', 'created_at', false);
+    const error = null;
   if (error) {
     console.error('Error fetching assets:', error);
     throw error;
@@ -101,76 +100,21 @@ export const fetchAssets = async (): Promise<ITAsset[]> => {
 };
 
 export const generateNextAssetCode = async (category: string, currentOffset: number = 0): Promise<string> => {
-  const catKey = (category || 'other').toLowerCase().replace(/\s+/g, '_');
-  const getPrefix = (cat: string) => {
-    const c = (cat || '').toLowerCase();
-    if (c === 'computer') return 'TG-PC-';
-    if (c === 'keyboard') return 'TG-KB-';
-    if (c === 'mouse') return 'TG-MS-';
-    if (c === 'fan') return 'TG-FN-';
-    if (c === 'usb hub' || c === 'usb') return 'TG-UB-';
-    if (c === 'printer') return 'TG-PR-';
-    if (c === 'phone' || c === 'mobile') return 'TG-PH-';
-    if (c === 'scanner') return 'TG-SC-';
-    return 'TG-ACC-';
-  };
-
-  try {
-    const { data, error: fetchError } = await supabase
-      .from('asset_counters')
-      .select('count')
-      .eq('id', `assetCode_${catKey}`)
-      .single();
-    if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
-    const lastNum = data?.count || 0;
-    const nextNum = lastNum + 1 + currentOffset;
-    const { error: upsertError } = await supabase
-      .from('asset_counters')
-      .upsert({ id: `assetCode_${catKey}`, count: nextNum, updated_at: new Date().toISOString() });
-    if (upsertError) throw upsertError;
-
-    return `${getPrefix(category)}${String(nextNum).padStart(3, '0')}`;
-  } catch (err) {
-    console.warn('generateNextAssetCode database counter unavailable, using timestamp fallback:', err);
-    return `${getPrefix(category)}${Date.now().toString().slice(-4)}`;
-  }
+  const { data, error } = await supabase.rpc('allocate_asset_code', { category_name: category });
+  if (error) throw error;
+  return data;
 };
 
 export const saveAsset = async (asset: Partial<ITAsset>): Promise<string | undefined> => {
   let code = asset.asset_code;
   if (!asset.id && !code && asset.category) {
-    try {
-      code = await generateNextAssetCode(asset.category);
-    } catch (codeErr) {
-      console.warn('Could not generate sequential code:', codeErr);
-    }
+    code = await generateNextAssetCode(asset.category);
   }
   const payload = mapAssetToDatabase({ ...asset, id: asset.id || crypto.randomUUID(), asset_code: code });
-  const { error } = await supabase.from('assets').upsert({
-    ...cleanData(payload), updated_at: new Date().toISOString()
-  });
-  if (error) {
-    console.error('Error saving asset:', error);
-    throw error;
-  }
+  const { error } = await supabase.rpc('save_asset_record', { record: cleanData(payload) });
+  if (error) throw error;
   asset.id = payload.id;
   if (code) asset.asset_code = code;
-
-  // Synchronize assignment with Asset by User (skip if asset is purged/disposed)
-  if (payload.id && asset.assignedTo !== undefined && !asset.isPurged && asset.status !== 'Disposed') {
-    try {
-      await syncAssetAssignmentByName({
-        assetId: payload.id,
-        assignedTo: asset.assignedTo,
-        department: asset.department,
-        branch: asset.location,
-        assignedDate: asset.purchaseDate,
-      });
-    } catch (assignErr) {
-      console.warn('Could not sync assignment on saveAsset:', assignErr);
-    }
-  }
-
   return payload.id;
 };
 
@@ -213,11 +157,6 @@ export const deleteAssetPermanently = async (assetId: string): Promise<void> => 
 };
 
 export const deleteAsset = async (assetId: string): Promise<void> => {
-  try {
-    await supabase.from('asset_assignments').delete().eq('asset_id', assetId);
-  } catch (e) {
-    console.warn('Could not delete assignment on asset delete:', e);
-  }
   const { error } = await supabase.from('assets').delete().eq('id', assetId);
   if (error) {
     console.error('Error deleting asset:', error);
@@ -292,39 +231,23 @@ export const updateAssetAssignment = async (
     ...(editedAssetCode ? { asset_code: editedAssetCode } : {}),
   };
 
-  const payload = mapAssetToDatabase(updatedAsset);
-
-  const { error } = await supabase
-    .from('assets')
-    .update({
-      ...cleanData(payload),
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', assetId);
-
-  if (error) {
-    console.error('Error updating asset assignment:', error);
-    throw error;
-  }
-
-  // Synchronize assignment with Asset by User
-  try {
-    await syncAssetAssignmentByName({
-      assetId,
-      assignedTo: assignedUser,
-      department: department || additionalFields.department,
-      branch: location || additionalFields.location,
-      assignedDate: additionalFields.purchaseDate,
-    });
-  } catch (assignErr) {
-    console.warn('Could not sync assignment on updateAssetAssignment:', assignErr);
-  }
+  await saveAsset(updatedAsset);
 };
 
-export const initializeAssetCodeCounters = async () => ({ success: true });
-export const importLegacyExcelData = async (_rows: any[]) => ({ success: true, count: 0, assets: [] as any[], message: '' });
-export const migrateAssetsToSequentialCodes = async (_dryRun = false) => ({ success: true });
-export const importKeyboardsMigration = async () => ({ success: true });
+export const initializeAssetCodeCounters = async () => { throw new Error('Asset counters are managed by the database migration.'); };
+export const importLegacyExcelData = async (rows: any[]) => {
+  const records = rows.map((row, index) => {
+    const model = row.model || row.Model || row.name || row.Name || row['Item Name'];
+    if (!model) throw new Error(`Row ${index + 2}: Model or Name is required.`);
+    return cleanData(mapAssetToDatabase({ id: crypto.randomUUID(), model, category: row.category || row.Category || 'Other', asset_code: row.asset_code || row.Code, location: row.location || row.Location || '', assignedTo: row.assignedTo || row.Assignee || 'Unassigned', status: row.status || row.Status || 'In Stock' }));
+  });
+  if (!records.length) throw new Error('The spreadsheet contains no asset rows.');
+  const { data, error } = await supabase.rpc('import_asset_records', { records });
+  if (error) throw error;
+  return { success: true, count: records.length, assets: (data || []).map(mapAssetFromDatabase), message: 'Assets imported' };
+};
+export const migrateAssetsToSequentialCodes = async (_dryRun = false) => { throw new Error('Existing asset codes are preserved. Use a reviewed migration to renumber assets.'); };
+export const importKeyboardsMigration = async () => { throw new Error('Use the validated Excel import.'); };
 
 export const subscribeToAssets = (callback: (assets: ITAsset[]) => void) => {
   let refreshVersion = 0;
