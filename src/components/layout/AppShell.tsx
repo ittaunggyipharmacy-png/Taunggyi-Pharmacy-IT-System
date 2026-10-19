@@ -25,6 +25,7 @@ interface AppShellProps {
   currentUser: any;
   userProfile: SystemUser | null;
   onLogout: () => void;
+  onLogin?: () => void;
   children: React.ReactNode;
 }
 
@@ -49,6 +50,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   currentUser,
   userProfile,
   onLogout,
+  onLogin,
   children
 }) => {
   const currentTabLabel = navItems.find((i) => i.id === activeTab)?.label;
@@ -88,6 +90,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           currentUser={currentUser}
           userProfile={userProfile}
           onLogout={onLogout}
+          onLogin={onLogin}
         />
 
         {/* Dynamic Viewport */}
