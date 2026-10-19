@@ -188,6 +188,19 @@ export default function App() {
     }
   }, [authReady, currentUser, isAdmin, activeTab]);
 
+  // Public standalone tool route: only exposes the client-side ID layout editor.
+  // Keep every other IT System module behind the normal authentication flow.
+  if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tool') === 'id-layout') {
+    return (
+      <>
+        <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+        <Suspense fallback={<div role="status" className="p-8">Loading ID Auto Layout…</div>}>
+          <IdLayoutGenerator />
+        </Suspense>
+      </>
+    );
+  }
+
   if (!authReady) return <LoadingScreen />;
   if (!currentUser) return <LoginScreen onLogin={login} onLoginWithCredentials={loginWithCredentials} />;
 
