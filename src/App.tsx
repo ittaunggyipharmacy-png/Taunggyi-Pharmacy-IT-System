@@ -71,6 +71,7 @@ export default function App() {
     return false;
   });
   const [searchTerm, setSearchTerm] = useState('');
+  const [showLogin, setShowLogin] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 1024);
@@ -189,7 +190,53 @@ export default function App() {
   }, [authReady, currentUser, isAdmin, activeTab]);
 
   if (!authReady) return <LoadingScreen />;
-  if (!currentUser) return <LoginScreen onLogin={login} onLoginWithCredentials={loginWithCredentials} />;
+  if (!currentUser && showLogin) return <LoginScreen onLogin={login} onLoginWithCredentials={loginWithCredentials} />;
+
+  // Public landing mode: show the existing dashboard and only the ID layout tool.
+  if (!currentUser) {
+    const publicNavItems = [
+      { id: 'dashboard', label: 'IT Insights', icon: LayoutDashboard },
+      { id: 'id-layout', label: 'ID Auto Layout', icon: Printer },
+    ];
+    return (
+      <>
+        <Toaster position="top-right" toastOptions={{ duration: 4000, className: 'glass-panel dark:text-slate-100 dark:bg-slate-800' }} />
+        <AppShell
+          isSidebarOpen={isSidebarOpen}
+          setIsSidebarOpen={setIsSidebarOpen}
+          isMobile={isMobile}
+          isDarkMode={isDarkMode}
+          setIsDarkMode={setIsDarkMode}
+          activeTab={activeTab === 'id-layout' ? 'id-layout' : 'dashboard'}
+          setActiveTab={(tab: string) => setActiveTab(tab as ActiveTab)}
+          navItems={publicNavItems}
+          accessLoading={false}
+          searchTerm=""
+          setSearchTerm={() => {}}
+          isNotificationsOpen={false}
+          setIsNotificationsOpen={() => {}}
+          pendingTicketsCount={0}
+          pendingDailyKpiCount={0}
+          isAdmin={false}
+          tickets={[]}
+          currentUser={null}
+          userProfile={null}
+          onLogout={() => setShowLogin(true)}
+          onLogin={() => setShowLogin(true)}
+        >
+          <AnimatePresence mode="wait">
+            <motion.div key={activeTab === 'id-layout' ? 'id-layout' : 'dashboard'} className="w-full max-w-[1600px] mx-auto" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
+              <Suspense fallback={<div role="status" className="p-8">Loading module…</div>}>
+                {activeTab === 'id-layout'
+                  ? <IdLayoutGenerator />
+                  : <ReportsModule activities={[]} evidence={[]} allDailyLogs={[]} tickets={[]} employees={[]} />}
+              </Suspense>
+            </motion.div>
+          </AnimatePresence>
+        </AppShell>
+      </>
+    );
+  }
 
   const allNavItems = [
     { id: 'dashboard', label: 'IT Insights', icon: LayoutDashboard },
