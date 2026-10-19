@@ -102,15 +102,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onLoginWithCr
           Google Workspace
         </button>
 
-        <div className="mt-6 pt-5 border-t border-slate-800/80">
-          <a
-            href="?tool=id-layout"
-            className="w-full inline-flex items-center justify-center gap-2 bg-emerald-600/15 hover:bg-emerald-600/25 border border-emerald-500/30 text-emerald-300 font-medium py-3 rounded-xl transition-colors"
-          >
-            Open ID Auto Layout (No Login Required)
-          </a>
-        </div>
-
         <div className="mt-8 flex items-center gap-2 justify-center">
           <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
           <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
