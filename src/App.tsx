@@ -188,13 +188,8 @@ export default function App() {
     }
   }, [authReady, currentUser, isAdmin, activeTab]);
 
-  // Public landing page: unauthenticated visitors go straight to ID Auto Layout.
-  // The full IT System remains protected; use ?app=login to open the login screen directly.
-  const routeParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const isPublicIdLayout = routeParams?.get('tool') === 'id-layout'
-    || (authReady && !currentUser && routeParams?.get('app') !== 'login');
-
-  if (isPublicIdLayout) {
+  // Public standalone tool route. Normal website entry keeps the existing login/home flow.
+  if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tool') === 'id-layout') {
     return (
       <>
         <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
