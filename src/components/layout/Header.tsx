@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Menu, X, Sun, Moon, Search, Bell, BellOff, AlertCircle, Settings, LogOut 
+  Menu, X, Sun, Moon, Search, Bell, BellOff, AlertCircle, Settings, LogOut, LogIn 
 } from 'lucide-react';
 import { ITTicket, Priority, Status, SystemUser } from '../../types';
 import { cn } from '../../lib/utils';
@@ -37,6 +37,7 @@ interface HeaderProps {
   currentUser: any;
   userProfile: SystemUser | null;
   onLogout: () => void;
+  onLogin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -57,7 +58,8 @@ export const Header: React.FC<HeaderProps> = ({
   tickets,
   currentUser,
   userProfile,
-  onLogout
+  onLogout,
+  onLogin
 }) => {
   const activeTickets = tickets.filter(
     (t) => t.status === Status.PENDING || t.status === Status.IN_PROGRESS
@@ -272,13 +274,15 @@ export const Header: React.FC<HeaderProps> = ({
             )}
             <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full"></div>
           </div>
-          <button
-            onClick={onLogout}
-            className="p-2 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
-            title="Log Out"
-          >
-            <LogOut size={20} />
-          </button>
+          {currentUser ? (
+            <button onClick={onLogout} className="p-2 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer" title="Log Out" aria-label="Log Out">
+              <LogOut size={20} />
+            </button>
+          ) : (
+            <button onClick={onLogin} className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors cursor-pointer" title="Log In" aria-label="Log In">
+              <LogIn size={18} /><span>Log In</span>
+            </button>
+          )}
         </div>
       </div>
     </header>
